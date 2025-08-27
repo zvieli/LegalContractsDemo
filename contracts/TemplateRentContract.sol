@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "./AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract TemplateRentContract {
     address public landlord;
@@ -19,10 +20,14 @@ contract TemplateRentContract {
 
     mapping(address => uint256) public tokenPaid; 
 
+    bool public rentSigned;
+
+    // אירועים
     event RentPaid(address indexed tenant, uint256 amount, bool late, address token);
     event ContractCancelled(address indexed by);
     event DueDateUpdated(uint256 newTimestamp);
     event LateFeeUpdated(uint256 newPercent);
+    event RentSigned(address indexed signer, uint256 timestamp);
 
     constructor(
         address _landlord,
@@ -39,6 +44,7 @@ contract TemplateRentContract {
         priceFeed = AggregatorV3Interface(_priceFeed);
     }
 
+    // Modifiers
     modifier onlyTenant() {
         require(msg.sender == tenant, "Only tenant can pay");
         _;
@@ -54,7 +60,7 @@ contract TemplateRentContract {
         _;
     }
 
-
+    // תשלום רגיל ב־ETH או סכום נומינלי
     function payRent(uint256 amount) public onlyTenant onlyActive {
         require(amount >= rentAmount, "Not enough amount");
         rentPaid = true;
@@ -70,8 +76,7 @@ contract TemplateRentContract {
     function getRentInEth() public view returns (uint256) {
         int256 price = checkRentPrice();
         require(price > 0, "Invalid price");
-        uint256 ethAmount = (rentAmount * 1e18) / uint256(price);
-        return ethAmount;
+        return (rentAmount * 1e18) / uint256(price);
     }
 
     function payRentInEth() public payable onlyTenant onlyActive {
@@ -83,19 +88,16 @@ contract TemplateRentContract {
         emit RentPaid(msg.sender, msg.value, false, address(0));
     }
 
-    function setDueDate(uint256 timestamp) public onlyLandlord onlyActive {
-        dueDate = timestamp;
-        emit DueDateUpdated(timestamp);
-    }
-
     function payRentWithLateFee() public payable onlyTenant onlyActive {
         uint256 requiredEth = getRentInEth();
         bool late = false;
+
         if (block.timestamp > dueDate && dueDate != 0) {
             uint256 fee = (requiredEth * lateFeePercent) / 100;
             requiredEth += fee;
             late = true;
         }
+
         require(msg.value >= requiredEth, "Not enough ETH sent");
         totalPaid += msg.value;
         rentPaid = true;
@@ -103,14 +105,12 @@ contract TemplateRentContract {
         emit RentPaid(msg.sender, msg.value, late, address(0));
     }
 
-
     function payRentPartial() public payable onlyTenant onlyActive {
         bool late = false;
-        uint256 requiredEth = getRentInEth();
         if (block.timestamp > dueDate && dueDate != 0) late = true;
 
         totalPaid += msg.value;
-        if (totalPaid >= requiredEth) rentPaid = true;
+        if (totalPaid >= getRentInEth()) rentPaid = true;
 
         payable(landlord).transfer(msg.value);
         emit RentPaid(msg.sender, msg.value, late, address(0));
@@ -132,8 +132,27 @@ contract TemplateRentContract {
         emit LateFeeUpdated(newPercent);
     }
 
+    function setDueDate(uint256 timestamp) public onlyLandlord onlyActive {
+        dueDate = timestamp;
+        emit DueDateUpdated(timestamp);
+    }
+
     function cancelContract() public onlyTenant onlyLandlord onlyActive {
         active = false;
         emit ContractCancelled(msg.sender);
+    }
+
+    // חתימה דיגיטלית (ECDSA) לאישור חוזה
+    function signRent(bytes memory signature) public onlyTenant onlyActive {
+        require(!rentSigned, "Rent already signed");
+
+        bytes32 messageHash = keccak256(abi.encodePacked(address(this), rentAmount, dueDate));
+        bytes32 ethSignedMessageHash = ECDSA.toEthSignedMessageHash(messageHash);
+
+        address signerAddress = ECDSA.recover(ethSignedMessageHash, signature);
+        require(signerAddress == tenant, "Invalid signature");
+
+        rentSigned = true;
+        emit RentSigned(signerAddress, block.timestamp);
     }
 }

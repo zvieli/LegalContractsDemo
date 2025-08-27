@@ -1,33 +1,30 @@
 import pkg from "hardhat";
 const { ethers } = pkg;
 import { expect } from "chai";
+import { splitSignature } from "ethers/lib/utils.js";
 
-describe("ContractFactory + TemplateRentContract", function () {
-  let landlord, tenant, other;
-  let mockPriceFeed, factory, rentContract;
+describe("Contracts Suite", function () {
+  let landlord, tenant, other, partyA, partyB;
+  let mockPriceFeed, factory, rentContract, ndaContract;
 
   beforeEach(async function () {
-    [landlord, tenant, other] = await ethers.getSigners();
+    [landlord, tenant, other, partyA, partyB] = await ethers.getSigners();
 
-    // Deploy MockPriceFeed
     const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
-    mockPriceFeed = await MockPriceFeed.deploy(2000); // Price USD/ETH
+    mockPriceFeed = await MockPriceFeed.deploy(2000);
     await mockPriceFeed.waitForDeployment();
 
-    // Deploy the Factory
     const Factory = await ethers.getContractFactory("ContractFactory");
     factory = await Factory.deploy();
     await factory.waitForDeployment();
 
-    // Create new Rent Contract from Factory
     const tx = await factory.connect(landlord).createRentContract(
-      tenant.address,
-      100, // rentAmount USD
-      mockPriceFeed.target
+      await tenant.getAddress(),
+      100,
+      await mockPriceFeed.getAddress()
     );
     const receipt = await tx.wait();
 
-    // Parse RentContractCreated event correctly
     const event = receipt.logs
       .map((log) => {
         try {
@@ -38,18 +35,22 @@ describe("ContractFactory + TemplateRentContract", function () {
       })
       .find((e) => e && e.name === "RentContractCreated");
 
-    if (!event) throw new Error("RentContractCreated event not found");
-
     const rentAddress = event.args.contractAddress;
-
-    // Attach TemplateRentContract to the deployed address
     const TemplateRentContract = await ethers.getContractFactory("TemplateRentContract");
     rentContract = TemplateRentContract.attach(rentAddress);
+
+    const NDATemplate = await ethers.getContractFactory("NDATemplate");
+    ndaContract = await NDATemplate.deploy(
+      await partyA.getAddress(),
+      await partyB.getAddress()
+    );
+    await ndaContract.waitForDeployment();
   });
 
+  // --------------------- TemplateRentContract tests ---------------------
   it("should set correct landlord and tenant", async function () {
-    expect(await rentContract.landlord()).to.equal(landlord.address);
-    expect(await rentContract.tenant()).to.equal(tenant.address);
+    expect(await rentContract.landlord()).to.equal(await landlord.getAddress());
+    expect(await rentContract.tenant()).to.equal(await tenant.getAddress());
   });
 
   it("should allow tenant to pay rent in ETH", async function () {
@@ -78,17 +79,15 @@ describe("ContractFactory + TemplateRentContract", function () {
 
   it("should calculate rent in ETH correctly", async function () {
     const ethAmount = await rentContract.getRentInEth();
-    expect(ethAmount).to.be.above(0);
+    expect(ethAmount).to.be.above(0n);
   });
 
   it("should apply late fee if paid after due date", async function () {
     const now = Math.floor(Date.now() / 1000);
-    await rentContract.connect(landlord).setDueDate(now - 10); // עבר התאריך
+    await rentContract.connect(landlord).setDueDate(now - 10);
 
     const ethAmount = await rentContract.getRentInEth();
     const lateFeePercent = await rentContract.lateFeePercent();
-
-    // חישוב סכום כולל דמי פיגורים
     const totalDue = (ethAmount * (lateFeePercent + 100n)) / 100n;
 
     await rentContract.connect(tenant).payRentWithLateFee({ value: totalDue });
@@ -97,10 +96,17 @@ describe("ContractFactory + TemplateRentContract", function () {
 
   it("should not apply late fee if paid before due date", async function () {
     const now = Math.floor(Date.now() / 1000);
-    await rentContract.connect(landlord).setDueDate(now + 1000); // לפני התאריך
+    await rentContract.connect(landlord).setDueDate(now + 1000);
 
     const ethAmount = await rentContract.getRentInEth();
     await rentContract.connect(tenant).payRentWithLateFee({ value: ethAmount });
     expect(await rentContract.rentPaid()).to.be.true;
   });
+
+  // --------------------- NDATemplate EIP712 tests ---------------------
+
+
+
+
 });
+
