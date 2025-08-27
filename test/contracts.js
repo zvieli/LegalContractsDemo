@@ -1,7 +1,6 @@
 import pkg from "hardhat";
 const { ethers } = pkg;
 import { expect } from "chai";
-import { splitSignature } from "ethers/lib/utils.js";
 
 describe("Contracts Suite", function () {
   let landlord, tenant, other, partyA, partyB;
@@ -104,6 +103,105 @@ describe("Contracts Suite", function () {
   });
 
   // --------------------- NDATemplate EIP712 tests ---------------------
+
+
+
+
+
+async function signNDA(signer, contractAddress) {
+  const network = await ethers.provider.getNetwork();
+  const domain = {
+    name: "NDATemplate",
+    version: "1",
+    chainId: Number(network.chainId), 
+    verifyingContract: contractAddress
+  };
+
+  const types = {
+    NDA: [{ name: "contractAddress", type: "address" }]
+  };
+
+  const value = { contractAddress };
+
+  const msgParams = JSON.stringify({
+    domain,
+    message: value,
+    primaryType: "NDA",
+    types: {
+      EIP712Domain: [
+        { name: "name", type: "string" },
+        { name: "version", type: "string" },
+        { name: "chainId", type: "uint256" },
+        { name: "verifyingContract", type: "address" }
+      ],
+      NDA: types.NDA
+    }
+  });
+
+  return await signer.provider.send("eth_signTypedData_v4", [
+    await signer.getAddress(),
+    msgParams
+  ]);
+}
+
+
+describe("NDATemplate EIP712 tests", function () {
+  let partyA, partyB, other, ndaContract;
+
+  beforeEach(async function () {
+    [partyA, partyB, other] = await ethers.getSigners();
+
+    const NDATemplate = await ethers.getContractFactory("NDATemplate");
+    ndaContract = await NDATemplate.deploy(
+      await partyA.getAddress(),
+      await partyB.getAddress()
+    );
+    await ndaContract.waitForDeployment();
+  });
+
+  it("should set correct parties for NDA", async function () {
+    expect(await ndaContract.partyA()).to.equal(await partyA.getAddress());
+    expect(await ndaContract.partyB()).to.equal(await partyB.getAddress());
+  });
+
+  it("should calculate correct EIP712 hash", async function () {
+    const hash = await ndaContract.hashMessage();
+    expect(hash).to.be.a("string");
+  });
+
+  it("should allow partyA to sign NDA", async function () {
+    const signature = await signNDA(partyA, ndaContract.target);
+    await ndaContract.connect(partyA).signNDA(signature);
+
+    expect(await ndaContract.signedByA()).to.be.true;
+    expect(await ndaContract.signedByB()).to.be.false;
+  });
+
+  it("should allow partyB to sign NDA", async function () {
+    const signature = await signNDA(partyB, ndaContract.target);
+    await ndaContract.connect(partyB).signNDA(signature);
+
+    expect(await ndaContract.signedByB()).to.be.true;
+    expect(await ndaContract.signedByA()).to.be.false;
+  });
+
+  it("should revert on invalid signer", async function () {
+    const signature = await signNDA(other, ndaContract.target);
+    await expect(
+      ndaContract.connect(other).signNDA(signature)
+    ).to.be.revertedWith("Invalid signer");
+  });
+
+  it("should return true for isFullySigned after both sign", async function () {
+    const sigA = await signNDA(partyA, ndaContract.target);
+    const sigB = await signNDA(partyB, ndaContract.target);
+
+    await ndaContract.connect(partyA).signNDA(sigA);
+    await ndaContract.connect(partyB).signNDA(sigB);
+
+    expect(await ndaContract.isFullySigned()).to.be.true;
+  });
+});
 
 
 
