@@ -142,7 +142,6 @@ contract TemplateRentContract {
         emit ContractCancelled(msg.sender);
     }
 
-    // חתימה דיגיטלית (ECDSA) לאישור חוזה
     function signRent(bytes memory signature) public onlyTenant onlyActive {
         require(!rentSigned, "Rent already signed");
 
