@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./AggregatorV3Interface.sol";
+import "../AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -22,7 +22,7 @@ contract TemplateRentContract {
 
     bool public rentSigned;
 
-    // אירועים
+    // events
     event RentPaid(address indexed tenant, uint256 amount, bool late, address token);
     event ContractCancelled(address indexed by);
     event DueDateUpdated(uint256 newTimestamp);
@@ -60,7 +60,6 @@ contract TemplateRentContract {
         _;
     }
 
-    // תשלום רגיל ב־ETH או סכום נומינלי
     function payRent(uint256 amount) public onlyTenant onlyActive {
         require(amount >= rentAmount, "Not enough amount");
         rentPaid = true;

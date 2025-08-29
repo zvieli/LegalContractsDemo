@@ -4,7 +4,6 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
-
 contract NDATemplate is EIP712 {
     using ECDSA for bytes32;
 
@@ -13,45 +12,25 @@ contract NDATemplate is EIP712 {
 
     address public immutable partyA;
     address public immutable partyB;
-
     address public immutable admin;
 
     mapping(address => bool) public isParty;
     mapping(address => bool) public signedBy;
     address[] private _parties;
 
-    uint256 public immutable expiryDate;        // timestamp
-    uint16  public immutable penaltyBps;        // קנס בסיסי בבסיס נקודות (10000 = 100%)
-    bytes32 public immutable customClausesHash; // keccak256 של טקסט הסעיפים
+    uint256 public immutable expiryDate;
+    uint16 public immutable penaltyBps;
+    bytes32 public immutable customClausesHash;
 
     bool public active = true;
 
     mapping(address => uint256) public deposits;
-    uint256 public immutable minDeposit; 
+    uint256 public immutable minDeposit;
 
     address public immutable arbitrator;
 
-  
     bytes32 private constant NDA_TYPEHASH =
         keccak256("NDA(address contractAddress,uint256 expiryDate,uint16 penaltyBps,bytes32 customClausesHash)");
-
-    function _messageHash() internal view returns (bytes32) {
-        return _hashTypedDataV4(
-            keccak256(
-                abi.encode(
-                    NDA_TYPEHASH,
-                    address(this),
-                    expiryDate,
-                    penaltyBps,
-                    customClausesHash
-                )
-            )
-        );
-    }
-
-    function hashMessage() external view returns (bytes32) {
-        return _messageHash();
-    }
 
     event NDASigned(address indexed signer, uint256 timestamp);
     event PartyAdded(address indexed party);
@@ -61,14 +40,15 @@ contract NDATemplate is EIP712 {
     event BreachVoted(uint256 indexed caseId, address indexed voter, bool approve);
     event BreachResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address offender, address beneficiary);
     event ContractDeactivated(address indexed by, string reason);
+    event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
 
     struct BreachCase {
         address reporter;
         address offender;
-        uint256 requestedPenalty; 
-        bytes32 evidenceHash;     
+        uint256 requestedPenalty;
+        bytes32 evidenceHash;
         bool resolved;
-        bool approved;            
+        bool approved;
         uint256 approveVotes;
         uint256 rejectVotes;
         mapping(address => bool) voted;
@@ -80,23 +60,28 @@ contract NDATemplate is EIP712 {
         address _partyA,
         address _partyB,
         uint256 _expiryDate,
-        uint16  _penaltyBps,
+        uint16 _penaltyBps,
         bytes32 _customClausesHash,
-        address _arbitrator,  
+        address _arbitrator,
         uint256 _minDeposit
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         require(_partyA != address(0) && _partyB != address(0), "Invalid parties");
         require(_expiryDate > block.timestamp, "Expiry must be in future");
         require(_penaltyBps <= 10_000, "penaltyBps > 100%");
+        
+        if (_arbitrator != address(0)) {
+            require(_arbitrator.code.length > 0, "Arbitrator must be a contract");
+        }
+
         partyA = _partyA;
         partyB = _partyB;
-        admin  = msg.sender;
+        admin = msg.sender;
 
-        expiryDate       = _expiryDate;
-        penaltyBps       = _penaltyBps;
+        expiryDate = _expiryDate;
+        penaltyBps = _penaltyBps;
         customClausesHash = _customClausesHash;
-        arbitrator       = _arbitrator;
-        minDeposit       = _minDeposit;
+        arbitrator = _arbitrator;
+        minDeposit = _minDeposit;
 
         isParty[_partyA] = true;
         isParty[_partyB] = true;
@@ -119,6 +104,24 @@ contract NDATemplate is EIP712 {
         _;
     }
 
+    function _messageHash() internal view returns (bytes32) {
+        return _hashTypedDataV4(
+            keccak256(
+                abi.encode(
+                    NDA_TYPEHASH,
+                    address(this),
+                    expiryDate,
+                    penaltyBps,
+                    customClausesHash
+                )
+            )
+        );
+    }
+
+    function hashMessage() external view returns (bytes32) {
+        return _messageHash();
+    }
+
     function addParty(address newParty) external onlyAdmin onlyActive {
         require(newParty != address(0), "Invalid address");
         require(!isParty[newParty], "Already a party");
@@ -131,7 +134,6 @@ contract NDATemplate is EIP712 {
         return _parties;
     }
 
-   
     function signNDA(bytes calldata signature) external onlyActive {
         address signer = ECDSA.recover(_messageHash(), signature);
         require(isParty[signer], "Invalid signer (not a party)");
@@ -170,7 +172,6 @@ contract NDATemplate is EIP712 {
         emit DepositWithdrawn(msg.sender, amount);
     }
 
-   
     function reportBreach(
         address offender,
         uint256 requestedPenalty,
@@ -205,45 +206,68 @@ contract NDATemplate is EIP712 {
         bool approved,
         uint256 approveVotes,
         uint256 rejectVotes
-    ){
+    ) {
+        require(caseId < _cases.length, "Invalid case ID");
         BreachCase storage bc = _cases[caseId];
         return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidenceHash, bc.resolved, bc.approved, bc.approveVotes, bc.rejectVotes);
     }
 
-   
     function voteOnBreach(uint256 caseId, bool approve) external onlyParty onlyActive {
         require(arbitrator == address(0), "Arbitrator set; voting disabled");
+        require(caseId < _cases.length, "Invalid case ID");
+        
         BreachCase storage bc = _cases[caseId];
         require(!bc.resolved, "Case resolved");
         require(msg.sender != bc.offender, "Offender cannot vote");
         require(!bc.voted[msg.sender], "Already voted");
+        
         bc.voted[msg.sender] = true;
 
-        if (approve) bc.approveVotes += 1;
-        else bc.rejectVotes += 1;
+        if (approve) {
+            bc.approveVotes += 1;
+        } else {
+            bc.rejectVotes += 1;
+        }
 
         emit BreachVoted(caseId, msg.sender, approve);
 
-        uint256 voters = _parties.length - 1; 
+        uint256 voters = _parties.length - 1;
         if (bc.approveVotes > voters / 2) {
-            _applyResolution(caseId, true);
+            _applyResolution(caseId, true, bc.reporter);
         } else if (bc.rejectVotes > voters / 2) {
-            _applyResolution(caseId, false);
+            _applyResolution(caseId, false, bc.reporter);
         }
     }
 
-    /**
-     * @notice הכרעת בורר (אם הוגדר).
-     */
-    function resolveByArbitrator(uint256 caseId, bool approve) external onlyActive {
+    function resolveByArbitrator(uint256 caseId, bool approve, address beneficiary) external onlyActive {
         require(arbitrator != address(0), "No arbitrator");
         require(msg.sender == arbitrator, "Only arbitrator");
+        require(arbitrator.code.length > 0, "Arbitrator must be a contract");
+        require(caseId < _cases.length, "Invalid case ID");
+        require(beneficiary != address(0), "Invalid beneficiary");
+        
         BreachCase storage bc = _cases[caseId];
         require(!bc.resolved, "Case resolved");
-        _applyResolution(caseId, approve);
+        
+        _applyResolution(caseId, approve, beneficiary);
     }
 
-    function _applyResolution(uint256 caseId, bool approve) internal {
+    function enforcePenalty(address guiltyParty, uint256 penaltyAmount, address beneficiary) external {
+        require(msg.sender == arbitrator, "Only arbitrator");
+        require(arbitrator != address(0), "No arbitrator");
+        require(penaltyAmount <= deposits[guiltyParty], "Insufficient deposit");
+        require(penaltyAmount > 0, "Penalty must be > 0");
+        require(beneficiary != address(0), "Invalid beneficiary");
+        
+        deposits[guiltyParty] -= penaltyAmount;
+        
+        (bool success, ) = payable(beneficiary).call{value: penaltyAmount}("");
+        require(success, "Penalty transfer failed");
+        
+        emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
+    }
+
+    function _applyResolution(uint256 caseId, bool approve, address beneficiary) internal {
         BreachCase storage bc = _cases[caseId];
         bc.resolved = true;
         bc.approved = approve;
@@ -256,18 +280,49 @@ contract NDATemplate is EIP712 {
             }
             if (applied > 0) {
                 deposits[bc.offender] -= applied;
-                (bool ok, ) = payable(bc.reporter).call{value: applied}("");
+                (bool ok, ) = payable(beneficiary).call{value: applied}("");
                 require(ok, "Payout failed");
             }
         }
 
-        emit BreachResolved(caseId, approve, applied, bc.offender, bc.reporter);
+        emit BreachResolved(caseId, approve, applied, bc.offender, beneficiary);
     }
 
     function deactivate(string calldata reason) external {
-        require(msg.sender == admin || msg.sender == arbitrator || block.timestamp >= expiryDate, "Not authorized");
+        bool isArbitrator = arbitrator != address(0) && msg.sender == arbitrator;
+        bool isAdmin = msg.sender == admin;
+        bool isExpired = block.timestamp >= expiryDate;
+        
+        require(isArbitrator || isAdmin || isExpired, "Not authorized");
         require(active, "Already inactive");
+        
         active = false;
         emit ContractDeactivated(msg.sender, reason);
+    }
+
+    function getContractStatus() external view returns (
+        bool isActive,
+        bool fullySigned,
+        uint256 totalDeposits,
+        uint256 activeCases
+    ) {
+        uint256 totalDepositsValue;
+        for (uint256 i = 0; i < _parties.length; i++) {
+            totalDepositsValue += deposits[_parties[i]];
+        }
+
+        uint256 unresolvedCases;
+        for (uint256 i = 0; i < _cases.length; i++) {
+            if (!_cases[i].resolved) {
+                unresolvedCases++;
+            }
+        }
+
+        return (
+            active,
+            isFullySigned(),
+            totalDepositsValue,
+            unresolvedCases
+        );
     }
 }

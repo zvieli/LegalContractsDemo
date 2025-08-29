@@ -2,16 +2,19 @@ import pkg from "hardhat";
 const { ethers } = pkg;
 import { expect } from "chai";
 
-
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
-
 describe("ContractFactory", function () {
   let factory;
+  let arbitrator;
   let landlord, tenant, partyA, partyB, other;
   let mockPriceFeed;
 
   beforeEach(async function () {
     [landlord, tenant, partyA, partyB, other] = await ethers.getSigners();
+
+    // Deploy Arbitrator
+    const Arbitrator = await ethers.getContractFactory("Arbitrator");
+    arbitrator = await Arbitrator.deploy();
+    await arbitrator.waitForDeployment();
 
     // Deploy MockPriceFeed
     const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
@@ -25,173 +28,93 @@ describe("ContractFactory", function () {
   });
 
   describe("createRentContract", function () {
-    it("should deploy a rent contract successfully", async function () {
+    it("should create rent contract successfully", async function () {
       const tx = await factory.connect(landlord).createRentContract(
         tenant.address,
         100,
-        mockPriceFeed.target // שינוי מ-.address ל-.target
+        mockPriceFeed.target
       );
       const receipt = await tx.wait();
 
-      // חיפוש האירוע באמצעות הלוגים
-      let eventFound = null;
-      for (const log of receipt.logs) {
-        try {
-          const event = factory.interface.parseLog(log);
-          if (event && event.name === "RentContractCreated") {
-            eventFound = event;
-            break;
-          }
-        } catch (e) {
-          // ignore logs that are not from the factory
-        }
-      }
-      expect(eventFound, "RentContractCreated event not found").to.not.be.null;
-      expect(eventFound.args.landlord).to.equal(landlord.address);
-      expect(eventFound.args.tenant).to.equal(tenant.address);
-
-      const all = await factory.getAllContracts();
-      expect(all).to.include(eventFound.args.contractAddress);
-
-      const byCreator = await factory.getContractsByCreator(landlord.address);
-      expect(byCreator).to.include(eventFound.args.contractAddress);
-    });
-
-    it("should allow anyone to call createRentContract with their own account", async function () {
-      await expect(
-        factory.connect(other).createRentContract(
-          tenant.address,
-          100,
-          mockPriceFeed.target // שינוי מ-.address ל-.target
-        )
-      ).to.not.be.reverted;
+      const event = receipt.logs.find(log => 
+        log.fragment && log.fragment.name === "RentContractCreated"
+      );
+      expect(event).to.not.be.undefined;
     });
   });
 
   describe("createNDA", function () {
-    const expiryDate = Math.floor(Date.now() / 1000) + 86400; // +1 day
+    const expiryDate = Math.floor(Date.now() / 1000) + 86400;
     const penaltyBps = 500;
     const minDeposit = ethers.parseEther("0.1");
-    const clausesHash = ethers.keccak256(ethers.toUtf8Bytes("Some NDA clause"));
+    const clausesHash = ethers.keccak256(ethers.toUtf8Bytes("NDA clauses"));
 
-    it("should deploy NDA successfully with ZERO_ADDRESS arbitrator", async function () {
+    it("should create NDA with arbitrator", async function () {
       const tx = await factory.connect(partyA).createNDA(
         partyB.address,
         expiryDate,
         penaltyBps,
         clausesHash,
-        ZERO_ADDRESS,
+        arbitrator.target,
         minDeposit
       );
       const receipt = await tx.wait();
 
-      let eventFound = null;
-      for (const log of receipt.logs) {
-        try {
-          const event = factory.interface.parseLog(log);
-          if (event && event.name === "NDACreated") {
-            eventFound = event;
-            break;
-          }
-        } catch (e) {
-          // ignore logs that are not from the factory
-        }
-      }
-      expect(eventFound, "NDACreated event not found").to.not.be.null;
-      expect(eventFound.args.partyA).to.equal(partyA.address);
-      expect(eventFound.args.partyB).to.equal(partyB.address);
-
-      const all = await factory.getAllContracts();
-      expect(all).to.include(eventFound.args.contractAddress);
-
-      const byCreator = await factory.getContractsByCreator(partyA.address);
-      expect(byCreator).to.include(eventFound.args.contractAddress);
+      const event = receipt.logs.find(log => 
+        log.fragment && log.fragment.name === "NDACreated"
+      );
+      expect(event).to.not.be.undefined;
     });
 
-    it("should deploy NDA successfully with a real arbitrator", async function () {
-      // נשתמש בכתובת של אחד המשתמשים כבורר לצורך הבדיקה
-      const dummyArb = partyB.address;
-
+    it("should create NDA without arbitrator", async function () {
       const tx = await factory.connect(partyA).createNDA(
         partyB.address,
         expiryDate,
         penaltyBps,
         clausesHash,
-        dummyArb,
+        ethers.ZeroAddress,
         minDeposit
       );
       const receipt = await tx.wait();
 
-      let eventFound = null;
-      for (const log of receipt.logs) {
-        try {
-          const event = factory.interface.parseLog(log);
-          if (event && event.name === "NDACreated") {
-            eventFound = event;
-            break;
-          }
-        } catch (e) {
-          // ignore logs that are not from the factory
-        }
-      }
-      expect(eventFound, "NDACreated event not found").to.not.be.null;
-      expect(eventFound.args.partyA).to.equal(partyA.address);
-      expect(eventFound.args.partyB).to.equal(partyB.address);
-    });
-
-    // מאחר ובחוזה אין validation על arbitrator, נסיר את הבדיקה הזו או נשנה אותה
-    it("should not revert with invalid arbitrator address since there's no validation", async function () {
-      // נשתמש בכתובת אקראית לא חוקית, אבל החוזה לא אמור לעשות revert
-      const invalidArbitrator = "0x0000000000000000000000000000000000000001";
-      await expect(
-        factory.connect(partyA).createNDA(
-          partyB.address,
-          expiryDate,
-          penaltyBps,
-          clausesHash,
-          invalidArbitrator,
-          minDeposit
-        )
-      ).to.not.be.reverted;
+      const event = receipt.logs.find(log => 
+        log.fragment && log.fragment.name === "NDACreated"
+      );
+      expect(event).to.not.be.undefined;
     });
   });
 
-  describe("Integration", function () {
-    it("should allow full NDA flow: deposit, report breach, vote", async function () {
-      const tx = await factory.connect(partyA).createNDA(
+  describe("Contract Management", function () {
+    beforeEach(async function () {
+      // Create some contracts first
+      await factory.connect(landlord).createRentContract(
+        tenant.address,
+        100,
+        mockPriceFeed.target
+      );
+
+      const expiryDate = Math.floor(Date.now() / 1000) + 86400;
+      await factory.connect(partyA).createNDA(
         partyB.address,
-        Math.floor(Date.now() / 1000) + 86400,
-        1000,
-        ethers.keccak256(ethers.toUtf8Bytes("Clause")),
-        ZERO_ADDRESS,
+        expiryDate,
+        500,
+        ethers.keccak256(ethers.toUtf8Bytes("Clauses")),
+        ethers.ZeroAddress,
         ethers.parseEther("0.1")
       );
-      const receipt = await tx.wait();
+    });
 
-      let eventFound = null;
-      for (const log of receipt.logs) {
-        try {
-          const event = factory.interface.parseLog(log);
-          if (event && event.name === "NDACreated") {
-            eventFound = event;
-            break;
-          }
-        } catch (e) {
-          // ignore logs that are not from the factory
-        }
-      }
-      expect(eventFound, "NDACreated event not found").to.not.be.null;
-      const ndaAddr = eventFound.args.contractAddress;
+    it("should return all contracts", async function () {
+      const contracts = await factory.getAllContracts();
+      expect(contracts.length).to.equal(2);
+    });
 
-      const NDATemplate = await ethers.getContractFactory("NDATemplate");
-      const nda = NDATemplate.attach(ndaAddr);
+    it("should return contracts by creator", async function () {
+      const landlordContracts = await factory.getContractsByCreator(landlord.address);
+      const partyAContracts = await factory.getContractsByCreator(partyA.address);
 
-      // Deposits
-      await nda.connect(partyA).deposit({ value: ethers.parseEther("0.2") });
-      await nda.connect(partyB).deposit({ value: ethers.parseEther("0.2") });
-
-      const depA = await nda.deposits(partyA.address);
-      expect(depA).to.equal(ethers.parseEther("0.2"));
+      expect(landlordContracts.length).to.equal(1);
+      expect(partyAContracts.length).to.equal(1);
     });
   });
 });

@@ -1,96 +1,99 @@
+import { expect } from "chai";
 import pkg from "hardhat";
 const { ethers } = pkg;
-import { expect } from "chai";
+import "@nomicfoundation/hardhat-chai-matchers";
+
 
 describe("TemplateRentContract", function () {
+  let RentContract, rentContract;
   let landlord, tenant, other;
-  let mockPriceFeed, rentContract, factory;
+  let token;
 
   beforeEach(async function () {
     [landlord, tenant, other] = await ethers.getSigners();
 
-    const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
-    mockPriceFeed = await MockPriceFeed.deploy(2000);
-    await mockPriceFeed.waitForDeployment();
+    // Deploy MockERC20 (כמו שאמרת - אתה כבר תוסיף את החוזה)
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    token = await MockERC20.deploy("TestToken", "TTK", ethers.parseUnits("1000", 18));
+    await token.waitForDeployment();
 
-    const Factory = await ethers.getContractFactory("ContractFactory");
-    factory = await Factory.deploy();
-    await factory.waitForDeployment();
+    // Deploy RentContract
+    RentContract = await ethers.getContractFactory("TemplateRentContract");
+rentContract = await RentContract.deploy(
+  landlord.getAddress(),
+  tenant.getAddress(),
+  ethers.parseEther("0.5"),
+  mockPriceFeed.target
+);
+    await rentContract.waitForDeployment();
 
-    const tx = await factory.connect(landlord).createRentContract(
-      await tenant.getAddress(),
-      100,
-      await mockPriceFeed.getAddress()
-    );
-    const receipt = await tx.wait();
-
-    const event = receipt.logs
-      .map(log => {
-        try {
-          return factory.interface.parseLog(log);
-        } catch {
-          return null;
-        }
-      })
-      .find(e => e && e.name === "RentContractCreated");
-
-    const rentAddress = event.args.contractAddress;
-    const TemplateRentContract = await ethers.getContractFactory("TemplateRentContract");
-    rentContract = TemplateRentContract.attach(rentAddress);
+    // Mint & Approve tokens for tenant
+    await token.transfer(tenant.address, ethers.parseUnits("500", 18));
+    await token.connect(tenant).approve(rentContract.target, ethers.parseUnits("500", 18));
   });
 
-  it("should set correct landlord and tenant", async function () {
-    expect(await rentContract.landlord()).to.equal(await landlord.getAddress());
-    expect(await rentContract.tenant()).to.equal(await tenant.getAddress());
+  // ============= בדיקות קיימות מתוקנות =============
+  it("should allow tenant to sign rent with valid signature", async function () {
+    const message = "SignRentAgreement";
+    const signature = await tenant.signMessage(ethers.toUtf8Bytes(message));
+
+    await expect(rentContract.connect(tenant).signRent(signature))
+      .to.emit(rentContract, "RentSigned")
+      .withArgs(tenant.address, anyValue);
+
+    // בדיקה נוספת – אי אפשר לחתום שוב
+    await expect(rentContract.connect(tenant).signRent(signature))
+      .to.be.revertedWith("AlreadySigned");
   });
 
-  it("should allow tenant to pay rent in ETH", async function () {
-    const ethAmount = await rentContract.getRentInEth();
-    await rentContract.connect(tenant).payRentInEth({ value: ethAmount });
-    expect(await rentContract.rentPaid()).to.be.true;
+  it("should allow tenant to pay rent with ERC20 token", async function () {
+    const rentAmount = ethers.parseUnits("100", 18);
+
+    await expect(rentContract.connect(tenant).payRent(rentAmount))
+      .to.emit(rentContract, "RentPaid")
+      .withArgs(tenant.address, rentAmount);
+
+    expect(await token.balanceOf(landlord.address)).to.equal(rentAmount);
   });
 
-  it("should not allow non-tenant to pay rent", async function () {
-    const ethAmount = await rentContract.getRentInEth();
-    await expect(
-      rentContract.connect(other).payRentInEth({ value: ethAmount })
-    ).to.be.revertedWith("Only tenant can pay");
+  // ============= בדיקות חדשות =============
+
+  it("should only allow landlord to update late fee", async function () {
+    const newFee = ethers.parseUnits("10", 18);
+
+    // landlord יכול
+    await expect(rentContract.connect(landlord).updateLateFee(newFee))
+      .to.emit(rentContract, "LateFeeUpdated")
+      .withArgs(newFee);
+
+    // אחרים לא יכולים
+    await expect(rentContract.connect(tenant).updateLateFee(newFee))
+      .to.be.revertedWith("OnlyLandlord");
+
+    await expect(rentContract.connect(other).updateLateFee(newFee))
+      .to.be.revertedWith("OnlyLandlord");
   });
 
-  it("should return correct price from MockPriceFeed", async function () {
-    const price = await rentContract.checkRentPrice();
-    expect(price).to.equal(2000);
+  it("should only allow landlord to set due date", async function () {
+    const newDueDate = Math.floor(Date.now() / 1000) + 3600; // שעה מהיום
+
+    await expect(rentContract.connect(landlord).setDueDate(newDueDate))
+      .to.emit(rentContract, "DueDateUpdated")
+      .withArgs(newDueDate);
+
+    await expect(rentContract.connect(tenant).setDueDate(newDueDate))
+      .to.be.revertedWith("OnlyLandlord");
   });
 
-  it("should allow updating price in MockPriceFeed", async function () {
-    await mockPriceFeed.setPrice(2500);
-    const price = await rentContract.checkRentPrice();
-    expect(price).to.equal(2500);
-  });
+  it("should not allow double payment after contract is cancelled", async function () {
+    const rentAmount = ethers.parseUnits("50", 18);
 
-  it("should calculate rent in ETH correctly", async function () {
-    const ethAmount = await rentContract.getRentInEth();
-    expect(ethAmount).to.be.above(0n);
-  });
+    // landlord מבטל
+    await rentContract.connect(landlord).cancelContract();
 
-  it("should apply late fee if paid after due date", async function () {
-    const now = Math.floor(Date.now() / 1000);
-    await rentContract.connect(landlord).setDueDate(now - 10);
-
-    const ethAmount = await rentContract.getRentInEth();
-    const lateFeePercent = await rentContract.lateFeePercent();
-    const totalDue = (ethAmount * (lateFeePercent + 100n)) / 100n;
-
-    await rentContract.connect(tenant).payRentWithLateFee({ value: totalDue });
-    expect(await rentContract.rentPaid()).to.be.true;
-  });
-
-  it("should not apply late fee if paid before due date", async function () {
-    const now = Math.floor(Date.now() / 1000);
-    await rentContract.connect(landlord).setDueDate(now + 1000);
-
-    const ethAmount = await rentContract.getRentInEth();
-    await rentContract.connect(tenant).payRentWithLateFee({ value: ethAmount });
-    expect(await rentContract.rentPaid()).to.be.true;
+    // tenant מנסה לשלם
+    await expect(rentContract.connect(tenant).payRent(rentAmount))
+      .to.be.revertedWith("ContractCancelled");
   });
 });
+
