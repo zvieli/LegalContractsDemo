@@ -62,25 +62,31 @@ contract Arbitrator {
         emit DisputeCreated(disputeCounter, _ndaContract, msg.sender, _ndaCaseId);
         return disputeCounter;
     }
+    //resolveDispute
+function resolveDispute(
+    uint256 _disputeId, 
+    address _guiltyParty, 
+    uint256 _penaltyAmount,
+    address _beneficiary
+) external onlyOwner {
+    Dispute storage dispute = disputes[_disputeId];
+    require(dispute.status == DisputeStatus.Pending, "Dispute not pending");
     
-    function resolveDispute(uint256 _disputeId, address _guiltyParty, uint256 _penaltyAmount, address _beneficiary) external onlyOwner {
-        require(_beneficiary != address(0), "Invalid beneficiary");
-        Dispute storage dispute = disputes[_disputeId];
-        require(dispute.status == DisputeStatus.Pending, "Dispute not pending");
-        
-        dispute.status = DisputeStatus.Resolved;
-        dispute.penaltyAwarded = _penaltyAmount;
-        
-        INDATemplate nda = INDATemplate(dispute.ndaContract);
-        
-        if (_penaltyAmount > 0) {
-            nda.enforcePenalty(_guiltyParty, _penaltyAmount, _beneficiary);
-        } else {
-            nda.resolveByArbitrator(dispute.ndaCaseId, _penaltyAmount > 0, _beneficiary);
-        }
-        
-        emit DisputeResolved(_disputeId, _guiltyParty, _penaltyAmount);
+    dispute.status = DisputeStatus.Resolved;
+    dispute.penaltyAwarded = _penaltyAmount;
+    
+    // Update both arbitrator and NDA
+    INDATemplate nda = INDATemplate(dispute.ndaContract);
+    
+    if (_penaltyAmount > 0) {
+        nda.enforcePenalty(_guiltyParty, _penaltyAmount, _beneficiary);
     }
+    
+    // Also mark the case as resolved in NDA
+    nda.resolveByArbitrator(dispute.ndaCaseId, _penaltyAmount > 0, _beneficiary);
+    
+    emit DisputeResolved(_disputeId, _guiltyParty, _penaltyAmount);
+}
     
     function getDispute(uint256 _disputeId) external view returns (
         address ndaContract,

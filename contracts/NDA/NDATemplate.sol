@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-
+import "hardhat/console.sol";
 contract NDATemplate is EIP712 {
     using ECDSA for bytes32;
 
@@ -156,12 +156,21 @@ contract NDATemplate is EIP712 {
     }
 
     function canWithdraw() public view returns (bool) {
-        if (active) return false;
-        for (uint256 i = 0; i < _cases.length; i++) {
-            if (!_cases[i].resolved) return false;
-        }
-        return true;
+    if (active) {
+        console.log("Cannot withdraw: Contract is active");
+        return false;
     }
+    
+    for (uint256 i = 0; i < _cases.length; i++) {
+        if (!_cases[i].resolved) {
+            console.log("Cannot withdraw: Case", i, "is not resolved");
+            return false;
+        }
+    }
+    
+    console.log("Can withdraw: All conditions met");
+    return true;
+}
 
     function withdrawDeposit(uint256 amount) external {
         require(canWithdraw(), "Cannot withdraw yet");

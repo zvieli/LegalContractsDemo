@@ -72,11 +72,19 @@ contract TemplateRentContract {
         return price;
     }
 
-    function getRentInEth() public view returns (uint256) {
-        int256 price = checkRentPrice();
-        require(price > 0, "Invalid price");
-        return (rentAmount * 1e18) / uint256(price);
-    }
+    // contracts/Rent/TemplateRentContract.sol - תיקון הפונקציה
+function getRentInEth() public view returns (uint256) {
+    int256 price = checkRentPrice();
+    require(price > 0, "Invalid price");
+    
+    // Assuming:
+    // - rentAmount is in USD (e.g., 0.5 = $0.5)
+    // - price is USD/ETH with 8 decimals (e.g., 2000 * 10^8 = $2000 per ETH)
+    // - We need to convert rentAmount (USD) to ETH
+    
+    // Formula: ETH = USD / (USD/ETH)
+    return (rentAmount * 1e8) / uint256(price);
+}
 
     function payRentInEth() public payable onlyTenant onlyActive {
         uint256 requiredEth = getRentInEth();
@@ -136,10 +144,13 @@ contract TemplateRentContract {
         emit DueDateUpdated(timestamp);
     }
 
-    function cancelContract() public onlyTenant onlyLandlord onlyActive {
-        active = false;
-        emit ContractCancelled(msg.sender);
-    }
+    // contracts/Rent/TemplateRentContract.sol - תיקון ה-cancelContract
+function cancelContract() public {
+    require(msg.sender == landlord || msg.sender == tenant, "Only landlord or tenant can cancel");
+    require(active, "Contract already inactive");
+    active = false;
+    emit ContractCancelled(msg.sender);
+}
 
     function signRent(bytes memory signature) public onlyTenant onlyActive {
         require(!rentSigned, "Rent already signed");
