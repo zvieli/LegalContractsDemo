@@ -114,39 +114,55 @@ export class ContractService {
 
   // פונקציות נוספות ל-NDA agreements
   async createNDA(params) {
-    try {
-      const factoryContract = await this.getFactoryContract();
-      
-      const tx = await factoryContract.createNDA(
-        params.partyB,
-        params.expiryDate,
-        params.penaltyBps,
-        params.customClausesHash,
-        params.arbitrator,
-        params.minDeposit
-      );
+  try {
+    const factoryContract = await this.getFactoryContract();
+    
+    // Convert values to proper format
+    const expiryTimestamp = Math.floor(new Date(params.expiryDate).getTime() / 1000);
+    const minDepositWei = ethers.parseEther(params.minDeposit);
+    
+    // Use zero address if no arbitrator provided
+    const arbitratorAddress = params.arbitrator || ethers.ZeroAddress;
+    
+    // Hash the custom clauses if provided
+    const clausesHash = params.customClauses 
+      ? ethers.id(params.customClauses) 
+      : ethers.ZeroHash;
 
-      const receipt = await tx.wait();
-      
-      // חילוץ כתובת מה-event
-      let contractAddress = null;
-      for (const log of receipt.logs) {
-        try {
-          const parsedLog = factoryContract.interface.parseLog(log);
-          if (parsedLog && parsedLog.name === 'NDACreated') {
-            contractAddress = parsedLog.args[0];
-            break;
-          }
-        } catch (error) {
-          continue;
+    const tx = await factoryContract.createNDA(
+      params.partyB,           // address
+      expiryTimestamp,         // uint256 (timestamp)
+      params.penaltyBps,       // uint16
+      clausesHash,             // bytes32
+      arbitratorAddress,       // address
+      minDepositWei            // uint256 (in wei)
+    );
+
+    const receipt = await tx.wait();
+    
+    // Extract contract address from event
+    let contractAddress = null;
+    for (const log of receipt.logs) {
+      try {
+        const parsedLog = factoryContract.interface.parseLog(log);
+        if (parsedLog && parsedLog.name === 'NDACreated') {
+          contractAddress = parsedLog.args[0]; // First argument is address
+          break;
         }
+      } catch (error) {
+        continue;
       }
-      
-      return { receipt, contractAddress };
-      
-    } catch (error) {
-      console.error('Error creating NDA:', error);
-      throw error;
     }
+    
+    return { 
+      receipt, 
+      contractAddress,
+      success: !!contractAddress
+    };
+    
+  } catch (error) {
+    console.error('Error creating NDA:', error);
+    throw error;
   }
+}
 }
