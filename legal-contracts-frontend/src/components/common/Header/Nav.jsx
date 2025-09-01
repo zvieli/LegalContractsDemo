@@ -3,10 +3,10 @@ import './Nav.css';
 function Nav({ isMobileMenuOpen }) {
   const navItems = [
     { label: 'Home', path: '/', icon: 'fas fa-home' },
-    { label: 'Create Contract', path: '/create', icon: 'fas fa-plus' },
+    { label: 'Dashboard', path: '/dashboard', icon: 'fas fa-th-large' },
+    { label: 'Create Rental', path: '/create-rent', icon: 'fas fa-plus' },
     { label: 'My Contracts', path: '/contracts', icon: 'fas fa-file-contract' },
-    { label: 'Arbitration', path: '/arbitration', icon: 'fas fa-scale-balanced' },
-    { label: 'About', path: '/about', icon: 'fas fa-info-circle' }
+    { label: 'Arbitration', path: '/arbitration', icon: 'fas fa-scale-balanced' }
   ];
 
   return (

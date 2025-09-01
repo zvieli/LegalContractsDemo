@@ -9,7 +9,7 @@ export function copyABI() {
   console.log('📂 Copying ABI files to frontend...');
   
   const abiSourceDir = path.join(__dirname, '../artifacts/contracts');
-  const abiDestDir = path.join(__dirname, '../src/abis');
+const abiDestDir = path.join(__dirname, '../legal-contracts-frontend/src/utils/abis');
   
   const contractsToCopy = [
     'ContractFactory.sol',
