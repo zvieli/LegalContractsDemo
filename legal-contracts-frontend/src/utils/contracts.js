@@ -1,4 +1,4 @@
-import ContractFactoryABI from './abis/ContractFactoryABI.json';
+import ContractFactoryABI from './contracts/ContractFactoryABI.json';
 // import TemplateRentContractABI from '../abis/TemplateRentContractABI.json';
 // import NDATemplateABI from '../abis/NDATemplateABI.json';
 // import ArbitratorABI from '../abis/ArbitratorABI.json';
