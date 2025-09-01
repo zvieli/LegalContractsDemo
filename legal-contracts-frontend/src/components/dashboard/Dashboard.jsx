@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
-import { createContractInstance } from '../../utils/contracts';
+import { ContractService } from '../../services/contractService';
+import ContractModal from '../ContractModal/ContractModal';
+import { ethers } from 'ethers';
 import './Dashboard.css';
 
 function Dashboard() {
-  const { account, signer, isConnected } = useEthers();
+  const { account, signer, isConnected, chainId } = useEthers();
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -12,62 +14,105 @@ function Dashboard() {
     activeContracts: 0,
     pendingContracts: 0
   });
+  const [selectedContract, setSelectedContract] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
-    if (isConnected && account) {
+    if (isConnected && account && signer && chainId) {
       loadUserContracts();
     }
-  }, [isConnected, account]);
+  }, [isConnected, account, signer, chainId]);
 
   const loadUserContracts = async () => {
     try {
       setLoading(true);
       
-      // כאן נטען את החוזים מהפרוטוקול האמיתי
-      // כרגע - נתונים mock עבור הדגמה
-      const mockContracts = [
-        {
-          address: '0x1234...5678',
-          type: 'Rental',
-          status: 'Active',
-          parties: ['0xYourAddress', '0xTenantAddress'],
-          created: '2024-01-15',
-          amount: '1.5 ETH'
-        },
-        {
-          address: '0xabcd...efgh',
-          type: 'NDA',
-          status: 'Pending',
-          parties: ['0xYourAddress', '0xClientAddress'],
-          created: '2024-01-10',
-          amount: '0.1 ETH'
-        },
-        {
-          address: '0xwxyz...1234',
-          type: 'Rental',
-          status: 'Completed',
-          parties: ['0xYourAddress', '0xOldTenantAddress'],
-          created: '2023-12-05',
-          amount: '2.0 ETH'
-        }
-      ];
-
-      setContracts(mockContracts);
-      setStats({
-        totalContracts: mockContracts.length,
-        activeContracts: mockContracts.filter(c => c.status === 'Active').length,
-        pendingContracts: mockContracts.filter(c => c.status === 'Pending').length
-      });
+      const contractService = new ContractService(signer, chainId);
+      const userContracts = await contractService.getUserContracts(account);
+      
+      if (userContracts && userContracts.length > 0) {
+        const contractDetails = await Promise.all(
+          userContracts.map(async (contractAddress) => {
+            try {
+              const rentContract = await contractService.getRentContract(contractAddress);
+              
+              // קבלת פרטי החוזה
+              const [landlord, tenant, rentAmount, isActive] = await Promise.all([
+                rentContract.landlord(),
+                rentContract.tenant(),
+                rentContract.rentAmount(),
+                rentContract.isActive().catch(() => true) // fallback אם הפונקציה לא קיימת
+              ]);
+              
+              return {
+                address: contractAddress,
+                type: 'Rental',
+                status: isActive ? 'Active' : 'Completed',
+                parties: [landlord, tenant],
+                created: 'Recent',
+                amount: `${ethers.formatEther(rentAmount)} ETH`,
+                isActive
+              };
+            } catch (error) {
+              console.error('Error loading contract details:', error);
+              return {
+                address: contractAddress,
+                type: 'Unknown',
+                status: 'Error',
+                parties: [],
+                created: 'N/A',
+                amount: 'N/A',
+                isActive: false
+              };
+            }
+          })
+        );
+        
+        setContracts(contractDetails);
+        
+        // עדכון סטטיסטיקות
+        setStats({
+          totalContracts: contractDetails.length,
+          activeContracts: contractDetails.filter(c => c.isActive).length,
+          pendingContracts: contractDetails.filter(c => !c.isActive).length
+        });
+        
+      } else {
+        // הצגת הודעה אם אין חוזים
+        setContracts([]);
+        setStats({
+          totalContracts: 0,
+          activeContracts: 0,
+          pendingContracts: 0
+        });
+      }
       
     } catch (error) {
       console.error('Error loading contracts:', error);
+      setContracts([]);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleViewContract = (contractAddress) => {
+    setSelectedContract(contractAddress);
+    setIsModalOpen(true);
+  };
+
+  const handleManageContract = (contractAddress) => {
+    setSelectedContract(contractAddress);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedContract(null);
+    // Refresh contracts when modal closes
+    loadUserContracts();
+  };
+
   const createNewContract = (type) => {
-    // נווט לעמוד יצירת החוזה המתאים
     window.location.href = type === 'rent' ? '/create-rent' : '/create-nda';
   };
 
@@ -206,10 +251,16 @@ function Dashboard() {
                 </div>
                 
                 <div className="contract-actions">
-                  <button className="btn-sm outline">
+                  <button 
+                    className="btn-sm outline"
+                    onClick={() => handleViewContract(contract.address)}
+                  >
                     <i className="fas fa-eye"></i> View
                   </button>
-                  <button className="btn-sm primary">
+                  <button 
+                    className="btn-sm primary"
+                    onClick={() => handleManageContract(contract.address)}
+                  >
                     <i className="fas fa-edit"></i> Manage
                   </button>
                 </div>
@@ -218,6 +269,13 @@ function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* Contract Modal */}
+      <ContractModal
+        contractAddress={selectedContract}
+        isOpen={isModalOpen}
+        onClose={closeModal}
+      />
     </div>
   );
 }

@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
+import { ContractService } from '../../services/contractService';
+import { ethers } from 'ethers';
 import './CreateRent.css';
 
 function CreateRent() {
-  const { account, signer, isConnected } = useEthers();
+  const { account, signer, isConnected, chainId } = useEthers();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     tenantAddress: '',
     rentAmount: '',
-    paymentToken: '0x0000000000000000000000000000000000000000', // ETH
-    priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
-    duration: '30',
-    startDate: new Date().toISOString().split('T')[0]
+    priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306' // ETH/USD Sepolia
   });
 
   const handleInputChange = (e) => {
@@ -25,38 +24,63 @@ function CreateRent() {
   const handleCreateContract = async (e) => {
     e.preventDefault();
     
-    if (!isConnected) {
+    if (!isConnected || !account || !signer) {
       alert('Please connect your wallet first');
+      return;
+    }
+
+    // Validation
+    if (!formData.tenantAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
+      alert('Please enter a valid Ethereum address');
+      return;
+    }
+
+    if (!formData.rentAmount || parseFloat(formData.rentAmount) <= 0) {
+      alert('Please enter a valid rent amount');
       return;
     }
 
     setLoading(true);
     
     try {
-      // כאן נחבר ל-Factory האמיתי
-      console.log('Creating rent contract with:', formData);
+      const contractService = new ContractService(signer, chainId);
       
-      // הדמיית יצירת חוזה (יתחלף בקוד אמיתי)
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const params = {
+        tenant: formData.tenantAddress,
+        rentAmount: formData.rentAmount,
+        priceFeed: formData.priceFeed
+      };
+
+      const result = await contractService.createRentContract(params);
       
-      alert('Rent contract created successfully!');
-      // איפוס הטופס
-      setFormData({
-        tenantAddress: '',
-        rentAmount: '',
-        paymentToken: '0x0000000000000000000000000000000000000000',
-        priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306',
-        duration: '30',
-        startDate: new Date().toISOString().split('T')[0]
-      });
+      if (result.contractAddress) {
+        alert(`✅ Rent contract created successfully!\nContract Address: ${result.contractAddress}`);
+        
+        // איפוס הטופס
+        setFormData({
+          tenantAddress: '',
+          rentAmount: '',
+          priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306'
+        });
+        
+        // הפניה חזרה ל-dashboard
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 2000);
+        
+      } else {
+        alert('⚠️ Contract creation pending. Please check your wallet for confirmation.');
+      }
       
     } catch (error) {
       console.error('Error creating contract:', error);
-      alert('Error creating contract: ' + error.message);
+      alert(`❌ Error: ${error.reason || error.message}`);
     } finally {
       setLoading(false);
     }
   };
+
+  // ... rest of the component ...
 
   if (!isConnected) {
     return (

@@ -1,62 +1,152 @@
-import { createContractInstance } from '../utils/contracts';
-import ContractFactoryData from '../utils/contracts/ContractFactory.json';
+import { getContractABI, getContractAddress, createContractInstance } from '../utils/contracts';
+import { ethers } from 'ethers';
 
 export class ContractService {
-  constructor(signer) {
+  constructor(signer, chainId) {
     this.signer = signer;
+    this.chainId = chainId;
   }
 
-  /** 
-   * מחזיר מופע של חוזה ה-Factory 
-   */
   async getFactoryContract() {
-    const factoryAddress = ContractFactoryData.address;
+    const factoryAddress = await getContractAddress(this.chainId, 'factory');
     if (!factoryAddress) {
       throw new Error('Factory contract not deployed on this network');
     }
-    const abi = ContractFactoryData.abi;
-    return createContractInstance(factoryAddress, abi, this.signer);
+    return createContractInstance('ContractFactory', factoryAddress, this.signer);
   }
 
-  /**
-   * יוצר חוזה שכירות דרך ה-Factory
-   * params: { landlord, tenant, rentAmount, paymentToken, startDate, duration }
-   */
   async createRentContract(params) {
     try {
       const factoryContract = await this.getFactoryContract();
-
+      
       const tx = await factoryContract.createRentContract(
-        params.landlord,
         params.tenant,
-        params.rentAmount,
-        params.paymentToken,
-        params.startDate,
-        params.duration
+        ethers.parseEther(params.rentAmount),
+        params.priceFeed
       );
 
       const receipt = await tx.wait();
-
-      // חילוץ כתובת החוזה שנוצר מהאירוע ContractCreated
-      const event = receipt.events?.find(
-        (e) => e.event === 'ContractCreated'
-      );
-
-      if (event) {
-        const contractAddress = event.args[1]; // הכתובת היא הארגומנט השני
-        return { receipt, contractAddress };
+      
+      // חילוץ כתובת החוזה מה-event
+      let contractAddress = null;
+      
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = factoryContract.interface.parseLog(log);
+          if (parsedLog && parsedLog.name === 'RentContractCreated') {
+            contractAddress = parsedLog.args[0];
+            break;
+          }
+        } catch (error) {
+          continue;
+        }
       }
-
-      return receipt;
+      
+      return { 
+        receipt, 
+        contractAddress,
+        success: !!contractAddress
+      };
+      
     } catch (error) {
       console.error('Error creating rent contract:', error);
       throw error;
     }
   }
 
-  /**
-   * אם בעתיד תרצה להוסיף פונקציות נוספות שמבוססות על ABI:
-   * getNDATemplateContract, getArbitratorContract וכו.
-   * פשוט ייבא את הקובץ המתאים מ-../utils/contracts/
-   */
+  async getRentContract(contractAddress) {
+    try {
+      return createContractInstance('TemplateRentContract', contractAddress, this.signer);
+    } catch (error) {
+      console.error('Error getting rent contract:', error);
+      throw error;
+    }
+  }
+
+  async getRentContractDetails(contractAddress) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      
+      const [landlord, tenant, rentAmount, priceFeed, isActive] = await Promise.all([
+        rentContract.landlord(),
+        rentContract.tenant(),
+        rentContract.rentAmount(),
+        rentContract.priceFeed(),
+        rentContract.isActive?.().catch(() => true) // optional chaining עם fallback
+      ]);
+      
+      return {
+        address: contractAddress,
+        landlord,
+        tenant,
+        rentAmount: ethers.formatEther(rentAmount),
+        priceFeed,
+        isActive: !!isActive
+      };
+    } catch (error) {
+      console.error('Error getting contract details:', error);
+      throw error;
+    }
+  }
+
+  async getUserContracts(userAddress) {
+    try {
+      const factoryContract = await this.getFactoryContract();
+      const contracts = await factoryContract.getContractsByCreator(userAddress);
+      return contracts;
+    } catch (error) {
+      console.error('Error fetching user contracts:', error);
+      return [];
+    }
+  }
+
+  async payRent(contractAddress, amount) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const tx = await rentContract.payRent({ value: ethers.parseEther(amount) });
+      const receipt = await tx.wait();
+      return receipt;
+    } catch (error) {
+      console.error('Error paying rent:', error);
+      throw error;
+    }
+  }
+
+  // פונקציות נוספות ל-NDA agreements
+  async createNDA(params) {
+    try {
+      const factoryContract = await this.getFactoryContract();
+      
+      const tx = await factoryContract.createNDA(
+        params.partyB,
+        params.expiryDate,
+        params.penaltyBps,
+        params.customClausesHash,
+        params.arbitrator,
+        params.minDeposit
+      );
+
+      const receipt = await tx.wait();
+      
+      // חילוץ כתובת מה-event
+      let contractAddress = null;
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = factoryContract.interface.parseLog(log);
+          if (parsedLog && parsedLog.name === 'NDACreated') {
+            contractAddress = parsedLog.args[0];
+            break;
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+      
+      return { receipt, contractAddress };
+      
+    } catch (error) {
+      console.error('Error creating NDA:', error);
+      throw error;
+    }
+  }
 }
