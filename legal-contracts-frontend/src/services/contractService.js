@@ -17,8 +17,19 @@ export class ContractService {
 
   async createRentContract(params) {
     try {
+      // ולידציה לכתובות כדי למנוע ניסיון לפתור ENS
+      if (!params.tenant.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
+        throw new Error('Tenant address must be a valid Ethereum address');
+      }
+      if (!params.priceFeed.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
+        throw new Error('PriceFeed address must be a valid Ethereum address');
+      }
+      if (!params.paymentToken.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
+        throw new Error('PaymentToken address must be a valid Ethereum address');
+      }
+
       const factoryContract = await this.getFactoryContract();
-      
+
       const tx = await factoryContract.createRentContract(
         params.tenant,
         ethers.parseEther(params.rentAmount),
@@ -26,10 +37,10 @@ export class ContractService {
       );
 
       const receipt = await tx.wait();
-      
+
       // חילוץ כתובת החוזה מה-event
       let contractAddress = null;
-      
+
       for (const log of receipt.logs) {
         try {
           const parsedLog = factoryContract.interface.parseLog(log);
@@ -41,13 +52,13 @@ export class ContractService {
           continue;
         }
       }
-      
-      return { 
-        receipt, 
+
+      return {
+        receipt,
         contractAddress,
         success: !!contractAddress
       };
-      
+
     } catch (error) {
       console.error('Error creating rent contract:', error);
       throw error;

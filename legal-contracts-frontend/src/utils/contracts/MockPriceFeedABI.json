@@ -1,0 +1,76 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "int256",
+          "name": "_initialPrice",
+          "type": "int256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "getPrice",
+      "outputs": [
+        {
+          "internalType": "int256",
+          "name": "",
+          "type": "int256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "latestRoundData",
+      "outputs": [
+        {
+          "internalType": "uint80",
+          "name": "roundId",
+          "type": "uint80"
+        },
+        {
+          "internalType": "int256",
+          "name": "answer",
+          "type": "int256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "startedAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "updatedAt",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint80",
+          "name": "answeredInRound",
+          "type": "uint80"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "int256",
+          "name": "_newPrice",
+          "type": "int256"
+        }
+      ],
+      "name": "setPrice",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "contractName": "MockPriceFeed",
+  "bytecode": "0x608060405234801561001057600080fd5b5060405161020838038061020883398101604081905261002f91610046565b61003d816305f5e100610075565b600055506100ab565b60006020828403121561005857600080fd5b5051919050565b634e487b7160e01b600052601160045260246000fd5b80820260008212600160ff1b841416156100915761009161005f565b81810583148215176100a5576100a561005f565b92915050565b61014e806100ba6000396000f3fe608060405234801561001057600080fd5b50600436106100415760003560e01c806398d5fdca14610046578063f7a308061461005c578063feaf968c14610071575b600080fd5b6000546040519081526020015b60405180910390f35b61006f61006a3660046100b3565b61009f565b005b600080546040805183815260208101929092528101829052426060820152608081019190915260a001610053565b6100ad816305f5e1006100e2565b60005550565b6000602082840312156100c557600080fd5b5035919050565b634e487b7160e01b600052601160045260246000fd5b80820260008212600160ff1b841416156100fe576100fe6100cc565b8181058314821517610112576101126100cc565b9291505056fea26469706673582212201460779779045c28126c8a890ec07860c056f930c4c84614ec4889832d213f2864736f6c63430008140033"
+}

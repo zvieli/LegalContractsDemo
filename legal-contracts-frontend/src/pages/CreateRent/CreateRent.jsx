@@ -2,9 +2,14 @@ import { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import { ethers } from 'ethers';
+import mockContracts from '../../utils/contracts/MockContracts.json';
 import './CreateRent.css';
 
 function CreateRent() {
+  // Mock Price Feed (loaded via static import so bundler includes it)
+  const mockPriceFeedAddress = mockContracts?.contracts?.MockPriceFeed?.trim() || null;
+  console.log('mockPriceFeedAddress:', mockPriceFeedAddress);
+
   const { account, signer, isConnected, chainId } = useEthers();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -14,22 +19,17 @@ function CreateRent() {
     priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
     duration: '',
     startDate: '',
-    network: 'sepolia' // ערך ברירת מחדל
+    network: 'sepolia' // Default
   });
 
   const resolveSelectedNetworkChainId = () => {
     switch (formData.network) {
-      case 'mainnet':
-        return 1;
-      case 'goerli':
-        return 5;
-      case 'sepolia':
-        return 11155111;
-      case 'polygon':
-        return 137;
+      case 'mainnet': return 1;
+      case 'goerli': return 5;
+      case 'sepolia': return 11155111;
+      case 'polygon': return 137;
       case 'localhost':
-      default:
-        return 31337; // Hardhat default
+      default: return 31337;
     }
   };
 
@@ -37,13 +37,13 @@ function CreateRent() {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [name]: value
+      [name]: value.trim()
     }));
   };
 
   const handleCreateContract = async (e) => {
     e.preventDefault();
-    
+
     if (!isConnected || !account || !signer) {
       alert('Please connect your wallet first');
       return;
@@ -54,25 +54,20 @@ function CreateRent() {
       alert('Please enter a valid Ethereum address');
       return;
     }
-
     if (!formData.rentAmount || parseFloat(formData.rentAmount) <= 0) {
       alert('Please enter a valid rent amount');
       return;
     }
-
     if (!formData.duration || parseInt(formData.duration) <= 0) {
       alert('Please enter a valid duration');
       return;
     }
-
     if (!formData.startDate) {
       alert('Please select a start date');
       return;
     }
 
-    // Verify wallet network matches selection
     const expectedChainId = resolveSelectedNetworkChainId();
-    // Allow any local chainId when 'localhost' is selected
     const isLocalSelected = formData.network === 'localhost';
     if (!isLocalSelected && chainId && Number(chainId) !== expectedChainId) {
       alert(`Please switch your wallet network to match the selected network (expected chainId ${expectedChainId}, got ${chainId}).`);
@@ -80,10 +75,46 @@ function CreateRent() {
     }
 
     setLoading(true);
-    
+
     try {
-      const contractService = new ContractService(signer, chainId);
-      
+      // Try to switch/add the user's wallet to the expected network (best-effort)
+      if (typeof window !== 'undefined' && window.ethereum) {
+        const hexChainId = `0x${expectedChainId.toString(16)}`;
+        try {
+          // If localhost selected, try to add the Hardhat/local network first
+          if (isLocalSelected) {
+            try {
+              await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [{
+                  chainId: hexChainId,
+                  chainName: 'Localhost (Hardhat)',
+                  nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+                  rpcUrls: ['http://127.0.0.1:8545'],
+                  blockExplorerUrls: []
+                }]
+              });
+            } catch (addErr) {
+              // ignore add error (may already exist or provider doesn't support add)
+              console.warn('wallet_addEthereumChain failed or not supported:', addErr);
+            }
+          }
+
+          // then attempt switch
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: hexChainId }]
+          });
+        } catch (switchError) {
+          console.warn('Could not add/switch network programmatically:', switchError);
+          alert('Please switch your wallet network to the selected network (e.g. Hardhat/Localhost) and try again.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      const contractService = new ContractService(signer, expectedChainId); // ✅ Use expectedChainId
+
       const params = {
         tenant: formData.tenantAddress,
         rentAmount: formData.rentAmount,
@@ -95,11 +126,10 @@ function CreateRent() {
       };
 
       const result = await contractService.createRentContract(params);
-      
+
       if (result.contractAddress) {
         alert(`✅ Rent contract created successfully!\nContract Address: ${result.contractAddress}`);
-        
-        // איפוס הטופס
+
         setFormData({
           tenantAddress: '',
           rentAmount: '',
@@ -109,19 +139,16 @@ function CreateRent() {
           startDate: '',
           network: 'sepolia'
         });
-        
-        // הפניה חזרה ל-dashboard
+
         setTimeout(() => {
           window.location.href = '/dashboard';
         }, 2000);
-        
       } else {
         alert('⚠️ Contract creation pending. Please check your wallet for confirmation.');
       }
-      
     } catch (error) {
       console.error('Error creating contract:', error);
-      alert(`❌ Error: ${error.reason || error.message}`);
+      alert(`❌ Error: ${error.reason || error.message}\nFull error: ${JSON.stringify(error)}`);
     } finally {
       setLoading(false);
     }
@@ -229,7 +256,7 @@ function CreateRent() {
               <option value="0x694AA1769357215DE4FAC081bf1f309aDC325306">ETH/USD (Sepolia)</option>
               <option value="0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419">ETH/USD (Mainnet)</option>
               <option value="0xAb5c49580294Aff77670F839ea425f5b78ab3Ae7">USDC/USD (Mainnet)</option>
-              <option value="0xMockPriceFeed">Mock Price Feed (Local)</option>
+              {mockPriceFeedAddress && <option value={mockPriceFeedAddress}>Mock Price Feed (Local)</option>}
             </select>
             <small>Chainlink price feed for conversion rates</small>
           </div>
@@ -266,18 +293,10 @@ function CreateRent() {
 
           {/* Form Actions */}
           <div className="form-actions">
-            <button
-              type="button"
-              className="btn-secondary"
-              onClick={() => window.history.back()}
-            >
+            <button type="button" className="btn-secondary" onClick={() => window.history.back()}>
               Cancel
             </button>
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={loading}
-            >
+            <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? (
                 <>
                   <div className="spinner"></div>
@@ -313,30 +332,19 @@ function CreateRent() {
             </div>
             <div className="preview-item">
               <span className="label">Tenant:</span>
-              <span className="value">
-                {formData.tenantAddress ? 
-                  `${formData.tenantAddress.slice(0, 8)}...${formData.tenantAddress.slice(-6)}` : 
-                  'Not specified'
-                }
-              </span>
+              <span className="value">{formData.tenantAddress ? `${formData.tenantAddress.slice(0, 8)}...${formData.tenantAddress.slice(-6)}` : 'Not specified'}</span>
             </div>
             <div className="preview-item">
               <span className="label">Rent Amount:</span>
-              <span className="value">
-                {formData.rentAmount ? `${formData.rentAmount} ETH` : 'Not specified'}
-              </span>
+              <span className="value">{formData.rentAmount ? `${formData.rentAmount} ETH` : 'Not specified'}</span>
             </div>
             <div className="preview-item">
               <span className="label">Duration:</span>
-              <span className="value">
-                {formData.duration ? `${formData.duration} days` : 'Not specified'}
-              </span>
+              <span className="value">{formData.duration ? `${formData.duration} days` : 'Not specified'}</span>
             </div>
             <div className="preview-item">
               <span className="label">Start Date:</span>
-              <span className="value">
-                {formData.startDate || 'Not specified'}
-              </span>
+              <span className="value">{formData.startDate || 'Not specified'}</span>
             </div>
           </div>
         </div>
