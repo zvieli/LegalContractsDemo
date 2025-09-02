@@ -67,7 +67,7 @@ contract TemplateRentContract {
         emit RentPaid(msg.sender, amount, false, address(0));
     }
 
-    function checkRentPrice() public view returns (int256) {
+    function checkRentPrice() internal view returns (int256) {
         (,int256 price,,,) = priceFeed.latestRoundData();
         return price;
     }
@@ -155,7 +155,7 @@ function cancelContract() external {
     emit ContractCancelled(msg.sender);
 }
 
-    function signRent(bytes memory signature) external onlyTenant onlyActive {
+    function signRent(bytes calldata signature) external onlyTenant onlyActive {
         require(!rentSigned, "Rent already signed");
 
         bytes32 messageHash = keccak256(abi.encodePacked(address(this), rentAmount, dueDate));

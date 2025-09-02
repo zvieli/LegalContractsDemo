@@ -143,8 +143,9 @@ contract NDATemplate is EIP712 {
     }
 
     function isFullySigned() public view returns (bool) {
-        for (uint256 i = 0; i < _parties.length; i++) {
+        for (uint256 i = 0; i < _parties.length; ) {
             if (!signedBy[_parties[i]]) return false;
+            unchecked { ++i; }
         }
         return true;
     }
@@ -314,13 +315,15 @@ contract NDATemplate is EIP712 {
         uint256 activeCases
     ) {
         uint256 totalDepositsValue;
-        for (uint256 i = 0; i < _parties.length; ) {
+        uint256 partiesLen = _parties.length;
+        for (uint256 i = 0; i < partiesLen; ) {
             totalDepositsValue += deposits[_parties[i]];
             unchecked { ++i; }
         }
 
         uint256 unresolvedCases;
-        for (uint256 j = 0; j < _cases.length; ) {
+        uint256 casesLen = _cases.length;
+        for (uint256 j = 0; j < casesLen; ) {
             if (!_cases[j].resolved) {
                 unresolvedCases++;
             }

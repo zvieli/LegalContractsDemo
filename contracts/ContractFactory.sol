@@ -25,8 +25,9 @@ contract ContractFactory {
         uint256 _rentAmount, 
         address _priceFeed
     ) external returns (address) {
-        require(_tenant != address(0), "Tenant cannot be zero address");
-        require(_tenant != msg.sender, "Landlord cannot be tenant");
+    address creator = msg.sender;
+    require(_tenant != address(0), "Tenant cannot be zero address");
+    require(_tenant != creator, "Landlord cannot be tenant");
         require(_rentAmount > 0, "Rent amount must be greater than 0");
         require(_priceFeed != address(0), "Price feed cannot be zero address");
         require(_priceFeed.code.length > 0, "Price feed must be a contract");
@@ -39,10 +40,10 @@ contract ContractFactory {
         );
 
         address newAddr = address(newContract);
-        allContracts.push(newAddr);
-        contractsByCreator[msg.sender].push(newAddr);
+    allContracts.push(newAddr);
+    contractsByCreator[creator].push(newAddr);
 
-        emit RentContractCreated(newAddr, msg.sender, _tenant);
+    emit RentContractCreated(newAddr, creator, _tenant);
         return newAddr;
     }
 
@@ -54,8 +55,9 @@ contract ContractFactory {
         address _arbitrator,
         uint256 _minDeposit
     ) external returns (address) {
-        require(_partyB != address(0), "Party B cannot be zero address");
-        require(_partyB != msg.sender, "Party A cannot be Party B");
+    address creator = msg.sender;
+    require(_partyB != address(0), "Party B cannot be zero address");
+    require(_partyB != creator, "Party A cannot be Party B");
         require(_expiryDate > block.timestamp, "Expiry date must be in the future");
         require(_penaltyBps <= 10000, "Penalty must be 10000 bps or less");
         require(_minDeposit > 0, "Minimum deposit must be greater than 0");
@@ -74,11 +76,11 @@ contract ContractFactory {
             _minDeposit         
         );
 
-        address newAddr = address(newNDA);
-        allContracts.push(newAddr);
-        contractsByCreator[msg.sender].push(newAddr);
+    address newAddr = address(newNDA);
+    allContracts.push(newAddr);
+    contractsByCreator[creator].push(newAddr);
 
-        emit NDACreated(newAddr, msg.sender, _partyB);
+    emit NDACreated(newAddr, creator, _partyB);
         return newAddr;
     }
 

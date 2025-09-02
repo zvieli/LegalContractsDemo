@@ -405,10 +405,9 @@ it("should allow withdrawal after deactivation and resolution", async function (
     partyA.address
   );
 
-  // DEBUG: Check if the case is actually resolved in the NDA contract
+  // check if the case was resolved by arbitrator; if not, attempt direct resolution
   const caseInfo = await ndaTemplate.getCase(0);
-  console.log("Case resolved after arbitrator:", caseInfo.resolved);
-  
+
   if (!caseInfo.resolved) {
     // If not resolved by arbitrator, try to resolve directly
     await ndaTemplate.connect(arbitratorOwner).resolveByArbitrator(

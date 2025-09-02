@@ -44,9 +44,9 @@ contract Arbitrator {
         uint256 _ndaCaseId,
         bytes calldata _evidence
     ) external returns (uint256) {
-        disputeCounter++;
-        
-        disputes[disputeCounter] = Dispute({
+        uint256 id = ++disputeCounter;
+
+        disputes[id] = Dispute({
             ndaContract: _ndaContract,
             partyA: address(0),
             partyB: address(0),
@@ -58,9 +58,9 @@ contract Arbitrator {
             partyBVoted: false,
             ndaCaseId: _ndaCaseId
         });
-        
-        emit DisputeCreated(disputeCounter, _ndaContract, msg.sender, _ndaCaseId);
-        return disputeCounter;
+
+        emit DisputeCreated(id, _ndaContract, msg.sender, _ndaCaseId);
+        return id;
     }
     
     function resolveDispute(
@@ -113,7 +113,8 @@ contract Arbitrator {
     
     function getActiveDisputesCount() external view returns (uint256) {
         uint256 count = 0;
-        for (uint256 i = 1; i <= disputeCounter; ) {
+        uint256 dc = disputeCounter;
+        for (uint256 i = 1; i <= dc; ) {
             if (disputes[i].status == DisputeStatus.Pending) {
                 count++;
             }
