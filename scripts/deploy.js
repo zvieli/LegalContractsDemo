@@ -10,8 +10,8 @@ const __dirname = path.dirname(__filename);
 async function main() {
   console.log("🚀 Starting Factory deployment...");
 
-  const [deployer] = await ethers.getSigners();
-  console.log("📝 Deploying with account:", deployer.address);
+  const [deployer, tenant] = await ethers.getSigners();
+  console.log("📝 Deploying with deployer:", deployer.address, " tenant:", tenant.address);
 
   // === 1. Deploy ContractFactory ===
   console.log("📦 Deploying ContractFactory...");
@@ -21,6 +21,22 @@ async function main() {
   const factoryAddress = await contractFactory.getAddress();
 
   console.log("✅ ContractFactory deployed to:", factoryAddress);
+
+  // === 1.5 Deploy mocks: MockERC20 and MockPriceFeed ===
+  console.log("📦 Deploying mock tokens and price feed...");
+  const MockERC20 = await ethers.getContractFactory("MockERC20");
+  const mockToken = await MockERC20.deploy("Mock Token", "MCK", ethers.parseUnits("1000000", 18));
+  await mockToken.waitForDeployment();
+  const mockTokenAddress = await mockToken.getAddress();
+
+  const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
+  // initial price 2000
+  const mockPrice = await MockPriceFeed.deploy(2000);
+  await mockPrice.waitForDeployment();
+  const mockPriceAddress = await mockPrice.getAddress();
+
+  console.log("✅ MockERC20 deployed to:", mockTokenAddress);
+  console.log("✅ MockPriceFeed deployed to:", mockPriceAddress);
 
   // === 2. Save deployment.json ===
   const deploymentData = {
@@ -84,6 +100,43 @@ async function main() {
       skippedCount++;
     }
   });
+
+  // === 4. Write MockContracts.json with deployed mock addresses and factory + sample created contract ===
+  console.log("💾 Writing MockContracts.json for frontend...");
+
+  // create a sample rent contract via factory to demonstrate flow
+  try {
+  const tx = await contractFactory.createRentContract(tenant.address, ethers.parseUnits("1", 18), mockPriceAddress);
+    const receipt = await tx.wait();
+    // ContractFactory emits RentContractCreated(contractAddress, landlord, tenant)
+    let rentAddress = null;
+    for (const ev of receipt.logs) {
+      try {
+        const parsed = contractFactory.interface.parseLog(ev);
+        if (parsed && parsed.name === "RentContractCreated") {
+          rentAddress = parsed.args[0];
+          break;
+        }
+      } catch (e) {
+        // ignore non-parsable logs
+      }
+    }
+
+    const mockContracts = {
+      contracts: {
+        MockPriceFeed: mockPriceAddress,
+        MockERC20: mockTokenAddress,
+        ContractFactory: factoryAddress,
+        SampleRent: rentAddress || null
+      },
+    };
+
+    const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
+    fs.writeFileSync(mockContractsPath, JSON.stringify(mockContracts, null, 2));
+    console.log("✅ MockContracts.json written to frontend:", mockContractsPath);
+  } catch (err) {
+    console.error("⚠️  Could not create sample rent contract via factory:", err.message);
+  }
 
   console.log(`🎉 Copied ${copiedCount} ABI files to ${frontendContractsDir}`);
   if (skippedCount > 0) {

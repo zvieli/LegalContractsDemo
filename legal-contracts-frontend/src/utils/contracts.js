@@ -1,8 +1,8 @@
 import ContractFactoryABI from './contracts/ContractFactoryABI.json';
-// If these ABIs exist in your project, uncomment the imports below.
-// import TemplateRentContractABI from './contracts/TemplateRentContractABI.json';
-// import NDATemplateABI from './contracts/NDATemplateABI.json';
-// import ArbitratorABI from './contracts/ArbitratorABI.json';
+// Import compiled ABIs used by the frontend
+import TemplateRentContractABI from './contracts/TemplateRentContractABI.json';
+import NDATemplateABI from './contracts/NDATemplateABI.json';
+import ArbitratorABI from './contracts/ArbitratorABI.json';
 import { CONTRACT_ADDRESSES } from '../../config/chains';
 import { ethers } from 'ethers';
 

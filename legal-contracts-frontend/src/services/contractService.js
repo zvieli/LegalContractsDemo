@@ -123,6 +123,33 @@ export class ContractService {
     }
   }
 
+  async approveToken(tokenAddress, spender, amount) {
+    try {
+      const tokenAbiName = 'MockERC20';
+      const tokenContract = createContractInstance(tokenAbiName, tokenAddress, this.signer);
+      // amount should be in token base units (e.g., wei for 18 decimals)
+      const tx = await tokenContract.approve(spender, amount);
+      const receipt = await tx.wait();
+      return receipt;
+    } catch (error) {
+      console.error('Error approving token:', error);
+      throw error;
+    }
+  }
+
+  async payRentWithToken(contractAddress, tokenAddress, amount) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      // amount expected in token base units (BigInt or string)
+      const tx = await rentContract.payRentWithToken(tokenAddress, amount);
+      const receipt = await tx.wait();
+      return receipt;
+    } catch (error) {
+      console.error('Error paying rent with token:', error);
+      throw error;
+    }
+  }
+
   // פונקציות נוספות ל-NDA agreements
   async createNDA(params) {
   try {

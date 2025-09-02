@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "../AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract TemplateRentContract {
@@ -14,6 +15,7 @@ contract TemplateRentContract {
     bool public active;
 
     AggregatorV3Interface internal immutable priceFeed;
+    using SafeERC20 for IERC20;
 
     uint256 public dueDate;
     uint8 public lateFeePercent = 5;
@@ -127,8 +129,9 @@ function getRentInEth() public view returns (uint256) {
     }
 
     function payRentWithToken(address tokenAddress, uint256 amount) external onlyTenant onlyActive {
-        IERC20 token = IERC20(tokenAddress);
-        require(token.transferFrom(msg.sender, landlord, amount), "Token transfer failed");
+    IERC20 token = IERC20(tokenAddress);
+    // use SafeERC20 to support non-standard ERC20 tokens
+    token.safeTransferFrom(msg.sender, landlord, amount);
         tokenPaid[tokenAddress] += amount;
 
         bool late = false;

@@ -88,6 +88,47 @@ contract ContractFactory {
         return allContracts;
     }
 
+    // Convenience: total counts to avoid returning large arrays in one call
+    function getAllContractsCount() external view returns (uint256) {
+        return allContracts.length;
+    }
+
+    /// @notice Return a page of `contractsByCreator[creator]` starting at `start`, up to `count` entries
+    function getContractsByCreatorPaged(address creator, uint256 start, uint256 count) external view returns (address[] memory) {
+        uint256 total = contractsByCreator[creator].length;
+        if (start >= total) {
+            return new address[](0);
+        }
+        uint256 end = start + count;
+        if (end > total) {
+            end = total;
+        }
+        uint256 size = end - start;
+        address[] memory page = new address[](size);
+        for (uint256 i = 0; i < size; i++) {
+            page[i] = contractsByCreator[creator][start + i];
+        }
+        return page;
+    }
+
+    /// @notice Return a page of `allContracts` starting at `start`, up to `count` entries
+    function getAllContractsPaged(uint256 start, uint256 count) external view returns (address[] memory) {
+        uint256 total = allContracts.length;
+        if (start >= total) {
+            return new address[](0);
+        }
+        uint256 end = start + count;
+        if (end > total) {
+            end = total;
+        }
+        uint256 size = end - start;
+        address[] memory page = new address[](size);
+        for (uint256 i = 0; i < size; i++) {
+            page[i] = allContracts[start + i];
+        }
+        return page;
+    }
+
     function getContractsByCreator(address creator) external view returns (address[] memory) {
         return contractsByCreator[creator];
     }

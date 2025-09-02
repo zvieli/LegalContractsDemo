@@ -109,6 +109,16 @@ describe("ETH Payment", function () {
       expect(await token.balanceOf(landlord.address)).to.equal(initialLandlordBalance + rentAmount);
       expect(await rentContract.tokenPaid(token.target)).to.equal(rentAmount);
     });
+
+    it("should revert when tenant tries to pay with ERC20 without approve", async function () {
+      // revoke approval
+      await token.connect(tenant).approve(rentContract.target, 0);
+
+      const rentAmount = ethers.parseUnits("100", 18);
+
+      await expect(rentContract.connect(tenant).payRentWithToken(token.target, rentAmount))
+        .to.be.reverted; // SafeERC20 will revert if transferFrom fails
+    });
   });
 
   describe("Rent Signing", function () {

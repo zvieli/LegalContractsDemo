@@ -1,0 +1,40 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        { "internalType": "address", "name": "_landlord", "type": "address" },
+        { "internalType": "address", "name": "_tenant", "type": "address" },
+        { "internalType": "uint256", "name": "_rentAmount", "type": "uint256" },
+        { "internalType": "address", "name": "_priceFeed", "type": "address" }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    { "anonymous": false, "inputs": [ { "indexed": true, "internalType": "address", "name": "by", "type": "address" } ], "name": "ContractCancelled", "type": "event" },
+    { "anonymous": false, "inputs": [ { "indexed": false, "internalType": "uint256", "name": "newTimestamp", "type": "uint256" } ], "name": "DueDateUpdated", "type": "event" },
+    { "anonymous": false, "inputs": [ { "indexed": false, "internalType": "uint256", "name": "newPercent", "type": "uint256" } ], "name": "LateFeeUpdated", "type": "event" },
+    { "anonymous": false, "inputs": [ { "indexed": true, "internalType": "address", "name": "tenant", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }, { "indexed": false, "internalType": "bool", "name": "late", "type": "bool" }, { "indexed": false, "internalType": "address", "name": "token", "type": "address" } ], "name": "RentPaid", "type": "event" },
+    { "anonymous": false, "inputs": [ { "indexed": true, "internalType": "address", "name": "signer", "type": "address" }, { "indexed": false, "internalType": "uint256", "name": "timestamp", "type": "uint256" } ], "name": "RentSigned", "type": "event" },
+    { "inputs": [], "name": "active", "outputs": [ { "internalType": "bool", "name": "", "type": "bool" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "cancelContract", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [], "name": "dueDate", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "getRentInEth", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "landlord", "outputs": [ { "internalType": "address", "name": "", "type": "address" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "lateFeePercent", "outputs": [ { "internalType": "uint8", "name": "", "type": "uint8" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [ { "internalType": "uint256", "name": "amount", "type": "uint256" } ], "name": "payRent", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [], "name": "payRentInEth", "outputs": [], "stateMutability": "payable", "type": "function" },
+    { "inputs": [], "name": "payRentPartial", "outputs": [], "stateMutability": "payable", "type": "function" },
+    { "inputs": [], "name": "payRentWithLateFee", "outputs": [], "stateMutability": "payable", "type": "function" },
+    { "inputs": [ { "internalType": "address", "name": "tokenAddress", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" } ], "name": "payRentWithToken", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [], "name": "rentAmount", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "rentPaid", "outputs": [ { "internalType": "bool", "name": "", "type": "bool" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "rentSigned", "outputs": [ { "internalType": "bool", "name": "", "type": "bool" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [ { "internalType": "uint256", "name": "timestamp", "type": "uint256" } ], "name": "setDueDate", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [ { "internalType": "bytes", "name": "signature", "type": "bytes" } ], "name": "signRent", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [], "name": "tenant", "outputs": [ { "internalType": "address", "name": "", "type": "address" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [ { "internalType": "address", "name": "", "type": "address" } ], "name": "tokenPaid", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [], "name": "totalPaid", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
+    { "inputs": [ { "internalType": "uint8", "name": "newPercent", "type": "uint8" } ], "name": "updateLateFee", "outputs": [], "stateMutability": "nonpayable", "type": "function" }
+  ],
+  "contractName": "TemplateRentContract"
+}
