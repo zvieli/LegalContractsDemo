@@ -6,17 +6,17 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract TemplateRentContract {
-    address public landlord;
-    address public tenant;
-    uint256 public rentAmount;       
+    address public immutable landlord;
+    address public immutable tenant;
+    uint256 public rentAmount;
     bool public rentPaid;
-    uint256 public totalPaid;       
+    uint256 public totalPaid;
     bool public active;
-    
-    AggregatorV3Interface internal priceFeed;
+
+    AggregatorV3Interface internal immutable priceFeed;
 
     uint256 public dueDate;
-    uint256 public lateFeePercent = 5;
+    uint8 public lateFeePercent = 5;
 
     mapping(address => uint256) public tokenPaid; 
 
@@ -60,7 +60,7 @@ contract TemplateRentContract {
         _;
     }
 
-    function payRent(uint256 amount) public onlyTenant onlyActive {
+    function payRent(uint256 amount) external onlyTenant onlyActive {
         require(amount >= rentAmount, "Not enough amount");
         rentPaid = true;
         totalPaid += amount;
@@ -86,21 +86,22 @@ function getRentInEth() public view returns (uint256) {
     return (rentAmount * 1e8) / uint256(price);
 }
 
-    function payRentInEth() public payable onlyTenant onlyActive {
+    function payRentInEth() external payable onlyTenant onlyActive {
         uint256 requiredEth = getRentInEth();
         require(msg.value >= requiredEth, "Not enough ETH sent");
         rentPaid = true;
         totalPaid += msg.value;
-        payable(landlord).transfer(msg.value);
+        (bool sent, ) = payable(landlord).call{value: msg.value}("");
+        require(sent, "ETH transfer to landlord failed");
         emit RentPaid(msg.sender, msg.value, false, address(0));
     }
 
-    function payRentWithLateFee() public payable onlyTenant onlyActive {
+    function payRentWithLateFee() external payable onlyTenant onlyActive {
         uint256 requiredEth = getRentInEth();
         bool late = false;
 
         if (block.timestamp > dueDate && dueDate != 0) {
-            uint256 fee = (requiredEth * lateFeePercent) / 100;
+            uint256 fee = (requiredEth * uint256(lateFeePercent)) / 100;
             requiredEth += fee;
             late = true;
         }
@@ -108,22 +109,24 @@ function getRentInEth() public view returns (uint256) {
         require(msg.value >= requiredEth, "Not enough ETH sent");
         totalPaid += msg.value;
         rentPaid = true;
-        payable(landlord).transfer(msg.value);
+        (bool sent, ) = payable(landlord).call{value: msg.value}("");
+        require(sent, "ETH transfer to landlord failed");
         emit RentPaid(msg.sender, msg.value, late, address(0));
     }
 
-    function payRentPartial() public payable onlyTenant onlyActive {
+    function payRentPartial() external payable onlyTenant onlyActive {
         bool late = false;
         if (block.timestamp > dueDate && dueDate != 0) late = true;
 
         totalPaid += msg.value;
         if (totalPaid >= getRentInEth()) rentPaid = true;
 
-        payable(landlord).transfer(msg.value);
+        (bool sent, ) = payable(landlord).call{value: msg.value}("");
+        require(sent, "ETH transfer to landlord failed");
         emit RentPaid(msg.sender, msg.value, late, address(0));
     }
 
-    function payRentWithToken(address tokenAddress, uint256 amount) public onlyTenant onlyActive {
+    function payRentWithToken(address tokenAddress, uint256 amount) external onlyTenant onlyActive {
         IERC20 token = IERC20(tokenAddress);
         require(token.transferFrom(msg.sender, landlord, amount), "Token transfer failed");
         tokenPaid[tokenAddress] += amount;
@@ -134,25 +137,25 @@ function getRentInEth() public view returns (uint256) {
         emit RentPaid(msg.sender, amount, late, tokenAddress);
     }
 
-    function updateLateFee(uint256 newPercent) public onlyLandlord onlyActive {
+    function updateLateFee(uint8 newPercent) external onlyLandlord onlyActive {
         lateFeePercent = newPercent;
         emit LateFeeUpdated(newPercent);
     }
 
-    function setDueDate(uint256 timestamp) public onlyLandlord onlyActive {
+    function setDueDate(uint256 timestamp) external onlyLandlord onlyActive {
         dueDate = timestamp;
         emit DueDateUpdated(timestamp);
     }
 
     // contracts/Rent/TemplateRentContract.sol - תיקון ה-cancelContract
-function cancelContract() public {
+function cancelContract() external {
     require(msg.sender == landlord || msg.sender == tenant, "Only landlord or tenant can cancel");
     require(active, "Contract already inactive");
     active = false;
     emit ContractCancelled(msg.sender);
 }
 
-    function signRent(bytes memory signature) public onlyTenant onlyActive {
+    function signRent(bytes memory signature) external onlyTenant onlyActive {
         require(!rentSigned, "Rent already signed");
 
         bytes32 messageHash = keccak256(abi.encodePacked(address(this), rentAmount, dueDate));

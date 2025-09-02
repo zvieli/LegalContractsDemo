@@ -3,7 +3,6 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "hardhat/console.sol";
 contract NDATemplate is EIP712 {
     using ECDSA for bytes32;
 
@@ -41,6 +40,7 @@ contract NDATemplate is EIP712 {
     event BreachResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address offender, address beneficiary);
     event ContractDeactivated(address indexed by, string reason);
     event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
+    // debug removed
 
     struct BreachCase {
         address reporter;
@@ -156,20 +156,18 @@ contract NDATemplate is EIP712 {
     }
 
     function canWithdraw() public view returns (bool) {
-    if (active) {
-        console.log("Cannot withdraw: Contract is active");
-        return false;
-    }
-    
-    for (uint256 i = 0; i < _cases.length; i++) {
-        if (!_cases[i].resolved) {
-            console.log("Cannot withdraw: Case", i, "is not resolved");
+        if (active) {
             return false;
         }
-    }
-    
-    console.log("Can withdraw: All conditions met");
-    return true;
+
+        for (uint256 i = 0; i < _cases.length; ) {
+            if (!_cases[i].resolved) {
+                return false;
+            }
+            unchecked { ++i; }
+        }
+
+        return true;
 }
 
     function withdrawDeposit(uint256 amount) external {
@@ -249,9 +247,9 @@ contract NDATemplate is EIP712 {
     }
 
     function resolveByArbitrator(uint256 caseId, bool approve, address beneficiary) external onlyActive {
-        require(arbitrator != address(0), "No arbitrator");
-        require(msg.sender == arbitrator, "Only arbitrator");
-        require(arbitrator.code.length > 0, "Arbitrator must be a contract");
+    require(arbitrator != address(0), "No arbitrator");
+    require(msg.sender == arbitrator, "Only arbitrator");
+    require(arbitrator.code.length > 0, "Arbitrator must be a contract");
         require(caseId < _cases.length, "Invalid case ID");
         require(beneficiary != address(0), "Invalid beneficiary");
         
@@ -262,7 +260,7 @@ contract NDATemplate is EIP712 {
     }
 
     function enforcePenalty(address guiltyParty, uint256 penaltyAmount, address beneficiary) external {
-        require(msg.sender == arbitrator, "Only arbitrator");
+    require(msg.sender == arbitrator, "Only arbitrator");
         require(arbitrator != address(0), "No arbitrator");
         require(penaltyAmount <= deposits[guiltyParty], "Insufficient deposit");
         require(penaltyAmount > 0, "Penalty must be > 0");
@@ -316,15 +314,17 @@ contract NDATemplate is EIP712 {
         uint256 activeCases
     ) {
         uint256 totalDepositsValue;
-        for (uint256 i = 0; i < _parties.length; i++) {
+        for (uint256 i = 0; i < _parties.length; ) {
             totalDepositsValue += deposits[_parties[i]];
+            unchecked { ++i; }
         }
 
         uint256 unresolvedCases;
-        for (uint256 i = 0; i < _cases.length; i++) {
-            if (!_cases[i].resolved) {
+        for (uint256 j = 0; j < _cases.length; ) {
+            if (!_cases[j].resolved) {
                 unresolvedCases++;
             }
+            unchecked { ++j; }
         }
 
         return (

@@ -59,6 +59,14 @@ describe("Arbitrator", function () {
   describe("resolveDispute", function () {
     beforeEach(async function () {
       const evidence = ethers.toUtf8Bytes("Test evidence");
+      // create the NDA case first so the arbitrator can reference a valid caseId
+      const evidenceHash = ethers.keccak256(evidence);
+      await ndaTemplate.connect(partyA).reportBreach(
+        partyB.address,
+        ethers.parseEther("0.05"),
+        evidenceHash
+      );
+
       await arbitrator.connect(partyA).createDisputeForCase(
         ndaTemplate.target,
         0,
