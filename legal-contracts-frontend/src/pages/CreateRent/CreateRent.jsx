@@ -17,6 +17,22 @@ function CreateRent() {
     network: 'sepolia' // ערך ברירת מחדל
   });
 
+  const resolveSelectedNetworkChainId = () => {
+    switch (formData.network) {
+      case 'mainnet':
+        return 1;
+      case 'goerli':
+        return 5;
+      case 'sepolia':
+        return 11155111;
+      case 'polygon':
+        return 137;
+      case 'localhost':
+      default:
+        return 31337; // Hardhat default
+    }
+  };
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -51,6 +67,15 @@ function CreateRent() {
 
     if (!formData.startDate) {
       alert('Please select a start date');
+      return;
+    }
+
+    // Verify wallet network matches selection
+    const expectedChainId = resolveSelectedNetworkChainId();
+    // Allow any local chainId when 'localhost' is selected
+    const isLocalSelected = formData.network === 'localhost';
+    if (!isLocalSelected && chainId && Number(chainId) !== expectedChainId) {
+      alert(`Please switch your wallet network to match the selected network (expected chainId ${expectedChainId}, got ${chainId}).`);
       return;
     }
 
