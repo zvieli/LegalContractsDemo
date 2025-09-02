@@ -2,6 +2,7 @@ import Header from './components/common/Header/Header';
 import Footer from './components/common/Footer/Footer';
 import Home from './pages/Home/Home';
 import Dashboard from './components/Dashboard/Dashboard';
+import CreateChoice from './pages/CreateChoice/CreateChoice';
 import CreateRent from './pages/CreateRent/CreateRent';
 import CreateNDA from './pages/CreateNDA/CreateNDA';
 import Arbitration from './pages/Arbitration/Arbitration';
@@ -18,6 +19,8 @@ function App() {
         return <Dashboard />;
       case '/create-rent':
         return <CreateRent />;
+      case '/create':
+        return <CreateChoice />;
       case '/create-nda':
         return <CreateNDA />;
       case '/arbitration':

@@ -10,7 +10,11 @@ function CreateRent() {
   const [formData, setFormData] = useState({
     tenantAddress: '',
     rentAmount: '',
-    priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306' // ETH/USD Sepolia
+    paymentToken: '0x0000000000000000000000000000000000000000',
+    priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
+    duration: '',
+    startDate: '',
+    network: 'sepolia' // ערך ברירת מחדל
   });
 
   const handleInputChange = (e) => {
@@ -40,6 +44,16 @@ function CreateRent() {
       return;
     }
 
+    if (!formData.duration || parseInt(formData.duration) <= 0) {
+      alert('Please enter a valid duration');
+      return;
+    }
+
+    if (!formData.startDate) {
+      alert('Please select a start date');
+      return;
+    }
+
     setLoading(true);
     
     try {
@@ -48,7 +62,11 @@ function CreateRent() {
       const params = {
         tenant: formData.tenantAddress,
         rentAmount: formData.rentAmount,
-        priceFeed: formData.priceFeed
+        paymentToken: formData.paymentToken,
+        priceFeed: formData.priceFeed,
+        duration: formData.duration,
+        startDate: Math.floor(new Date(formData.startDate).getTime() / 1000),
+        network: formData.network
       };
 
       const result = await contractService.createRentContract(params);
@@ -60,7 +78,11 @@ function CreateRent() {
         setFormData({
           tenantAddress: '',
           rentAmount: '',
-          priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306'
+          paymentToken: '0x0000000000000000000000000000000000000000',
+          priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306',
+          duration: '',
+          startDate: '',
+          network: 'sepolia'
         });
         
         // הפניה חזרה ל-dashboard
@@ -79,8 +101,6 @@ function CreateRent() {
       setLoading(false);
     }
   };
-
-  // ... rest of the component ...
 
   if (!isConnected) {
     return (
@@ -103,6 +123,25 @@ function CreateRent() {
 
       <div className="form-container">
         <form onSubmit={handleCreateContract} className="rent-form">
+          {/* Network Selection */}
+          <div className="form-group">
+            <label htmlFor="network">Network *</label>
+            <select
+              id="network"
+              name="network"
+              value={formData.network}
+              onChange={handleInputChange}
+              required
+            >
+              <option value="sepolia">Sepolia Testnet</option>
+              <option value="mainnet">Ethereum Mainnet</option>
+              <option value="localhost">Localhost (Hardhat/Ganache)</option>
+              <option value="goerli">Goerli Testnet</option>
+              <option value="polygon">Polygon Mainnet</option>
+            </select>
+            <small>Select the blockchain network for deployment</small>
+          </div>
+
           {/* Tenant Address */}
           <div className="form-group">
             <label htmlFor="tenantAddress">Tenant Address *</label>
@@ -165,6 +204,7 @@ function CreateRent() {
               <option value="0x694AA1769357215DE4FAC081bf1f309aDC325306">ETH/USD (Sepolia)</option>
               <option value="0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419">ETH/USD (Mainnet)</option>
               <option value="0xAb5c49580294Aff77670F839ea425f5b78ab3Ae7">USDC/USD (Mainnet)</option>
+              <option value="0xMockPriceFeed">Mock Price Feed (Local)</option>
             </select>
             <small>Chainlink price feed for conversion rates</small>
           </div>
@@ -232,6 +272,16 @@ function CreateRent() {
         <div className="contract-preview">
           <h3>Contract Preview</h3>
           <div className="preview-content">
+            <div className="preview-item">
+              <span className="label">Network:</span>
+              <span className="value">
+                {formData.network === 'sepolia' && 'Sepolia Testnet'}
+                {formData.network === 'mainnet' && 'Ethereum Mainnet'}
+                {formData.network === 'localhost' && 'Local Network'}
+                {formData.network === 'goerli' && 'Goerli Testnet'}
+                {formData.network === 'polygon' && 'Polygon Mainnet'}
+              </span>
+            </div>
             <div className="preview-item">
               <span className="label">Landlord:</span>
               <span className="value">{account ? `${account.slice(0, 8)}...${account.slice(-6)}` : 'Not connected'}</span>

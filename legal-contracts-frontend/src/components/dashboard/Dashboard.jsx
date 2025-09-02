@@ -1,58 +1,94 @@
 import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
+import { useNotifications } from '../../contexts/NotificationContext';
 import { ContractService } from '../../services/contractService';
+import { useRentPaymentEvents } from '../../hooks/useContractEvents';
 import ContractModal from '../ContractModal/ContractModal';
 import { ethers } from 'ethers';
 import './Dashboard.css';
 
 function Dashboard() {
   const { account, signer, isConnected, chainId } = useEthers();
+  const { addNotification } = useNotifications();
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalContracts: 0,
     activeContracts: 0,
-    pendingContracts: 0
+    pendingContracts: 0,
+    totalValue: 0
   });
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // התראות בזמן אמת על תשלומי שכירות
+  useRentPaymentEvents(selectedContract, (payer, amount, timestamp) => {
+    addNotification({
+      type: 'success',
+      title: 'Rent Payment Received',
+      message: `${ethers.formatEther(amount)} ETH received from ${payer.slice(0, 8)}...`,
+      persistent: false
+    });
+  });
+
   useEffect(() => {
     if (isConnected && account && signer && chainId) {
       loadUserContracts();
+      setupEventListeners();
     }
   }, [isConnected, account, signer, chainId]);
 
+  // האזנה לאירועי יצירת חוזים
+  const setupEventListeners = async () => {
+    try {
+      const contractService = new ContractService(signer, chainId);
+      const factoryContract = await contractService.getFactoryContract();
+
+      factoryContract.on('RentContractCreated', (contractAddress, landlord, tenant, rentAmount, priceFeed) => {
+        addNotification({
+          type: 'success',
+          title: 'New Rental Contract Created',
+          message: `Contract created with ${tenant.slice(0, 8)}...`,
+          persistent: true
+        });
+        loadUserContracts();
+      });
+
+      factoryContract.on('NDACreated', (contractAddress, partyA, partyB) => {
+        addNotification({
+          type: 'success',
+          title: 'New NDA Agreement Created',
+          message: `NDA created with ${partyB.slice(0, 8)}...`,
+          persistent: true
+        });
+        loadUserContracts();
+      });
+
+    } catch (error) {
+      console.error('Error setting up event listeners:', error);
+    }
+  };
+
+  // טעינת כל החוזים של המשתמש
   const loadUserContracts = async () => {
     try {
       setLoading(true);
-      
       const contractService = new ContractService(signer, chainId);
       const userContracts = await contractService.getUserContracts(account);
-      
+
       if (userContracts && userContracts.length > 0) {
         const contractDetails = await Promise.all(
           userContracts.map(async (contractAddress) => {
             try {
-              const rentContract = await contractService.getRentContract(contractAddress);
-              
-              // קבלת פרטי החוזה
-              const [landlord, tenant, rentAmount, isActive] = await Promise.all([
-                rentContract.landlord(),
-                rentContract.tenant(),
-                rentContract.rentAmount(),
-                rentContract.isActive().catch(() => true) // fallback אם הפונקציה לא קיימת
-              ]);
-              
-              return {
-                address: contractAddress,
-                type: 'Rental',
-                status: isActive ? 'Active' : 'Completed',
-                parties: [landlord, tenant],
-                created: 'Recent',
-                amount: `${ethers.formatEther(rentAmount)} ETH`,
-                isActive
-              };
+              // קודם ננסה כחוזה שכירות
+              try {
+                const details = await contractService.getRentContractDetails(contractAddress);
+                return { ...details, type: 'Rental' };
+              } catch {
+                // אם נכשל – ננסה כ־NDA
+                const details = await contractService.getNDAContractDetails(contractAddress);
+                return { ...details, type: 'NDA' };
+              }
             } catch (error) {
               console.error('Error loading contract details:', error);
               return {
@@ -67,26 +103,32 @@ function Dashboard() {
             }
           })
         );
-        
+
         setContracts(contractDetails);
-        
-        // עדכון סטטיסטיקות
+
+        // חישוב סטטיסטיקות
+        const activeContracts = contractDetails.filter(c => c.isActive).length;
+        const totalValue = contractDetails.reduce((sum, contract) => {
+          return sum + (parseFloat(contract.amount) || 0);
+        }, 0);
+
         setStats({
           totalContracts: contractDetails.length,
-          activeContracts: contractDetails.filter(c => c.isActive).length,
-          pendingContracts: contractDetails.filter(c => !c.isActive).length
+          activeContracts,
+          pendingContracts: contractDetails.length - activeContracts,
+          totalValue
         });
-        
+
       } else {
-        // הצגת הודעה אם אין חוזים
         setContracts([]);
         setStats({
           totalContracts: 0,
           activeContracts: 0,
-          pendingContracts: 0
+          pendingContracts: 0,
+          totalValue: 0
         });
       }
-      
+
     } catch (error) {
       console.error('Error loading contracts:', error);
       setContracts([]);
@@ -108,8 +150,7 @@ function Dashboard() {
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedContract(null);
-    // Refresh contracts when modal closes
-    loadUserContracts();
+    loadUserContracts(); // ריענון אחרי סגירת מודאל
   };
 
   const createNewContract = (type) => {
@@ -145,7 +186,7 @@ function Dashboard() {
           <h2>My Contracts</h2>
           <p>Manage all your smart contracts in one place</p>
         </div>
-        
+
         <div className="stats-grid">
           <div className="stat-card">
             <div className="stat-icon">
@@ -156,7 +197,7 @@ function Dashboard() {
               <p>Total Contracts</p>
             </div>
           </div>
-          
+
           <div className="stat-card">
             <div className="stat-icon">
               <i className="fas fa-check-circle"></i>
@@ -166,7 +207,7 @@ function Dashboard() {
               <p>Active</p>
             </div>
           </div>
-          
+
           <div className="stat-card">
             <div className="stat-icon">
               <i className="fas fa-clock"></i>
@@ -174,6 +215,16 @@ function Dashboard() {
             <div className="stat-content">
               <h3>{stats.pendingContracts}</h3>
               <p>Pending</p>
+            </div>
+          </div>
+
+          <div className="stat-card">
+            <div className="stat-icon">
+              <i className="fas fa-coins"></i>
+            </div>
+            <div className="stat-content">
+              <h3>{stats.totalValue} ETH</h3>
+              <p>Total Value</p>
             </div>
           </div>
         </div>
@@ -190,7 +241,7 @@ function Dashboard() {
             <i className="fas fa-home"></i>
             New Rental Agreement
           </button>
-          
+
           <button 
             className="action-btn secondary"
             onClick={() => createNewContract('nda')}
@@ -229,15 +280,15 @@ function Dashboard() {
                     {contract.status}
                   </div>
                 </div>
-                
+
                 <div className="contract-details">
                   <div className="contract-parties">
                     <span className="label">Parties:</span>
                     <span className="value">
-                      {contract.parties[0].slice(0, 8)}... ↔ {contract.parties[1].slice(0, 8)}...
+                      {contract.parties[0]?.slice(0, 8)}... ↔ {contract.parties[1]?.slice(0, 8)}...
                     </span>
                   </div>
-                  
+
                   <div className="contract-info">
                     <div className="info-item">
                       <span className="label">Amount:</span>
@@ -249,7 +300,7 @@ function Dashboard() {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="contract-actions">
                   <button 
                     className="btn-sm outline"

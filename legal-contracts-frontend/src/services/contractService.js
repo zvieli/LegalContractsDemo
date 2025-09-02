@@ -146,7 +146,7 @@ export class ContractService {
       try {
         const parsedLog = factoryContract.interface.parseLog(log);
         if (parsedLog && parsedLog.name === 'NDACreated') {
-          contractAddress = parsedLog.args[0]; // First argument is address
+          contractAddress = parsedLog.args[0];
           break;
         }
       } catch (error) {
@@ -162,6 +162,44 @@ export class ContractService {
     
   } catch (error) {
     console.error('Error creating NDA:', error);
+    throw error;
+  }
+}
+
+async getNDAContract(contractAddress) {
+  try {
+    return createContractInstance('NDATemplate', contractAddress, this.signer);
+  } catch (error) {
+    console.error('Error getting NDA contract:', error);
+    throw error;
+  }
+}
+
+async getNDAContractDetails(contractAddress) {
+  try {
+    const ndaContract = await this.getNDAContract(contractAddress);
+    
+    const [partyA, partyB, expiryDate, penaltyBps, minDeposit, isActive] = await Promise.all([
+      ndaContract.partyA(),
+      ndaContract.partyB(),
+      ndaContract.expiryDate(),
+      ndaContract.penaltyBps(),
+      ndaContract.minDeposit(),
+      ndaContract.isActive?.().catch(() => true)
+    ]);
+    
+    return {
+      address: contractAddress,
+      partyA,
+      partyB,
+      expiryDate: new Date(Number(expiryDate) * 1000).toLocaleDateString(),
+      penaltyBps: Number(penaltyBps),
+      minDeposit: ethers.formatEther(minDeposit),
+      isActive: !!isActive,
+      type: 'NDA'
+    };
+  } catch (error) {
+    console.error('Error getting NDA details:', error);
     throw error;
   }
 }
