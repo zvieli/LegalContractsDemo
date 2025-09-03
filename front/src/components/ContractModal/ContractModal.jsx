@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 import './ContractModal.css';
 
 function ContractModal({ contractAddress, isOpen, onClose }) {
-  const { signer, chainId, account } = useEthers();
+  const { signer, chainId, account, provider } = useEthers();
   const [contractDetails, setContractDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -31,12 +31,15 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
       // טען היסטוריית תשלומים (מהחוזה)
       const rentContract = await contractService.getRentContract(contractAddress);
       const paymentEvents = await rentContract.queryFilter(rentContract.filters.RentPaid());
-      
-      const transactions = paymentEvents.map(event => ({
-        hash: event.transactionHash,
-        amount: ethers.formatEther(event.args.amount),
-        date: new Date(Number(event.args.timestamp) * 1000).toLocaleDateString(),
-        payer: event.args.payer
+      // Enrich with block timestamps; event args: (tenant, amount, late, token)
+      const transactions = await Promise.all(paymentEvents.map(async (event) => {
+        const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
+        return {
+          hash: event.transactionHash,
+          amount: ethers.formatEther(event.args.amount),
+          date: blk?.timestamp ? new Date(Number(blk.timestamp) * 1000).toLocaleDateString() : '—',
+          payer: event.args.tenant
+        };
       }));
       
       setTransactionHistory(transactions);
@@ -71,26 +74,6 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
     }
   };
 
-  const handleWithdraw = async () => {
-    try {
-      setActionLoading(true);
-      const contractService = new ContractService(signer, chainId);
-      const rentContract = await contractService.getRentContract(contractAddress);
-      
-      const tx = await rentContract.withdrawFunds();
-      const receipt = await tx.wait();
-      
-      alert(`✅ Funds withdrawn successfully!\nTransaction: ${receipt.hash}`);
-      await loadContractData();
-      
-    } catch (error) {
-      console.error('Error withdrawing funds:', error);
-      alert(`❌ Withdrawal failed: ${error.reason || error.message}`);
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const handleTerminate = async () => {
     if (!confirm('Are you sure you want to terminate this contract? This action cannot be undone.')) {
       return;
@@ -101,7 +84,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
       const contractService = new ContractService(signer, chainId);
       const rentContract = await contractService.getRentContract(contractAddress);
       
-      const tx = await rentContract.terminateContract();
+  const tx = await rentContract.cancelContract();
       const receipt = await tx.wait();
       
       alert(`✅ Contract terminated!\nTransaction: ${receipt.hash}`);
@@ -231,15 +214,6 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
               <div className="tab-content">
                 <h3>Contract Actions</h3>
                 <div className="actions-grid">
-                  <button 
-                    onClick={handleWithdraw}
-                    disabled={actionLoading}
-                    className="btn-action"
-                  >
-                    <i className="fas fa-wallet"></i>
-                    Withdraw Funds
-                  </button>
-                  
                   <button 
                     onClick={handleTerminate}
                     disabled={actionLoading}

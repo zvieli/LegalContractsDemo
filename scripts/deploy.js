@@ -49,7 +49,7 @@ async function main() {
 
   const frontendContractsDir = path.join(
     __dirname,
-    "../legal-contracts-frontend/src/utils/contracts"
+    "../front/src/utils/contracts"
   );
   if (!fs.existsSync(frontendContractsDir)) {
     fs.mkdirSync(frontendContractsDir, { recursive: true });
@@ -65,19 +65,20 @@ async function main() {
 
   const abiSourceDir = path.join(__dirname, "../artifacts/contracts");
 
+  // Use correct subpaths for artifacts as compiled by Hardhat
   const contractsToCopy = [
     "ContractFactory.sol",
-    "TemplateRentContract.sol",
-    "NDATemplate.sol",
-    "Arbitrator.sol",
+    path.join("Rent", "TemplateRentContract.sol"),
+    path.join("NDA", "NDATemplate.sol"),
+    path.join("NDA", "Arbitrator.sol"),
   ];
 
   let copiedCount = 0;
   let skippedCount = 0;
 
   contractsToCopy.forEach((contractFile) => {
-    const contractName = contractFile.replace(".sol", "");
-    const artifactPath = path.join(abiSourceDir, contractFile, `${contractName}.json`);
+  const contractName = path.basename(contractFile).replace(".sol", "");
+  const artifactPath = path.join(abiSourceDir, contractFile, `${contractName}.json`);
 
     if (fs.existsSync(artifactPath)) {
       try {

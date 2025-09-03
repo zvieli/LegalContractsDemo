@@ -12,7 +12,15 @@ export class ContractService {
     if (!factoryAddress) {
       throw new Error('Factory contract not deployed on this network');
     }
-    return createContractInstance('ContractFactory', factoryAddress, this.signer);
+    const contract = createContractInstance('ContractFactory', factoryAddress, this.signer);
+    // Lightweight sanity check to catch wrong/stale addresses on localhost
+    try {
+      const code = await this.signer.provider.getCode(factoryAddress);
+      if (!code || code === '0x') {
+        throw new Error(`No contract code at ${factoryAddress}. Is the node running and deployed?`);
+      }
+    } catch (_) {}
+    return contract;
   }
 
   async createRentContract(params) {
@@ -30,9 +38,23 @@ export class ContractService {
 
       const factoryContract = await this.getFactoryContract();
 
+      const rentAmountWei = ethers.parseEther(params.rentAmount);
+
+      // Preflight simulate to catch wrong selector/ABI/address before wallet prompt
+      try {
+        await factoryContract.callStatic.createRentContract(
+          params.tenant,
+          rentAmountWei,
+          params.priceFeed
+        );
+      } catch (simErr) {
+        console.error('Preflight createRentContract failed:', simErr);
+        throw new Error(`Factory call failed (check network/ABI/args): ${simErr.reason || simErr.message}`);
+      }
+
       const tx = await factoryContract.createRentContract(
         params.tenant,
-        ethers.parseEther(params.rentAmount),
+        rentAmountWei,
         params.priceFeed
       );
 
@@ -76,6 +98,11 @@ export class ContractService {
 
   async getRentContractDetails(contractAddress) {
     try {
+      // Ensure the address is a contract before calling views
+      const code = await this.signer.provider.getCode(contractAddress);
+      if (!code || code === '0x') {
+        throw new Error(`Address ${contractAddress} has no contract code`);
+      }
       const rentContract = await this.getRentContract(contractAddress);
       
       const [landlord, tenant, rentAmount, priceFeed, isActive] = await Promise.all([
@@ -83,16 +110,23 @@ export class ContractService {
         rentContract.tenant(),
         rentContract.rentAmount(),
         rentContract.priceFeed(),
-        rentContract.isActive?.().catch(() => true) // optional chaining עם fallback
+        // TemplateRentContract exposes `active()`
+        rentContract.active().catch(() => true)
       ]);
       
+      const formattedAmount = ethers.formatEther(rentAmount);
       return {
         address: contractAddress,
         landlord,
         tenant,
-        rentAmount: ethers.formatEther(rentAmount),
+        rentAmount: formattedAmount,
         priceFeed,
-        isActive: !!isActive
+        isActive: !!isActive,
+        // UI-friendly fields expected by Dashboard
+        amount: formattedAmount,
+        parties: [landlord, tenant],
+        status: !!isActive ? 'Active' : 'Inactive',
+        created: '—'
       };
     } catch (error) {
       console.error('Error getting contract details:', error);
@@ -104,7 +138,18 @@ export class ContractService {
     try {
       const factoryContract = await this.getFactoryContract();
       const contracts = await factoryContract.getContractsByCreator(userAddress);
-      return contracts;
+      // Filter out any addresses that aren't contracts (defensive against wrong factory/addressing)
+      const checks = await Promise.all(
+        contracts.map(async (addr) => {
+          try {
+            const code = await this.signer.provider.getCode(addr);
+            return code && code !== '0x' ? addr : null;
+          } catch (_) {
+            return null;
+          }
+        })
+      );
+      return checks.filter(Boolean);
     } catch (error) {
       console.error('Error fetching user contracts:', error);
       return [];
@@ -114,7 +159,8 @@ export class ContractService {
   async payRent(contractAddress, amount) {
     try {
       const rentContract = await this.getRentContract(contractAddress);
-      const tx = await rentContract.payRent({ value: ethers.parseEther(amount) });
+  // Pay in ETH according to TemplateRentContract.payRentInEth()
+  const tx = await rentContract.payRentInEth({ value: ethers.parseEther(amount) });
       const receipt = await tx.wait();
       return receipt;
     } catch (error) {
@@ -215,6 +261,11 @@ async getNDAContract(contractAddress) {
 
 async getNDAContractDetails(contractAddress) {
   try {
+    // Ensure the address is a contract before calling views
+    const code = await this.signer.provider.getCode(contractAddress);
+    if (!code || code === '0x') {
+      throw new Error(`Address ${contractAddress} has no contract code`);
+    }
     const ndaContract = await this.getNDAContract(contractAddress);
     
     const [partyA, partyB, expiryDate, penaltyBps, minDeposit, isActive] = await Promise.all([
@@ -223,18 +274,25 @@ async getNDAContractDetails(contractAddress) {
       ndaContract.expiryDate(),
       ndaContract.penaltyBps(),
       ndaContract.minDeposit(),
-      ndaContract.isActive?.().catch(() => true)
+      // NDATemplate exposes `active` public var (getter)
+      ndaContract.active().catch(() => true)
     ]);
     
+    const formattedMin = ethers.formatEther(minDeposit);
     return {
       address: contractAddress,
       partyA,
       partyB,
       expiryDate: new Date(Number(expiryDate) * 1000).toLocaleDateString(),
       penaltyBps: Number(penaltyBps),
-      minDeposit: ethers.formatEther(minDeposit),
+      minDeposit: formattedMin,
       isActive: !!isActive,
-      type: 'NDA'
+      type: 'NDA',
+      // UI-friendly fields expected by Dashboard
+      amount: formattedMin,
+      parties: [partyA, partyB],
+      status: !!isActive ? 'Active' : 'Inactive',
+      created: new Date(Number(expiryDate) * 1000).toLocaleDateString()
     };
   } catch (error) {
     console.error('Error getting NDA details:', error);

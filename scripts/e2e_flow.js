@@ -17,9 +17,9 @@ async function main(){
   const signerLandlord = provider.getSigner(landlordAddress);
   const signerTenant = provider.getSigner(tenantAddress);
 
-  const mockContractsPath = path.join(root, 'legal-contracts-frontend','src','utils','contracts','MockContracts.json');
-  const factoryJsonPath = path.join(root, 'legal-contracts-frontend','src','utils','contracts','ContractFactory.json');
-  const factoryAbiPath = path.join(root, 'legal-contracts-frontend','src','utils','contracts','ContractFactoryABI.json');
+  const mockContractsPath = path.join(root, 'front','src','utils','contracts','MockContracts.json');
+  const factoryJsonPath = path.join(root, 'front','src','utils','contracts','ContractFactory.json');
+  const factoryAbiPath = path.join(root, 'front','src','utils','contracts','ContractFactoryABI.json');
   const templateAbiPath = path.join(root, 'artifacts','contracts','Rent','TemplateRentContract.sol','TemplateRentContract.json');
   const mockERC20ArtifactPath = path.join(root, 'artifacts','contracts','Rent','MockERC20.sol','MockERC20.json');
 

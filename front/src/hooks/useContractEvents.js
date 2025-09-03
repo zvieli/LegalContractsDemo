@@ -35,15 +35,17 @@ export const useRentPaymentEvents = (contractAddress, callback) => {
       const contract = new ethers.Contract(
         contractAddress,
         [
-          'event RentPaid(address indexed payer, uint256 amount, uint256 timestamp)'
+          'event RentPaid(address indexed tenant, uint256 amount, bool late, address token)'
         ],
         provider
       );
 
-      contract.on('RentPaid', callback);
+      // Normalize to (payer, amount) for existing UI callback handler
+      const handler = (tenant, amount /*, late, token, event */) => callback(tenant, amount);
+      contract.on('RentPaid', handler);
 
       return () => {
-        contract.off('RentPaid', callback);
+        contract.off('RentPaid', handler);
       };
     } catch (error) {
       console.error('Error setting up rent payment events:', error);

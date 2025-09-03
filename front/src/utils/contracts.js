@@ -38,9 +38,10 @@ export const getContractAddress = async (chainId, contractName) => {
       window.location.hostname === '127.0.0.1' ||
       window.location.hostname === '::1'
     );
+  const isLocalChain = Number(chainId) === 31337 || Number(chainId) === 1337 || Number(chainId) === 5777;
 
-    // 1) Prefer localhost address when running locally (covers non-standard local chainIds like 6342)
-    if (isLocalHostEnv) {
+  // 1) Prefer localhost address when running locally AND targeting a local chain
+  if (isLocalHostEnv && isLocalChain) {
       const local = await import('../utils/contracts/ContractFactory.json');
       if (contractName.toLowerCase() === 'factory' || contractName === 'ContractFactory') {
         if (local?.contracts?.ContractFactory) return local.contracts.ContractFactory;
@@ -48,8 +49,8 @@ export const getContractAddress = async (chainId, contractName) => {
       // fall through to configured addresses if not found
     }
 
-    // 2) Explicit localhost chainIds support via generated JSON
-    if (Number(chainId) === 31337 || Number(chainId) === 1337 || Number(chainId) === 5777) {
+  // 2) Explicit localhost chainIds support via generated JSON
+  if (isLocalChain) {
       const local = await import('../utils/contracts/ContractFactory.json');
       if (contractName.toLowerCase() === 'factory') {
         return local?.contracts?.ContractFactory || null;

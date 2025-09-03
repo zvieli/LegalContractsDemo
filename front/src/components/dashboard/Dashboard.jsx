@@ -44,7 +44,7 @@ function Dashboard() {
       const contractService = new ContractService(signer, chainId);
       const factoryContract = await contractService.getFactoryContract();
 
-      factoryContract.on('RentContractCreated', (contractAddress, landlord, tenant, rentAmount, priceFeed) => {
+  factoryContract.on('RentContractCreated', (contractAddress, landlord, tenant) => {
         addNotification({
           type: 'success',
           title: 'New Rental Contract Created',

@@ -14,7 +14,7 @@ contract TemplateRentContract {
     uint256 public totalPaid;
     bool public active;
 
-    AggregatorV3Interface internal immutable priceFeed;
+AggregatorV3Interface public immutable priceFeed;
     using SafeERC20 for IERC20;
 
     uint256 public dueDate;
