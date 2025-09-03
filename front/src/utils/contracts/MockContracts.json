@@ -1,8 +1,0 @@
-{
-  "contracts": {
-    "MockPriceFeed": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
-    "MockERC20": "0x0B306BF915C4d645ff596e518fAf3F9669b97016",
-    "ContractFactory": "0x9A676e781A523b5d0C0e43731313A708CB607508",
-    "SampleRent": "0x8e80FFe6Dc044F4A766Afd6e5a8732Fe0977A493"
-  }
-}

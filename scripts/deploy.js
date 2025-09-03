@@ -69,6 +69,9 @@ async function main() {
   const contractsToCopy = [
     "ContractFactory.sol",
     path.join("Rent", "TemplateRentContract.sol"),
+  // Mocks
+  path.join("Rent", "MockPriceFeed.sol"),
+  path.join("Rent", "MockERC20.sol"),
     path.join("NDA", "NDATemplate.sol"),
     path.join("NDA", "Arbitrator.sol"),
   ];

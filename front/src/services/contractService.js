@@ -40,13 +40,21 @@ export class ContractService {
 
       const rentAmountWei = ethers.parseEther(params.rentAmount);
 
-      // Preflight simulate to catch wrong selector/ABI/address before wallet prompt
+      // Preflight simulate to catch wrong selector/ABI/address before wallet prompt (ethers v6)
       try {
-        await factoryContract.callStatic.createRentContract(
-          params.tenant,
-          rentAmountWei,
-          params.priceFeed
-        );
+        if (factoryContract?.createRentContract?.staticCall) {
+          await factoryContract.createRentContract.staticCall(
+            params.tenant,
+            rentAmountWei,
+            params.priceFeed
+          );
+        } else if (factoryContract?.getFunction) {
+          await factoryContract.getFunction('createRentContract').staticCall(
+            params.tenant,
+            rentAmountWei,
+            params.priceFeed
+          );
+        }
       } catch (simErr) {
         console.error('Preflight createRentContract failed:', simErr);
         throw new Error(`Factory call failed (check network/ABI/args): ${simErr.reason || simErr.message}`);
