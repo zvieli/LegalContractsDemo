@@ -136,6 +136,22 @@
   font-size: 1rem;
 }
 
+/* Reusable text input style for modal */
+.text-input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 1rem;
+  transition: var(--transition);
+}
+
+.text-input:focus {
+  outline: none;
+  border-color: var(--secondary-color);
+  box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.12);
+}
+
 .action-buttons {
   display: flex;
   gap: 0.5rem;
@@ -242,6 +258,17 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
+}
+
+.policy-section .detail-item .label {
+  font-weight: 600;
+  color: var(--primary-color);
+}
+
+.policy-form .detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
 }
 
 .payment-input {

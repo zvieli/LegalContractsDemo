@@ -186,4 +186,74 @@ describe("ETH Payment", function () {
         .to.be.revertedWith("Contract is not active");
     });
   });
+
+  describe("Detailed Cancellation Policy", function () {
+    it("only landlord can set cancellation policy and emits event", async function () {
+      await expect(rentContract.connect(tenant).setCancellationPolicy(3600, 500, true))
+        .to.be.revertedWith("Only landlord can call");
+
+      await expect(rentContract.connect(landlord).setCancellationPolicy(3600, 500, true))
+        .to.emit(rentContract, "CancellationPolicyUpdated")
+        .withArgs(3600, 500, true);
+
+      expect(await rentContract.noticePeriod()).to.equal(3600);
+      expect(await rentContract.earlyTerminationFeeBps()).to.equal(500);
+      expect(await rentContract.requireMutualCancel()).to.equal(true);
+    });
+
+    it("mutual cancellation: initiate + approve finalizes and deactivates", async function () {
+      await rentContract.connect(landlord).setCancellationPolicy(0, 0, true);
+
+      // Using cancelContract should act as initiate with policy set
+      await expect(rentContract.connect(landlord).cancelContract())
+        .to.emit(rentContract, "CancellationInitiated");
+
+      expect(await rentContract.cancelRequested()).to.equal(true);
+      expect(await rentContract.active()).to.equal(true);
+
+      // Opposite party approves -> finalize
+      await expect(rentContract.connect(tenant).approveCancellation())
+        .to.emit(rentContract, "CancellationApproved")
+        .and.to.emit(rentContract, "ContractCancelled")
+        .and.to.emit(rentContract, "CancellationFinalized");
+
+      expect(await rentContract.active()).to.equal(false);
+    });
+
+    it("unilateral with notice + fee: cannot finalize early; must pay fee to counterparty", async function () {
+      // Set 1 hour notice and 10% early termination fee
+      await rentContract.connect(landlord).setCancellationPolicy(3600, 1000, false);
+
+      // Tenant initiates
+      await expect(rentContract.connect(tenant).initiateCancellation())
+        .to.emit(rentContract, "CancellationInitiated");
+
+      // Try to finalize before notice elapsed -> revert
+      await expect(rentContract.connect(tenant).finalizeCancellation())
+        .to.be.revertedWith("Notice period not elapsed");
+
+      // Move time forward 1 hour
+      await ethers.provider.send("evm_increaseTime", [3600]);
+      await ethers.provider.send("evm_mine", []);
+
+      // Calculate expected fee in ETH
+      const rentInEth = await rentContract.getRentInEth();
+      const expectedFee = (rentInEth * 1000n) / 10000n; // 10%
+
+      // Insufficient fee should revert
+      if (expectedFee > 0n) {
+        await expect(rentContract.connect(tenant).finalizeCancellation({ value: expectedFee - 1n }))
+          .to.be.revertedWith("Insufficient fee");
+      }
+
+      // Track landlord balance change approximately by fee via event
+      await expect(rentContract.connect(tenant).finalizeCancellation({ value: expectedFee }))
+        .to.emit(rentContract, "EarlyTerminationFeePaid")
+        .withArgs(tenant.address, expectedFee, landlord.address)
+        .and.to.emit(rentContract, "ContractCancelled")
+        .and.to.emit(rentContract, "CancellationFinalized");
+
+      expect(await rentContract.active()).to.equal(false);
+    });
+  });
 });

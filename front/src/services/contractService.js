@@ -121,8 +121,29 @@ export class ContractService {
         // TemplateRentContract exposes `active()`
         rentContract.active().catch(() => true)
       ]);
+      // Cancellation policy and state (best-effort, older ABIs may not have these)
+      const [requireMutualCancel, noticePeriod, earlyTerminationFeeBps, cancelRequested, cancelInitiator, cancelEffectiveAt] = await Promise.all([
+        rentContract.requireMutualCancel?.().catch(() => false) ?? false,
+        rentContract.noticePeriod?.().catch(() => 0n) ?? 0n,
+        rentContract.earlyTerminationFeeBps?.().catch(() => 0) ?? 0,
+        rentContract.cancelRequested?.().catch(() => false) ?? false,
+        rentContract.cancelInitiator?.().catch(() => '0x0000000000000000000000000000000000000000') ?? '0x0000000000000000000000000000000000000000',
+        rentContract.cancelEffectiveAt?.().catch(() => 0n) ?? 0n,
+      ]);
+      // Approvals per party (mapping getter)
+      const [landlordApproved, tenantApproved] = await Promise.all([
+        rentContract.cancelApprovals?.(landlord).catch(() => false) ?? false,
+        rentContract.cancelApprovals?.(tenant).catch(() => false) ?? false,
+      ]);
       
       const formattedAmount = ethers.formatEther(rentAmount);
+      // Derive a richer status for UI
+      let status = 'Active';
+      if (!isActive) {
+        status = 'Cancelled';
+      } else if (cancelRequested) {
+        status = 'Pending'; // cancellation initiated but not finalized
+      }
       return {
         address: contractAddress,
         landlord,
@@ -130,10 +151,22 @@ export class ContractService {
         rentAmount: formattedAmount,
         priceFeed,
         isActive: !!isActive,
+        cancellation: {
+          requireMutualCancel: !!requireMutualCancel,
+          noticePeriod: Number(noticePeriod || 0n),
+          earlyTerminationFeeBps: Number(earlyTerminationFeeBps || 0),
+          cancelRequested: !!cancelRequested,
+          cancelInitiator,
+          cancelEffectiveAt: Number(cancelEffectiveAt || 0n),
+          approvals: {
+            landlord: !!landlordApproved,
+            tenant: !!tenantApproved,
+          }
+        },
         // UI-friendly fields expected by Dashboard
         amount: formattedAmount,
         parties: [landlord, tenant],
-        status: !!isActive ? 'Active' : 'Inactive',
+        status,
         created: '—'
       };
     } catch (error) {
@@ -160,6 +193,72 @@ export class ContractService {
       return checks.filter(Boolean);
     } catch (error) {
       console.error('Error fetching user contracts:', error);
+      return [];
+    }
+  }
+
+  // Discover contracts where the user participates (landlord/tenant for rent, partyA/partyB for NDA)
+  async getContractsByParticipant(userAddress, pageSize = 50, maxScan = 300) {
+    try {
+      const factory = await this.getFactoryContract();
+      const total = Number(await factory.getAllContractsCount());
+      const toScan = Math.min(total, maxScan);
+      const pages = Math.ceil(toScan / pageSize) || 0;
+      const discovered = new Set();
+
+      for (let p = 0; p < pages; p++) {
+        const start = p * pageSize;
+        const count = Math.min(pageSize, toScan - start);
+        if (count <= 0) break;
+        const page = await factory.getAllContractsPaged(start, count);
+
+        // For each address in the page, check participation
+        // We keep it sequential to avoid node overload; small datasets stay fast.
+        // If needed, this can be parallelized with Promise.allSettled.
+        for (const addr of page) {
+          try {
+            const code = await this.signer.provider.getCode(addr);
+            if (!code || code === '0x') continue;
+
+            // Try as Rent first
+            try {
+              const rent = await this.getRentContract(addr);
+              const [landlord, tenant] = await Promise.all([
+                rent.landlord(),
+                rent.tenant()
+              ]);
+              if (
+                landlord?.toLowerCase() === userAddress.toLowerCase() ||
+                tenant?.toLowerCase() === userAddress.toLowerCase()
+              ) {
+                discovered.add(addr);
+                continue; // no need to test NDA if matched
+              }
+            } catch (_) {}
+
+            // Try as NDA
+            try {
+              const nda = await this.getNDAContract(addr);
+              const [partyA, partyB] = await Promise.all([
+                nda.partyA(),
+                nda.partyB()
+              ]);
+              if (
+                partyA?.toLowerCase() === userAddress.toLowerCase() ||
+                partyB?.toLowerCase() === userAddress.toLowerCase()
+              ) {
+                discovered.add(addr);
+              }
+            } catch (_) {}
+          } catch (_) {
+            // ignore address
+          }
+        }
+      }
+
+      return Array.from(discovered);
+    } catch (err) {
+      console.error('Error discovering participant contracts:', err);
       return [];
     }
   }
@@ -200,6 +299,59 @@ export class ContractService {
       return receipt;
     } catch (error) {
       console.error('Error paying rent with token:', error);
+      throw error;
+    }
+  }
+
+  // ============ Cancellation Policy and Flow ============
+  async setCancellationPolicy(contractAddress, { noticePeriodSec, feeBps, requireMutual }) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const tx = await rentContract.setCancellationPolicy(
+        Number(noticePeriodSec || 0),
+        Number(feeBps || 0),
+        !!requireMutual
+      );
+      return await tx.wait();
+    } catch (error) {
+      console.error('Error setting cancellation policy:', error);
+      throw error;
+    }
+  }
+
+  async initiateCancellation(contractAddress) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const tx = await rentContract.initiateCancellation();
+      return await tx.wait();
+    } catch (error) {
+      console.error('Error initiating cancellation:', error);
+      throw error;
+    }
+  }
+
+  async approveCancellation(contractAddress) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const tx = await rentContract.approveCancellation();
+      return await tx.wait();
+    } catch (error) {
+      console.error('Error approving cancellation:', error);
+      throw error;
+    }
+  }
+
+  async finalizeCancellation(contractAddress, { feeValueEth } = {}) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const overrides = {};
+      if (feeValueEth && Number(feeValueEth) > 0) {
+        overrides.value = ethers.parseEther(String(feeValueEth));
+      }
+      const tx = await rentContract.finalizeCancellation(overrides);
+      return await tx.wait();
+    } catch (error) {
+      console.error('Error finalizing cancellation:', error);
       throw error;
     }
   }

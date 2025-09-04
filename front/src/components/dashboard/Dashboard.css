@@ -277,6 +277,11 @@
   color: #3498db;
 }
 
+.contract-status.cancelled {
+  background: #fdecea;
+  color: #e74c3c;
+}
+
 .contract-details {
   margin-bottom: 1rem;
 }

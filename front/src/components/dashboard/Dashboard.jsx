@@ -74,7 +74,12 @@ function Dashboard() {
     try {
       setLoading(true);
       const contractService = new ContractService(signer, chainId);
-      const userContracts = await contractService.getUserContracts(account);
+  // 1) Contracts I created
+  const created = await contractService.getUserContracts(account);
+  // 2) Contracts where I participate (as landlord/tenant/party)
+  const participating = await contractService.getContractsByParticipant(account);
+  // Union & dedupe
+  const userContracts = Array.from(new Set([...(created || []), ...(participating || [])]));
 
       if (userContracts && userContracts.length > 0) {
         const contractDetails = await Promise.all(
@@ -107,7 +112,8 @@ function Dashboard() {
         setContracts(contractDetails);
 
         // חישוב סטטיסטיקות
-        const activeContracts = contractDetails.filter(c => c.isActive).length;
+        const activeContracts = contractDetails.filter(c => c.status === 'Active').length;
+        const pendingContracts = contractDetails.filter(c => c.status === 'Pending').length;
         const totalValue = contractDetails.reduce((sum, contract) => {
           return sum + (parseFloat(contract.amount) || 0);
         }, 0);
@@ -115,7 +121,7 @@ function Dashboard() {
         setStats({
           totalContracts: contractDetails.length,
           activeContracts,
-          pendingContracts: contractDetails.length - activeContracts,
+          pendingContracts,
           totalValue
         });
 
