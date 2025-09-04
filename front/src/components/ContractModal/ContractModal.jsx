@@ -19,6 +19,20 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [policyDraft, setPolicyDraft] = useState({ notice: '', feeBps: '', mutual: false });
   const [feeToSend, setFeeToSend] = useState('');
+  const [cancellationEvents, setCancellationEvents] = useState([]);
+
+  const formatDuration = (sec) => {
+    const s = Number(sec || 0);
+    if (!s) return '0s';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const parts = [];
+    if (d) parts.push(`${d}d`);
+    if (h) parts.push(`${h}h`);
+    if (m) parts.push(`${m}m`);
+    return parts.length ? parts.join(' ') : `${s}s`;
+  };
 
   const isTenant = useMemo(() => {
     if (!account || !contractDetails?.tenant) return false;
@@ -78,6 +92,33 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
       }));
       
       setTransactionHistory(transactions);
+
+      // Load cancellation events timeline (best-effort)
+      const evts = [];
+      try {
+        const initiated = await rentContract.queryFilter(rentContract.filters.CancellationInitiated?.());
+        for (const e of initiated) {
+          const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+          evts.push({ type: 'Initiated', by: e.args?.[0] || e.args?.initiator, at: blk?.timestamp || 0, tx: e.transactionHash });
+        }
+      } catch (_) {}
+      try {
+        const approved = await rentContract.queryFilter(rentContract.filters.CancellationApproved?.());
+        for (const e of approved) {
+          const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+          evts.push({ type: 'Approved', by: e.args?.[0] || e.args?.approver, at: blk?.timestamp || 0, tx: e.transactionHash });
+        }
+      } catch (_) {}
+      try {
+        const finalized = await rentContract.queryFilter(rentContract.filters.CancellationFinalized?.());
+        for (const e of finalized) {
+          const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+          evts.push({ type: 'Finalized', by: e.args?.[0] || null, at: blk?.timestamp || 0, tx: e.transactionHash });
+        }
+      } catch (_) {}
+      // Sort by time
+      evts.sort((a, b) => (a.at || 0) - (b.at || 0));
+      setCancellationEvents(evts);
       
     } catch (error) {
       console.error('Error loading contract data:', error);
@@ -136,6 +177,10 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
     }
     if (!contractDetails?.isActive) {
       alert('Contract is inactive. Payments are disabled.');
+      return;
+    }
+    if (contractDetails?.cancellation?.cancelRequested) {
+      alert('Cancellation is pending. Payments are temporarily disabled.');
       return;
     }
     if (!isTenant) {
@@ -358,11 +403,24 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
             {activeTab === 'payments' && (
               <div className="tab-content">
                 <h3>Rent Payment</h3>
+                <div className="details-grid" style={{marginBottom:'8px'}}>
+                  <div className="detail-item">
+                    <span className="label">Connected Wallet</span>
+                    <span className="value">{account}</span>
+                  </div>
+                  <div className="detail-item">
+                    <span className="label">On-chain Tenant</span>
+                    <span className="value">{contractDetails?.tenant}</span>
+                  </div>
+                </div>
                 {!contractDetails.isActive && (
                   <div className="alert warning">This contract is inactive. Payments are disabled.</div>
                 )}
                 {!isTenant && (
                   <div className="alert info">Only the tenant can pay this contract.</div>
+                )}
+                {contractDetails?.cancellation?.cancelRequested && (
+                  <div className="alert warning">Cancellation is pending; payments are disabled until completion.</div>
                 )}
                 {requiredEth && (
                   <p className="muted">Required ETH for rent: {requiredEth} ETH</p>
@@ -374,14 +432,22 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                       placeholder="Amount in ETH"
                       value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)}
-                      disabled={actionLoading || !contractDetails.isActive || !isTenant}
+                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested}
                     />
+                    {!isTenant && <small className="muted">Switch wallet to the tenant address shown above.</small>}
                     <button 
                       onClick={handlePayRent}
-                      disabled={actionLoading || !paymentAmount || !contractDetails.isActive || !isTenant}
+                      disabled={actionLoading || !paymentAmount || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested}
                       className="btn-primary"
                     >
                       {actionLoading ? 'Processing...' : 'Pay Rent'}
+                    </button>
+                    <button 
+                      onClick={() => setPaymentAmount(requiredEth || '')}
+                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !requiredEth || !!contractDetails?.cancellation?.cancelRequested}
+                      className="btn-secondary"
+                    >
+                      Use required amount
                     </button>
                   </div>
                 </div>
@@ -437,7 +503,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                       </div>
                       <div className="detail-item">
                         <span className="label">Notice (sec)</span>
-                        <span className="value">{contractDetails?.cancellation?.noticePeriod ?? 0}</span>
+                        <span className="value">{contractDetails?.cancellation?.noticePeriod ?? 0} ({formatDuration(contractDetails?.cancellation?.noticePeriod)})</span>
                       </div>
                       <div className="detail-item">
                         <span className="label">Early Termination Fee (bps)</span>
@@ -508,11 +574,27 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                           <button className="btn-action" disabled={actionLoading || !canApprove} onClick={handleApproveCancel}>Approve Cancellation</button>
                           <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
                             <input className="text-input" style={{width:'160px'}} type="number" placeholder={feeDueEth ? `Fee required: ${feeDueEth}` : 'Fee (ETH, optional)'} value={feeToSend} onChange={e => setFeeToSend(e.target.value)} />
+                            <button className="btn-action" disabled={!feeDueEth} onClick={() => setFeeToSend(feeDueEth || '')}>Autofill Fee</button>
                             <button className="btn-action" disabled={actionLoading || !canFinalize} onClick={handleFinalizeCancel}>Finalize</button>
                           </div>
                         </div>
                       );
                     })()}
+
+                    {cancellationEvents && cancellationEvents.length > 0 && (
+                      <div className="section" style={{marginTop:'16px'}}>
+                        <h4>Cancellation Timeline</h4>
+                        <div className="transactions-list">
+                          {cancellationEvents.map((ev, idx) => (
+                            <div key={idx} className="transaction-item">
+                              <div className="tx-amount">{ev.type}</div>
+                              <div className="tx-date">{ev.at ? new Date(Number(ev.at) * 1000).toLocaleString() : '—'}</div>
+                              <div className="tx-hash">{ev.by ? `${ev.by.slice(0,10)}...${ev.by.slice(-8)}` : (ev.tx ? `${ev.tx.slice(0,10)}...${ev.tx.slice(-8)}` : '—')}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

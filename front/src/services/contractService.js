@@ -7,6 +7,26 @@ export class ContractService {
     this.chainId = chainId;
   }
 
+  // Prefer wallet provider, but on localhost fall back to a direct JSON-RPC provider if the wallet provider glitches
+  async getCodeSafe(address) {
+    const primary = this.signer.provider;
+    try {
+      return await primary.getCode(address);
+    } catch (e) {
+      const msg = String(e?.message || '');
+      const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
+      if (isLocal && (/invalid block tag/i.test(msg) || /Internal JSON-RPC error/i.test(msg))) {
+        try {
+          const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+          return await rpc.getCode(address);
+        } catch (_) {
+          // fall through
+        }
+      }
+      throw e;
+    }
+  }
+
   async getFactoryContract() {
     const factoryAddress = await getContractAddress(this.chainId, 'factory');
     if (!factoryAddress) {
@@ -15,7 +35,7 @@ export class ContractService {
     const contract = createContractInstance('ContractFactory', factoryAddress, this.signer);
     // Lightweight sanity check to catch wrong/stale addresses on localhost
     try {
-      const code = await this.signer.provider.getCode(factoryAddress);
+  const code = await this.getCodeSafe(factoryAddress);
       if (!code || code === '0x') {
         throw new Error(`No contract code at ${factoryAddress}. Is the node running and deployed?`);
       }
@@ -40,24 +60,15 @@ export class ContractService {
 
       const rentAmountWei = ethers.parseEther(params.rentAmount);
 
-      // Preflight simulate to catch wrong selector/ABI/address before wallet prompt (ethers v6)
+      // Preflight checks: ensure price feed exists on-chain (common localhost pitfall)
       try {
-        if (factoryContract?.createRentContract?.staticCall) {
-          await factoryContract.createRentContract.staticCall(
-            params.tenant,
-            rentAmountWei,
-            params.priceFeed
-          );
-        } else if (factoryContract?.getFunction) {
-          await factoryContract.getFunction('createRentContract').staticCall(
-            params.tenant,
-            rentAmountWei,
-            params.priceFeed
-          );
+        const code = await this.getCodeSafe(params.priceFeed);
+        if (!code || code === '0x') {
+          const chain = Number(this.chainId);
+          throw new Error(`Selected price feed has no contract code on chain ${chain}. If you're on localhost, choose "Mock Price Feed (Local)".`);
         }
-      } catch (simErr) {
-        console.error('Preflight createRentContract failed:', simErr);
-        throw new Error(`Factory call failed (check network/ABI/args): ${simErr.reason || simErr.message}`);
+      } catch (pfErr) {
+        throw pfErr;
       }
 
       const tx = await factoryContract.createRentContract(
@@ -91,6 +102,10 @@ export class ContractService {
 
     } catch (error) {
       console.error('Error creating rent contract:', error);
+      // Normalize common provider error
+      if (error?.code === 'CALL_EXCEPTION' && /no contract code|missing revert data/i.test(String(error?.message || ''))) {
+        throw new Error('Factory call failed. Verify you are on the correct network and that the Price Feed address is deployed on this network.');
+      }
       throw error;
     }
   }
@@ -266,6 +281,23 @@ export class ContractService {
   async payRent(contractAddress, amount) {
     try {
       const rentContract = await this.getRentContract(contractAddress);
+      // Preflight: ensure connected signer is the tenant
+      try {
+        const [chainTenant, current] = await Promise.all([
+          rentContract.tenant(),
+          this.signer.getAddress()
+        ]);
+        if (chainTenant?.toLowerCase?.() !== current?.toLowerCase?.()) {
+          const msg = `Connected wallet is not the tenant. Expected ${chainTenant}, got ${current}`;
+          const err = new Error(msg);
+          err.reason = msg;
+          throw err;
+        }
+      } catch (addrErr) {
+        // If fetch failed for any reason, surface a helpful error instead of a revert on estimateGas
+        if (addrErr?.reason) throw addrErr;
+        throw new Error('Could not verify tenant address on-chain. Check network and contract address.');
+      }
   // Pay in ETH according to TemplateRentContract.payRentInEth()
   const tx = await rentContract.payRentInEth({ value: ethers.parseEther(amount) });
       const receipt = await tx.wait();
@@ -293,6 +325,22 @@ export class ContractService {
   async payRentWithToken(contractAddress, tokenAddress, amount) {
     try {
       const rentContract = await this.getRentContract(contractAddress);
+      // Preflight: ensure connected signer is the tenant
+      try {
+        const [chainTenant, current] = await Promise.all([
+          rentContract.tenant(),
+          this.signer.getAddress()
+        ]);
+        if (chainTenant?.toLowerCase?.() !== current?.toLowerCase?.()) {
+          const msg = `Connected wallet is not the tenant. Expected ${chainTenant}, got ${current}`;
+          const err = new Error(msg);
+          err.reason = msg;
+          throw err;
+        }
+      } catch (addrErr) {
+        if (addrErr?.reason) throw addrErr;
+        throw new Error('Could not verify tenant address on-chain. Check network and contract address.');
+      }
       // amount expected in token base units (BigInt or string)
       const tx = await rentContract.payRentWithToken(tokenAddress, amount);
       const receipt = await tx.wait();

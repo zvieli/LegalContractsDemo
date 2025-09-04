@@ -8,6 +8,18 @@ export class DocumentGenerator {
     const now = new Date();
     const fmt = (d) => d ? String(d) : '—';
     const short = (addr) => (addr && addr.length > 12) ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : fmt(addr);
+    const fmtDuration = (sec) => {
+      const s = Number(sec || 0);
+      if (!s) return '0s';
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const parts = [];
+      if (d) parts.push(`${d}d`);
+      if (h) parts.push(`${h}h`);
+      if (m) parts.push(`${m}m`);
+      return parts.length ? parts.join(' ') : `${s}s`;
+    };
 
     const isRent = !!(contractData.landlord && contractData.tenant);
     const isNDA = !!(contractData.partyA && contractData.partyB);
@@ -24,6 +36,24 @@ export class DocumentGenerator {
       }
       return genericLegalText(contractData);
     })();
+
+    // Cancellation policy (for rent only)
+    const cxl = isRent ? (contractData.cancellation || {}) : {};
+    const policyHTML = (isRent && (cxl || {}).hasOwnProperty('requireMutualCancel')) ? `
+      <div class="section">
+        <h2 style="font-size:18px;margin:0 0 8px;">Cancellation Policy</h2>
+        <div class="grid">
+          <div class="item"><span class="label">Require Mutual</span><div class="value">${cxl.requireMutualCancel ? 'Yes' : 'No'}</div></div>
+          <div class="item"><span class="label">Notice Period</span><div class="value">${fmtDuration(cxl.noticePeriod)}</div></div>
+          <div class="item"><span class="label">Early Termination Fee (bps)</span><div class="value">${Number(cxl.earlyTerminationFeeBps || 0)}</div></div>
+          ${cxl.cancelRequested ? `<div class="item"><span class="label">Requested By</span><div class="value">${short(cxl.cancelInitiator)}</div></div>` : ''}
+          ${cxl.cancelRequested ? `<div class="item"><span class="label">Effective At</span><div class="value">${cxl.cancelEffectiveAt ? new Date(Number(cxl.cancelEffectiveAt) * 1000).toLocaleString() : '—'}</div></div>` : ''}
+        </div>
+      </div>
+    ` : '';
+
+    const displayStatus = contractData.status || (contractData.isActive ? 'Active' : 'Inactive');
+    const statusClass = (displayStatus || '').toLowerCase();
 
     const html = `<!doctype html>
 <html>
@@ -50,8 +80,10 @@ export class DocumentGenerator {
     th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
     th { color: var(--muted); font-weight: 600; }
     .badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-    .badge.active { background: #dcfce7; color: #166534; }
-    .badge.inactive { background: #fee2e2; color: #991b1b; }
+  .badge.active { background: #dcfce7; color: #166534; }
+  .badge.inactive { background: #fee2e2; color: #991b1b; }
+  .badge.pending { background: #fff7ed; color: #9a3412; }
+  .badge.cancelled { background: #fdecec; color: #b91c1c; }
     .footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   .rtl { direction: rtl; text-align: right; }
   </style>
@@ -66,7 +98,7 @@ export class DocumentGenerator {
       <div class="sub">Generated ${now.toLocaleString()}</div>
       <div class="grid">
         <div class="item"><span class="label">Contract Address</span><div class="value">${fmt(contractData.address)}</div></div>
-        <div class="item"><span class="label">Status</span><div class="value"><span class="badge ${contractData.isActive ? 'active' : 'inactive'}">${contractData.isActive ? 'Active' : 'Inactive'}</span></div></div>
+    <div class="item"><span class="label">Status</span><div class="value"><span class="badge ${statusClass}">${displayStatus}</span></div></div>
         ${isRent ? `
           <div class="item"><span class="label">Landlord</span><div class="value">${short(contractData.landlord)}</div></div>
           <div class="item"><span class="label">Tenant</span><div class="value">${short(contractData.tenant)}</div></div>
@@ -89,6 +121,8 @@ export class DocumentGenerator {
           `).join('') || '<div class="item"><div class="value">—</div></div>'}
         </div>
       </div>
+
+  ${policyHTML}
 
       <div class="section">
         <h2 style="font-size:18px;margin:0 0 8px;">Payment History</h2>

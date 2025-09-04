@@ -37,10 +37,14 @@ function CreateRent() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value.trim()
-    }));
+    setFormData(prev => {
+      const next = { ...prev, [name]: value.trim() };
+      // If switching to localhost, prefer the Mock Price Feed automatically
+      if (name === 'network' && value === 'localhost' && mockPriceFeedAddress) {
+        next.priceFeed = mockPriceFeedAddress;
+      }
+      return next;
+    });
   };
 
   const handleCreateContract = async (e) => {
@@ -117,11 +121,16 @@ function CreateRent() {
 
       const contractService = new ContractService(signer, expectedChainId); // ✅ Use expectedChainId
 
+      // If localhost is selected, force the Mock Price Feed if available
+      const effectivePriceFeed = (isLocalSelected && mockPriceFeedAddress)
+        ? mockPriceFeedAddress
+        : formData.priceFeed;
+
       const params = {
         tenant: formData.tenantAddress,
         rentAmount: formData.rentAmount,
         paymentToken: formData.paymentToken,
-        priceFeed: formData.priceFeed,
+        priceFeed: effectivePriceFeed,
         duration: formData.duration,
         startDate: Math.floor(new Date(formData.startDate).getTime() / 1000),
         network: formData.network
@@ -292,6 +301,16 @@ function CreateRent() {
               pattern="^0x[a-fA-F0-9]{40}$"
             />
             <small>Ethereum address of the tenant</small>
+            <div style={{ marginTop: '6px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setFormData(prev => ({ ...prev, tenantAddress: account || '' }))}
+                disabled={!account}
+              >
+                Use my wallet as tenant
+              </button>
+            </div>
           </div>
 
           {/* Rent Amount */}

@@ -53,8 +53,9 @@ export function EthersProvider({ children }) {
     if (accounts.length === 0) {
       disconnectWallet();
     } else {
-      setAccount(accounts[0]);
-      updateSigner();
+  const addr = accounts[0];
+  setAccount(addr);
+  updateSigner(addr);
     }
   };
 
@@ -79,12 +80,12 @@ export function EthersProvider({ children }) {
       setIsConnecting(true); // מתחיל תהליך חיבור
       setLoading(true);
       
-      const accounts = await window.ethereum.request({ 
+  const accounts = await window.ethereum.request({ 
         method: 'eth_requestAccounts' 
       });
       
       const web3Provider = new ethers.BrowserProvider(window.ethereum);
-      const web3Signer = await web3Provider.getSigner();
+  const web3Signer = await web3Provider.getSigner(accounts[0]);
       const network = await web3Provider.getNetwork();
 
       setProvider(web3Provider);
@@ -114,10 +115,10 @@ export function EthersProvider({ children }) {
     setChainId(null);
   };
 
-  const updateSigner = async () => {
+  const updateSigner = async (addr) => {
     if (provider) {
       try {
-        const web3Signer = await provider.getSigner();
+        const web3Signer = await provider.getSigner(addr || account || undefined);
         setSigner(web3Signer);
       } catch (error) {
         console.error('Error updating signer:', error);
