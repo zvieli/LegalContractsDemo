@@ -1,4 +1,4 @@
-import { getContractABI, getContractAddress, createContractInstance } from '../utils/contracts';
+import { createContractInstance } from '../utils/contracts';
 import { ethers } from 'ethers';
 
 export class ArbitrationService {
@@ -7,42 +7,61 @@ export class ArbitrationService {
     this.chainId = chainId;
   }
 
-  async getArbitratorContract() {
-    const arbitratorAddress = await getContractAddress(this.chainId, 'arbitrator');
-    if (!arbitratorAddress) {
-      throw new Error('Arbitrator contract not deployed');
+  async getArbitratorForNDA(ndaAddress) {
+    const nda = createContractInstance('NDATemplate', ndaAddress, this.signer);
+    const arb = await nda.arbitrator();
+    if (!arb || arb === ethers.ZeroAddress) {
+      throw new Error('This NDA has no arbitrator');
     }
-    return createContractInstance('Arbitrator', arbitratorAddress, this.signer);
+    return createContractInstance('Arbitrator', arb, this.signer);
   }
 
-  async createDispute(contractAddress, reason, evidence) {
+  async getArbitratorOwner(ndaAddress) {
+    const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+    try { return await arbitrator.owner(); } catch { return ethers.ZeroAddress; }
+  }
+
+  async createDisputeForCase(ndaAddress, caseId, evidenceText = '') {
     try {
-      const arbitrator = await this.getArbitratorContract();
-      const tx = await arbitrator.createDispute(contractAddress, reason, evidence);
+      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      const evidenceBytes = evidenceText ? ethers.toUtf8Bytes(evidenceText) : new Uint8Array();
+      const tx = await arbitrator.createDisputeForCase(ndaAddress, Number(caseId), evidenceBytes);
       const receipt = await tx.wait();
-      return receipt;
+      // Try to extract disputeId from event log
+      let disputeId = null;
+      for (const log of receipt.logs) {
+        try {
+          const parsed = arbitrator.interface.parseLog(log);
+          if (parsed && parsed.name === 'DisputeCreated') {
+            disputeId = Number(parsed.args[0]);
+            break;
+          }
+        } catch (_) {}
+      }
+      return { receipt, disputeId };
     } catch (error) {
-      console.error('Error creating dispute:', error);
+      console.error('Error creating dispute for case:', error);
       throw error;
     }
   }
 
-  async voteOnDispute(disputeId, support, reason = "") {
+  async resolveDispute(ndaAddress, disputeId, guiltyParty, penaltyEth, beneficiary) {
     try {
-      const arbitrator = await this.getArbitratorContract();
-      const tx = await arbitrator.vote(disputeId, support, reason);
+      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      const penaltyWei = ethers.parseEther(String(penaltyEth || '0'));
+      const tx = await arbitrator.resolveDispute(Number(disputeId), guiltyParty, penaltyWei, beneficiary);
       const receipt = await tx.wait();
       return receipt;
     } catch (error) {
-      console.error('Error voting on dispute:', error);
+      console.error('Error resolving dispute:', error);
       throw error;
     }
   }
 
-  async getDispute(disputeId) {
+  async getDispute(ndaAddress, disputeId) {
     try {
-      const arbitrator = await this.getArbitratorContract();
-      const dispute = await arbitrator.getDispute(disputeId);
+      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      const dispute = await arbitrator.getDispute(Number(disputeId));
       return dispute;
     } catch (error) {
       console.error('Error getting dispute:', error);
@@ -50,24 +69,12 @@ export class ArbitrationService {
     }
   }
 
-  async getAllDisputes() {
+  async getActiveDisputesCount(ndaAddress) {
     try {
-      const arbitrator = await this.getArbitratorContract();
-      const disputes = await arbitrator.getAllDisputes();
-      return disputes;
+      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      return await arbitrator.getActiveDisputesCount();
     } catch (error) {
-      console.error('Error getting disputes:', error);
-      throw error;
-    }
-  }
-
-  async getDisputesForContract(contractAddress) {
-    try {
-      const arbitrator = await this.getArbitratorContract();
-      const disputes = await arbitrator.getDisputesForContract(contractAddress);
-      return disputes;
-    } catch (error) {
-      console.error('Error getting contract disputes:', error);
+      console.error('Error getting disputes count:', error);
       throw error;
     }
   }

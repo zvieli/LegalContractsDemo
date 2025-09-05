@@ -20,6 +20,7 @@ function Dashboard() {
   });
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [filterType, setFilterType] = useState('All');
 
   // התראות בזמן אמת על תשלומי שכירות
   useRentPaymentEvents(selectedContract, (payer, amount, timestamp) => {
@@ -275,9 +276,14 @@ function Dashboard() {
       <div className="contracts-section">
         <div className="section-header">
           <h3>Recent Contracts</h3>
-          <button className="view-all-btn">
-            View All <i className="fas fa-arrow-right"></i>
-          </button>
+          <div className="section-filters">
+            <label className="label" style={{ marginRight: 4 }}>Filter:</label>
+            <select className="filter-select" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+              <option value="All">All</option>
+              <option value="Rental">Rental</option>
+              <option value="NDA">NDA</option>
+            </select>
+          </div>
         </div>
 
         <div className="contracts-list">
@@ -288,7 +294,9 @@ function Dashboard() {
               <p>Create your first contract to get started</p>
             </div>
           ) : (
-            contracts.map((contract, index) => (
+            contracts
+              .filter(c => filterType === 'All' ? true : c.type === filterType)
+              .map((contract, index) => (
               <div key={index} className="contract-card">
                 <div className="contract-header">
                   <div className="contract-type">

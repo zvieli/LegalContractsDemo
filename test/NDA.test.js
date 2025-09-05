@@ -347,8 +347,11 @@ it("should allow parties to sign with valid signature", async function () {
     });
 
     it("should allow deactivation after expiry", async function () {
-      const futureDate = Math.floor(Date.now() / 1000) + 3600; // +1 hour
-      
+      // Use chain time to avoid flakiness when previous tests moved time forward
+      const latestBlock = await ethers.provider.getBlock("latest");
+      const chainNow = Number(latestBlock.timestamp);
+      const futureDate = chainNow + 3600; // +1 hour from chain time
+
       const NDATemplate = await ethers.getContractFactory("NDATemplate");
       const testNDA = await NDATemplate.deploy(
         partyA.address,
@@ -361,12 +364,11 @@ it("should allow parties to sign with valid signature", async function () {
       );
       await testNDA.waitForDeployment();
 
-      // Fast forward time
+      // Fast forward time beyond expiry
       await ethers.provider.send("evm_setNextBlockTimestamp", [futureDate + 1]);
       await ethers.provider.send("evm_mine");
-      
-      await expect(testNDA.connect(admin).deactivate("Expired"))
-        .to.not.be.reverted;
+
+      await expect(testNDA.connect(admin).deactivate("Expired")).to.not.be.reverted;
     });
 
     it("should revert when unauthorized user tries to deactivate", async function () {

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import { ethers } from 'ethers';
+import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
 import './ContractModal.css';
 
@@ -23,6 +24,11 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
   const [ndaEvents, setNdaEvents] = useState([]);
   const [ndaCanSign, setNdaCanSign] = useState(true);
   const [ndaAlreadySigned, setNdaAlreadySigned] = useState(false);
+  const [arbCaseId, setArbCaseId] = useState('');
+  const [arbApprove, setArbApprove] = useState(true);
+  const [arbBeneficiary, setArbBeneficiary] = useState('');
+  const [createDisputeCaseId, setCreateDisputeCaseId] = useState('');
+  const [createDisputeEvidence, setCreateDisputeEvidence] = useState('');
 
   const formatDuration = (sec) => {
     const s = Number(sec || 0);
@@ -137,12 +143,13 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
           const rep = await nda.queryFilter(nda.filters.BreachReported?.());
           for (const e of rep) {
             const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
-            ev.push({ type: 'Breach Reported', by: e.args?.reporter || e.args?.[1], at: blk?.timestamp || 0, tx: e.transactionHash });
+            ev.push({ type: `Breach Reported (Case #${Number(e.args?.caseId ?? e.args?.[0] ?? 0)})`, by: e.args?.reporter || e.args?.[1], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           const res = await nda.queryFilter(nda.filters.BreachResolved?.());
           for (const e of res) {
             const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
-            ev.push({ type: e.args?.approved ? 'Breach Approved' : 'Breach Rejected', by: e.args?.beneficiary || e.args?.[3], at: blk?.timestamp || 0, tx: e.transactionHash });
+            const id = Number(e.args?.caseId ?? e.args?.[0] ?? 0);
+            ev.push({ type: `${e.args?.approved ? 'Breach Approved' : 'Breach Rejected'} (Case #${id})`, by: e.args?.beneficiary || e.args?.[3], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           const deact = await nda.queryFilter(nda.filters.ContractDeactivated?.());
           for (const e of deact) {
@@ -393,6 +400,36 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
       alert(`Deactivate failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
+  const handleNdaResolveByArbitrator = async () => {
+    try {
+      setActionLoading(true);
+      const service = new ContractService(signer, chainId);
+      await service.ndaResolveByArbitrator(contractAddress, arbCaseId, arbApprove, arbBeneficiary || ethers.ZeroAddress);
+      alert('Case resolved by arbitrator');
+      await loadContractData();
+    } catch (e) {
+      alert(`Resolve failed: ${e?.reason || e?.message}`);
+    } finally { setActionLoading(false); }
+  };
+
+  const handleCreateDispute = async () => {
+    try {
+      setActionLoading(true);
+      const svc = new ArbitrationService(signer, chainId);
+      const { disputeId } = await svc.createDisputeForCase(contractAddress, createDisputeCaseId, createDisputeEvidence);
+      alert(`Dispute created${disputeId != null ? ` (ID ${disputeId})` : ''}`);
+    } catch (e) {
+      alert(`Create dispute failed: ${e?.reason || e?.message}`);
+    } finally { setActionLoading(false); }
+  };
+
+  const isArbitrator = useMemo(() => {
+    try {
+      const arb = contractDetails?.arbitrator;
+      if (!arb || arb === ethers.ZeroAddress || !account) return false;
+      return arb.toLowerCase() === account.toLowerCase();
+    } catch { return false; }
+  }, [contractDetails, account]);
   const handleSetPolicy = async () => {
     try {
       setActionLoading(true);
@@ -608,6 +645,20 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                           <div className="tx-amount">{contractDetails.signatures?.[p] ? 'Signed' : 'Not signed'}</div>
                           <div className="tx-date">Deposit: {contractDetails.depositsByParty?.[p] || '0'} ETH</div>
                           <div className="tx-hash">{p.slice(0,10)}...{p.slice(-8)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {contractDetails.type === 'NDA' && contractDetails.cases && contractDetails.cases.length > 0 && (
+                  <div className="section" style={{marginTop:'8px'}}>
+                    <h4>Cases</h4>
+                    <div className="transactions-list">
+                      {contractDetails.cases.map((c) => (
+                        <div key={c.id} className="transaction-item">
+                          <div className="tx-amount">Case #{c.id}</div>
+                          <div className="tx-date">{c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending'}</div>
+                          <div className="tx-hash">Requested: {c.requestedPenalty} ETH</div>
                         </div>
                       ))}
                     </div>
@@ -857,8 +908,29 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                       </div>
                       <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
                         <input className="text-input" placeholder="Case ID" id="nda-caseid" />
-                        <button className="btn-action" disabled={actionLoading} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, true)}>Vote Approve</button>
-                        <button className="btn-action" disabled={actionLoading} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, false)}>Vote Reject</button>
+                        <button className="btn-action" disabled={actionLoading || (contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, true)}>Vote Approve</button>
+                        <button className="btn-action" disabled={actionLoading || (contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, false)}>Vote Reject</button>
+                      </div>
+                      {contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress && (
+                        <small className="muted">Voting disabled (an arbitrator is set for this NDA).</small>
+                      )}
+                      <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
+                        <label className="label">Create Dispute (Arbitrator)</label>
+                        <input className="text-input" type="number" placeholder="Case ID" value={createDisputeCaseId} onChange={e => setCreateDisputeCaseId(e.target.value)} />
+                        <input className="text-input" placeholder="Evidence text (optional)" value={createDisputeEvidence} onChange={e => setCreateDisputeEvidence(e.target.value)} />
+                        <button className="btn-action" disabled={actionLoading || !(contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress)} onClick={handleCreateDispute}>Create Dispute</button>
+                      </div>
+                      <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
+                        <label className="label">Resolve by Arbitrator</label>
+                        <input className="text-input" type="number" placeholder="Case ID" value={arbCaseId} onChange={e => setArbCaseId(e.target.value)} />
+                        <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                          <label><input type="checkbox" checked={arbApprove} onChange={e => setArbApprove(e.target.checked)} /> Approve</label>
+                          <input className="text-input" placeholder="Beneficiary (0x...) optional" value={arbBeneficiary} onChange={e => setArbBeneficiary(e.target.value)} />
+                          <button className="btn-action" disabled={actionLoading || !isArbitrator} onClick={handleNdaResolveByArbitrator}>Resolve</button>
+                        </div>
+                        {!isArbitrator && (
+                          <small className="muted">Only the arbitrator ({contractDetails?.arbitrator}) can resolve.</small>
+                        )}
                       </div>
                     </div>
                     {ndaEvents && ndaEvents.length > 0 && (

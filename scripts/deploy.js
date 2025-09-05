@@ -74,6 +74,7 @@ async function main() {
   path.join("Rent", "MockERC20.sol"),
     path.join("NDA", "NDATemplate.sol"),
     path.join("NDA", "Arbitrator.sol"),
+  path.join("NDA", "OracleArbitrator.sol"),
   ];
 
   let copiedCount = 0;
