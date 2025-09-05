@@ -161,6 +161,7 @@ export class ContractService {
         status = 'Pending'; // cancellation initiated but not finalized
       }
       return {
+  type: 'Rental',
         address: contractAddress,
         landlord,
         tenant,

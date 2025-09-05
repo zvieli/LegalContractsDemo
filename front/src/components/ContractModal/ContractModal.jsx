@@ -259,7 +259,19 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
 
     try {
       setActionLoading(true);
-      const contractService = new ContractService(signer, chainId);
+      // Refresh signer from provider for the current account to avoid stale signer issues
+      let activeSigner = signer;
+      try {
+        if (provider && account) {
+          const s = await provider.getSigner(account);
+          // double-check resolution
+          const addr = await s.getAddress();
+          if (addr?.toLowerCase?.() === account.toLowerCase()) {
+            activeSigner = s;
+          }
+        }
+      } catch (_) { /* fallback to existing signer */ }
+      const contractService = new ContractService(activeSigner, chainId);
       const receipt = await contractService.payRent(contractAddress, paymentAmount);
       
       alert(`✅ Rent paid successfully!\nTransaction: ${receipt.hash}`);

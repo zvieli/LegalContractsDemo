@@ -42,18 +42,23 @@ export const getContractAddress = async (chainId, contractName) => {
 
   // 1) Prefer localhost address when running locally AND targeting a local chain
   if (isLocalHostEnv && isLocalChain) {
-      const local = await import('../utils/contracts/ContractFactory.json');
+      // Vite/ESM dynamic JSON imports expose data under `default`
+      const mod = await import('./contracts/ContractFactory.json');
+      const local = mod?.default ?? mod;
       if (contractName.toLowerCase() === 'factory' || contractName === 'ContractFactory') {
-        if (local?.contracts?.ContractFactory) return local.contracts.ContractFactory;
+        const addr = local?.contracts?.ContractFactory || null;
+        if (addr && ethers.isAddress(addr)) return addr;
       }
       // fall through to configured addresses if not found
     }
 
   // 2) Explicit localhost chainIds support via generated JSON
   if (isLocalChain) {
-      const local = await import('../utils/contracts/ContractFactory.json');
+      const mod = await import('./contracts/ContractFactory.json');
+      const local = mod?.default ?? mod;
       if (contractName.toLowerCase() === 'factory') {
-        return local?.contracts?.ContractFactory || null;
+        const addr = local?.contracts?.ContractFactory || null;
+        return addr && ethers.isAddress(addr) ? addr : null;
       }
       return null;
     }
@@ -63,7 +68,8 @@ export const getContractAddress = async (chainId, contractName) => {
     if (!net) return null;
 
     const key = contractName === 'ContractFactory' ? 'factory' : contractName;
-    return net?.[key] || null;
+    const addr = net?.[key] || null;
+    return addr && ethers.isAddress(addr) ? addr : null;
   } catch (error) {
     console.error('Error loading contract addresses:', error);
     return null;
