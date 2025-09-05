@@ -16,7 +16,7 @@ function Dashboard() {
     totalContracts: 0,
     activeContracts: 0,
     pendingContracts: 0,
-    totalValue: 0
+  totalValue: '0'
   });
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -87,11 +87,11 @@ function Dashboard() {
             try {
               // קודם ננסה כחוזה שכירות
               try {
-                const details = await contractService.getRentContractDetails(contractAddress);
+                const details = await contractService.getRentContractDetails(contractAddress, { silent: true });
                 return { ...details, type: 'Rental' };
               } catch {
                 // אם נכשל – ננסה כ־NDA
-                const details = await contractService.getNDAContractDetails(contractAddress);
+                const details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
                 return { ...details, type: 'NDA' };
               }
             } catch (error) {
@@ -114,9 +114,22 @@ function Dashboard() {
         // חישוב סטטיסטיקות
         const activeContracts = contractDetails.filter(c => c.status === 'Active').length;
         const pendingContracts = contractDetails.filter(c => c.status === 'Pending').length;
-        const totalValue = contractDetails.reduce((sum, contract) => {
-          return sum + (parseFloat(contract.amount) || 0);
-        }, 0);
+        // סכימה מדויקת ב-wei כדי להימנע משגיאות צפות (0.21000000000000002)
+        const totalWei = contractDetails.reduce((acc, contract) => {
+          try {
+            const amt = String(contract.amount || '0');
+            return acc + ethers.parseEther(amt);
+          } catch {
+            return acc;
+          }
+        }, 0n);
+        const totalEthStr = ethers.formatEther(totalWei);
+        const totalValue = (() => {
+          const [intPart, fracPartRaw = ''] = totalEthStr.split('.');
+          const fracTrimmed = fracPartRaw.replace(/0+$/, '');
+          const fracLimited = fracTrimmed.slice(0, 6); // מציג עד 6 ספרות אחרי הנקודה
+          return fracLimited ? `${intPart}.${fracLimited}` : intPart;
+        })();
 
         setStats({
           totalContracts: contractDetails.length,
@@ -131,7 +144,7 @@ function Dashboard() {
           totalContracts: 0,
           activeContracts: 0,
           pendingContracts: 0,
-          totalValue: 0
+          totalValue: '0'
         });
       }
 

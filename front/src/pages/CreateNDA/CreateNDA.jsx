@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
+import { ContractService } from '../../services/contractService';
 import './CreateNDA.css';
 
 function CreateNDA() {
-  const { isConnected } = useEthers();
+  const { isConnected, signer, chainId, account } = useEthers();
   const [formData, setFormData] = useState({
     partyB: '',
     expiryDate: '',
@@ -19,7 +20,54 @@ function CreateNDA() {
 
   const handleCreateNDA = async (e) => {
     e.preventDefault();
-    alert('NDA creation will be implemented soon!');
+    try {
+      // Basic validation
+      if (!formData.partyB.match(/^0x[a-fA-F0-9]{40}$/)) {
+        alert('Counterparty must be a valid address');
+        return;
+      }
+      if (!formData.expiryDate) {
+        alert('Please choose an expiry date');
+        return;
+      }
+      const today = new Date();
+      const exp = new Date(formData.expiryDate);
+      if (exp <= today) {
+        alert('Expiry must be in the future');
+        return;
+      }
+      const penaltyBps = Number(formData.penaltyBps || 0);
+      if (penaltyBps < 0 || penaltyBps > 10000) {
+        alert('Penalty BPS must be between 0 and 10000');
+        return;
+      }
+      const minDeposit = String(formData.minDeposit || '0');
+      if (Number(minDeposit) <= 0) {
+        alert('Minimum deposit must be > 0');
+        return;
+      }
+
+      const service = new ContractService(signer, chainId);
+      const res = await service.createNDA({
+        partyB: formData.partyB,
+        expiryDate: formData.expiryDate,
+        penaltyBps: penaltyBps,
+        customClauses: formData.customClauses,
+        arbitrator: undefined, // optional for now
+        minDeposit: minDeposit,
+      });
+
+      if (!res?.contractAddress) {
+        alert('Transaction mined but no NDA address found in logs. Check the explorer.');
+        return;
+      }
+
+      alert(`NDA created at ${res.contractAddress}`);
+      window.location.href = '/';
+    } catch (err) {
+      const reason = err?.reason || err?.error?.message || err?.data?.message || err?.message;
+      alert(`Failed to create NDA: ${reason}`);
+    }
   };
 
   if (!isConnected) {

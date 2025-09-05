@@ -119,7 +119,8 @@ export class ContractService {
     }
   }
 
-  async getRentContractDetails(contractAddress) {
+  async getRentContractDetails(contractAddress, options = {}) {
+    const { silent = false } = options || {};
     try {
       // Ensure the address is a contract before calling views
       const code = await this.signer.provider.getCode(contractAddress);
@@ -185,7 +186,9 @@ export class ContractService {
         created: '—'
       };
     } catch (error) {
-      console.error('Error getting contract details:', error);
+      if (!silent) {
+        console.error('Error getting contract details:', error);
+      }
       throw error;
     }
   }
@@ -467,7 +470,8 @@ async getNDAContract(contractAddress) {
   }
 }
 
-async getNDAContractDetails(contractAddress) {
+async getNDAContractDetails(contractAddress, options = {}) {
+  const { silent = false } = options || {};
   try {
     // Ensure the address is a contract before calling views
     const code = await this.signer.provider.getCode(contractAddress);
@@ -476,16 +480,73 @@ async getNDAContractDetails(contractAddress) {
     }
     const ndaContract = await this.getNDAContract(contractAddress);
     
-    const [partyA, partyB, expiryDate, penaltyBps, minDeposit, isActive] = await Promise.all([
+    const [partyA, partyB, expiryDate, penaltyBps, minDeposit, isActive, arbitrator, admin, canWithdraw] = await Promise.all([
       ndaContract.partyA(),
       ndaContract.partyB(),
       ndaContract.expiryDate(),
       ndaContract.penaltyBps(),
       ndaContract.minDeposit(),
       // NDATemplate exposes `active` public var (getter)
-      ndaContract.active().catch(() => true)
+      ndaContract.active().catch(() => true),
+      ndaContract.arbitrator?.().catch?.(() => ethers.ZeroAddress) ?? ethers.ZeroAddress,
+      ndaContract.admin?.().catch?.(() => ethers.ZeroAddress) ?? ethers.ZeroAddress,
+      ndaContract.canWithdraw?.().catch?.(() => false) ?? false,
     ]);
+    // Aggregate status info
+    let fullySigned = false;
+    let totalDeposits = '0';
+    let activeCases = 0;
+    try {
+      const st = await ndaContract.getContractStatus();
+      // st: (isActive, fullySigned, totalDeposits, activeCases)
+      fullySigned = !!st[1];
+      totalDeposits = ethers.formatEther(st[2]);
+      activeCases = Number(st[3] || 0);
+    } catch (_) {}
     
+    // Parties, signatures & deposits
+    let parties = [];
+    try {
+      parties = await ndaContract.getParties();
+    } catch (_) {
+      parties = [partyA, partyB].filter(Boolean);
+    }
+    const signatures = {};
+    const depositsByParty = {};
+    for (const p of parties) {
+      try {
+        signatures[p] = await ndaContract.signedBy(p);
+      } catch (_) { signatures[p] = false; }
+      try {
+        const dep = await ndaContract.deposits(p);
+        depositsByParty[p] = ethers.formatEther(dep);
+      } catch (_) { depositsByParty[p] = '0'; }
+    }
+
+    // Cases
+    let cases = [];
+    try {
+      const cnt = Number(await ndaContract.getCasesCount());
+      const arr = [];
+      for (let i = 0; i < cnt; i++) {
+        try {
+          const c = await ndaContract.getCase(i);
+          arr.push({
+            id: i,
+            reporter: c[0],
+            offender: c[1],
+            requestedPenalty: ethers.formatEther(c[2]),
+            evidenceHash: c[3],
+            resolved: !!c[4],
+            approved: !!c[5],
+            approveVotes: Number(c[6] || 0),
+            rejectVotes: Number(c[7] || 0),
+          });
+        } catch (_) {}
+      }
+      cases = arr;
+    } catch (_) {}
+
     const formattedMin = ethers.formatEther(minDeposit);
     return {
       address: contractAddress,
@@ -495,6 +556,16 @@ async getNDAContractDetails(contractAddress) {
       penaltyBps: Number(penaltyBps),
       minDeposit: formattedMin,
       isActive: !!isActive,
+      arbitrator,
+      admin,
+      fullySigned,
+      totalDeposits,
+      activeCases,
+      canWithdraw: !!canWithdraw,
+      parties,
+      signatures,
+      depositsByParty,
+      cases,
       type: 'NDA',
       // UI-friendly fields expected by Dashboard
       amount: formattedMin,
@@ -503,7 +574,149 @@ async getNDAContractDetails(contractAddress) {
       created: new Date(Number(expiryDate) * 1000).toLocaleDateString()
     };
   } catch (error) {
-    console.error('Error getting NDA details:', error);
+    if (!silent) {
+      console.error('Error getting NDA details:', error);
+    }
+    throw error;
+  }
+}
+
+// ---------- NDA helpers ----------
+async signNDA(contractAddress) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    // Preflight: ensure current signer is a party and hasn't signed yet
+    const myAddr = (await this.signer.getAddress()).toLowerCase();
+    try {
+      const [isParty, alreadySigned] = await Promise.all([
+        // public mapping getters
+        nda.isParty(myAddr),
+        nda.signedBy(myAddr)
+      ]);
+      if (!isParty) {
+        throw new Error('Current wallet is not a party to this NDA');
+      }
+      if (alreadySigned) {
+        throw new Error('Already signed with this wallet');
+      }
+    } catch (_) {
+      // If ABI doesn't expose mapping getters, ignore and proceed; on-chain will still validate
+    }
+    const [expiryDate, penaltyBps, customClausesHash] = await Promise.all([
+      nda.expiryDate(),
+      nda.penaltyBps(),
+      nda.customClausesHash(),
+    ]);
+    const domain = {
+      name: 'NDATemplate',
+      version: '1',
+      chainId: Number(this.chainId),
+      verifyingContract: contractAddress,
+    };
+    const types = {
+      NDA: [
+        { name: 'contractAddress', type: 'address' },
+        { name: 'expiryDate', type: 'uint256' },
+        { name: 'penaltyBps', type: 'uint16' },
+        { name: 'customClausesHash', type: 'bytes32' },
+      ],
+    };
+    const value = {
+      contractAddress,
+      expiryDate: BigInt(expiryDate),
+      penaltyBps: Number(penaltyBps),
+      customClausesHash,
+    };
+    const signature = await this.signer.signTypedData(domain, types, value);
+    const tx = await nda.signNDA(signature);
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error signing NDA:', error);
+    // Normalize common revert reasons
+    const reason = error?.reason || error?.error?.message || error?.data?.message || error?.message || '';
+    if (/already signed/i.test(reason)) {
+      throw new Error('Already signed with this wallet');
+    }
+    throw error;
+  }
+}
+
+async ndaDeposit(contractAddress, amountEth) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    const tx = await nda.deposit({ value: ethers.parseEther(String(amountEth)) });
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error depositing to NDA:', error);
+    throw error;
+  }
+}
+
+async ndaWithdraw(contractAddress, amountEth) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    const tx = await nda.withdrawDeposit(ethers.parseEther(String(amountEth)));
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error withdrawing from NDA:', error);
+    throw error;
+  }
+}
+
+async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceText) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    const requested = ethers.parseEther(String(requestedPenaltyEth));
+    const evidenceHash = evidenceText ? ethers.id(evidenceText) : ethers.ZeroHash;
+    const tx = await nda.reportBreach(offender, requested, evidenceHash);
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error reporting breach:', error);
+    throw error;
+  }
+}
+
+async ndaVoteOnBreach(contractAddress, caseId, approve) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    const tx = await nda.voteOnBreach(Number(caseId), !!approve);
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error voting on breach:', error);
+    throw error;
+  }
+}
+
+async ndaResolveByArbitrator(contractAddress, caseId, approve, beneficiary) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    const tx = await nda.resolveByArbitrator(Number(caseId), !!approve, beneficiary);
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error resolving by arbitrator:', error);
+    throw error;
+  }
+}
+
+async ndaEnforcePenalty(contractAddress, guilty, penaltyEth, beneficiary) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    const penalty = ethers.parseEther(String(penaltyEth));
+    const tx = await nda.enforcePenalty(guilty, penalty, beneficiary);
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error enforcing penalty:', error);
+    throw error;
+  }
+}
+
+async ndaDeactivate(contractAddress, reason) {
+  try {
+    const nda = await this.getNDAContract(contractAddress);
+    const tx = await nda.deactivate(reason || '');
+    return await tx.wait();
+  } catch (error) {
+    console.error('Error deactivating NDA:', error);
     throw error;
   }
 }
