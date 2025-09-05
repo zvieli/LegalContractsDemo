@@ -1,3 +1,4 @@
+import "dotenv/config";
 import pkg from "hardhat";
 import fs from "fs";
 import path from "path";
@@ -43,7 +44,7 @@ async function main() {
     network: network.name,
     contracts: {
       ContractFactory: factoryAddress,
-      // פה תוכל להוסיף חוזים נוספים אם תפרוס אותם
+  // פה תוכל להוסיף חוזים נוספים אם תפרוס אותם
     },
   };
 
@@ -60,6 +61,30 @@ async function main() {
 
   console.log("💾 Deployment saved to frontend:", deploymentFile);
 
+  // === 2.5 Optionally deploy OracleArbitratorFunctions if router provided ===
+  let oracleFunctionsAddress = null;
+  try {
+    const router = process.env.ORACLE_FUNCTIONS_ROUTER;
+    if (router && ethers.isAddress(router)) {
+      console.log("📦 Deploying OracleArbitratorFunctions with router:", router);
+      const Oracle = await ethers.getContractFactory("OracleArbitratorFunctions");
+      const oracle = await Oracle.deploy(router);
+      await oracle.waitForDeployment();
+      oracleFunctionsAddress = await oracle.getAddress();
+      console.log("✅ OracleArbitratorFunctions deployed:", oracleFunctionsAddress);
+
+      // Update deployment data and re-write
+      deploymentData.contracts.OracleArbitratorFunctions = oracleFunctionsAddress;
+      fs.writeFileSync(deploymentFile, JSON.stringify(deploymentData, null, 2));
+    } else if (router) {
+      console.warn("⚠️  ORACLE_FUNCTIONS_ROUTER provided but not a valid address:", router);
+    } else {
+      console.log("ℹ️  Skipping OracleArbitratorFunctions (no ORACLE_FUNCTIONS_ROUTER set)");
+    }
+  } catch (err) {
+    console.error("⚠️  Could not deploy OracleArbitratorFunctions:", err.message);
+  }
+
   // === 3. Copy ABIs ===
   console.log("📂 Copying ABI files to frontend...");
 
@@ -75,6 +100,7 @@ async function main() {
     path.join("NDA", "NDATemplate.sol"),
     path.join("NDA", "Arbitrator.sol"),
   path.join("NDA", "OracleArbitrator.sol"),
+  path.join("NDA", "OracleArbitratorFunctions.sol"),
   ];
 
   let copiedCount = 0;

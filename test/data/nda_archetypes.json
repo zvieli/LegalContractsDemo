@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Employee leaks confidential roadmap to media",
+    "reporter": "A",
+    "offender": "B",
+    "requestedEth": "0.4",
+    "evidence": "ipfs://case/roadmap-media-leak"
+  },
+  {
+    "name": "Investor forwards pitch deck to competitor",
+    "reporter": "B",
+    "offender": "A",
+    "requestedEth": "0.2",
+    "evidence": "ipfs://case/pitch-forward-competitor"
+  },
+  {
+    "name": "Source code snippet published publicly (GitHub gist)",
+    "reporter": "A",
+    "offender": "B",
+    "requestedEth": "0.6",
+    "evidence": "ipfs://case/source-code-gist"
+  },
+  {
+    "name": "Subcontractor shares customer list",
+    "reporter": "B",
+    "offender": "A",
+    "requestedEth": "0.3",
+    "evidence": "ipfs://case/subcontractor-customer-list"
+  },
+  {
+    "name": "Executive discloses earnings guidance externally",
+    "reporter": "A",
+    "offender": "B",
+    "requestedEth": "0.5",
+    "evidence": "ipfs://case/earnings-guidance"
+  }
+]

@@ -1,0 +1,12 @@
+name = "nda-ai-endpoint"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+# Do NOT put secrets in plain text here. Use:
+#   wrangler secret put AI_API_KEY
+# and access via env.AI_API_KEY in the Worker.
+
+[vars]
+# Optional non-sensitive defaults can go here.
+# Example:
+# WORKERS_AI_MODEL = "@cf/meta/llama-3-8b-instruct"
