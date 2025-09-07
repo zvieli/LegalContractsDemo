@@ -3,6 +3,33 @@ import { expect } from "chai";
 import pkg from "hardhat";
 const { ethers } = pkg;
 
+// EIP712 sign helper (mirrors contract typehash)
+async function signRent(signer, contract, landlord, tenant, rentAmount, dueDate) {
+  const domain = {
+    name: 'TemplateRentContract',
+    version: '1',
+    chainId: (await signer.provider.getNetwork()).chainId,
+    verifyingContract: contract.target
+  };
+  const types = {
+    RENT: [
+      { name: 'contractAddress', type: 'address' },
+      { name: 'landlord', type: 'address' },
+      { name: 'tenant', type: 'address' },
+      { name: 'rentAmount', type: 'uint256' },
+      { name: 'dueDate', type: 'uint256' }
+    ]
+  };
+  const value = {
+    contractAddress: contract.target,
+    landlord,
+    tenant,
+    rentAmount,
+    dueDate
+  };
+  return await signer.signTypedData(domain, types, value);
+}
+
 describe("TemplateRentContract", function () {
   let RentContract, rentContract;
   let landlord, tenant, other;
@@ -56,20 +83,41 @@ beforeEach(async function () {
   });
 
   describe("Rent Payment", function () {
-    it("should allow tenant to pay rent", async function () {
+    it("should allow tenant to pay rent after both signatures", async function () {
       const rentAmount = ethers.parseEther("0.5");
-      
+      // sign landlord
+      const sigLandlord = await signRent(landlord, rentContract, landlord.address, tenant.address, rentAmount, await rentContract.dueDate());
+      await rentContract.connect(landlord).signRent(sigLandlord);
+      // sign tenant
+      const sigTenant = await signRent(tenant, rentContract, landlord.address, tenant.address, rentAmount, await rentContract.dueDate());
+      await rentContract.connect(tenant).signRent(sigTenant);
       await expect(rentContract.connect(tenant).payRent(rentAmount))
         .to.emit(rentContract, "RentPaid")
         .withArgs(tenant.address, rentAmount, false, ethers.ZeroAddress);
-
       expect(await rentContract.rentPaid()).to.be.true;
       expect(await rentContract.totalPaid()).to.equal(rentAmount);
+    });
+
+    it("blocks payment until both parties sign (merged from RentSigningRestriction.test)", async function () {
+      const rentAmount = await rentContract.rentAmount();
+      // 1. attempt before any signatures
+      await expect(rentContract.connect(tenant).payRent(rentAmount)).to.be.revertedWithCustomError(rentContract,'NotFullySigned');
+      // 2. landlord signs
+      const due = await rentContract.dueDate();
+      const sigL = await signRent(landlord, rentContract, landlord.address, tenant.address, rentAmount, due);
+      await expect(rentContract.connect(landlord).signRent(sigL)).to.emit(rentContract,'RentSigned');
+      // still blocked
+      await expect(rentContract.connect(tenant).payRent(rentAmount)).to.be.revertedWithCustomError(rentContract,'NotFullySigned');
+      // 3. tenant signs
+      const sigT = await signRent(tenant, rentContract, landlord.address, tenant.address, rentAmount, due);
+      await expect(rentContract.connect(tenant).signRent(sigT)).to.emit(rentContract,'RentSigned');
+      // 4. payment succeeds
+      await expect(rentContract.connect(tenant).payRent(rentAmount)).to.emit(rentContract,'RentPaid');
     });
   });
 
 describe("ETH Payment", function () {
-  it("should allow tenant to pay rent in ETH", async function () {
+  it("should allow tenant to pay rent in ETH after signatures", async function () {
     const rentInEth = await rentContract.getRentInEth();
     console.log("Rent in ETH:", ethers.formatEther(rentInEth));
     
@@ -79,7 +127,11 @@ describe("ETH Payment", function () {
     const tenantBalance = await ethers.provider.getBalance(tenant.address);
     expect(tenantBalance).to.be.greaterThan(rentInEth);
 
-    await expect(rentContract.connect(tenant).payRentInEth({ value: rentInEth }))
+  const sigL = await signRent(landlord, rentContract, landlord.address, tenant.address, await rentContract.rentAmount(), await rentContract.dueDate());
+  await rentContract.connect(landlord).signRent(sigL);
+  const sigT = await signRent(tenant, rentContract, landlord.address, tenant.address, await rentContract.rentAmount(), await rentContract.dueDate());
+  await rentContract.connect(tenant).signRent(sigT);
+  await expect(rentContract.connect(tenant).payRentInEth({ value: rentInEth }))
       .to.emit(rentContract, "RentPaid")
       .withArgs(tenant.address, rentInEth, false, ethers.ZeroAddress);
 
@@ -98,9 +150,13 @@ describe("ETH Payment", function () {
 });
 
   describe("Token Payment", function () {
-    it("should allow tenant to pay rent with ERC20 token", async function () {
+    it("should allow tenant to pay rent with ERC20 token after signatures", async function () {
       const initialLandlordBalance = await token.balanceOf(landlord.address);
       const rentAmount = ethers.parseUnits("100", 18);
+      const sigL = await signRent(landlord, rentContract, landlord.address, tenant.address, await rentContract.rentAmount(), await rentContract.dueDate());
+      await rentContract.connect(landlord).signRent(sigL);
+      const sigT = await signRent(tenant, rentContract, landlord.address, tenant.address, await rentContract.rentAmount(), await rentContract.dueDate());
+      await rentContract.connect(tenant).signRent(sigT);
 
       await expect(rentContract.connect(tenant).payRentWithToken(token.target, rentAmount))
         .to.emit(rentContract, "RentPaid")
@@ -122,31 +178,54 @@ describe("ETH Payment", function () {
   });
 
   describe("Rent Signing", function () {
-    it("should allow tenant to sign rent with valid signature", async function () {
-      // יצירת החתימה כמו ב-contract
-      const messageHash = ethers.solidityPackedKeccak256(
-        ["address", "uint256", "uint256"],
-        [rentContract.target, await rentContract.rentAmount(), await rentContract.dueDate()]
-      );
-      
-      const signature = await tenant.signMessage(ethers.getBytes(messageHash));
-
-      await expect(rentContract.connect(tenant).signRent(signature))
-        .to.emit(rentContract, "RentSigned")
-        .withArgs(tenant.address, anyValue);
-
+    it("should allow both parties to sign via EIP712", async function () {
+      const rentAmt = await rentContract.rentAmount();
+      const due = await rentContract.dueDate();
+      const sigL = await signRent(landlord, rentContract, landlord.address, tenant.address, rentAmt, due);
+      await expect(rentContract.connect(landlord).signRent(sigL)).to.emit(rentContract, 'RentSigned');
+      const sigT = await signRent(tenant, rentContract, landlord.address, tenant.address, rentAmt, due);
+      await expect(rentContract.connect(tenant).signRent(sigT)).to.emit(rentContract, 'RentSigned');
       expect(await rentContract.rentSigned()).to.be.true;
     });
 
-    it("should revert when invalid signature provided", async function () {
-      const invalidMessage = ethers.solidityPackedKeccak256(
-        ["string"],
-        ["Invalid message"]
-      );
-      const invalidSignature = await other.signMessage(ethers.getBytes(invalidMessage));
-      
-      await expect(rentContract.connect(tenant).signRent(invalidSignature))
-        .to.be.revertedWith("Invalid signature");
+    it("should revert with custom error on signature mismatch", async function () {
+      // Other signs (not tenant) -> mismatch
+      const rentAmt = await rentContract.rentAmount();
+      const due = await rentContract.dueDate();
+      const sigOther = await signRent(other, rentContract, landlord.address, tenant.address, rentAmt, due);
+      await expect(rentContract.connect(tenant).signRent(sigOther)).to.be.revertedWithCustomError(rentContract, 'SignatureMismatch');
+    });
+  });
+
+  // Additional EIP712 signature behavior tests merged from former RentSignature.test.js
+  describe("EIP712 Additional Signature Behaviors", function () {
+    it("locks dueDate after both parties sign (cannot modify)", async function () {
+      // Deploy a fresh instance (independent scenario)
+      const Rent = await ethers.getContractFactory('TemplateRentContract');
+      const fresh = await Rent.deploy(landlord.address, tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
+      await fresh.waitForDeployment();
+      const dueDate = (await ethers.provider.getBlock('latest')).timestamp + 3600;
+      await fresh.connect(landlord).setDueDate(dueDate);
+      const rentAmt = await fresh.rentAmount();
+      const sigL = await signRent(landlord, fresh, landlord.address, tenant.address, rentAmt, dueDate);
+      await expect(fresh.connect(landlord).signRent(sigL)).to.emit(fresh,'RentSigned');
+      const sigT = await signRent(tenant, fresh, landlord.address, tenant.address, rentAmt, dueDate);
+      await expect(fresh.connect(tenant).signRent(sigT)).to.emit(fresh,'RentSigned');
+      await expect(fresh.connect(landlord).setDueDate(dueDate + 100)).to.be.revertedWithCustomError(fresh,'FullySignedDueDateLocked');
+    });
+
+    it("rejects reusing the same signature (AlreadySigned) and non-party (NotParty)", async function () {
+      const Rent = await ethers.getContractFactory('TemplateRentContract');
+      const fresh = await Rent.deploy(landlord.address, tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
+      await fresh.waitForDeployment();
+      const dueDate = (await ethers.provider.getBlock('latest')).timestamp + 7200;
+      await fresh.connect(landlord).setDueDate(dueDate);
+      const rentAmt = await fresh.rentAmount();
+      const sigL = await signRent(landlord, fresh, landlord.address, tenant.address, rentAmt, dueDate);
+      await fresh.connect(landlord).signRent(sigL);
+      await expect(fresh.connect(landlord).signRent(sigL)).to.be.revertedWithCustomError(fresh,'AlreadySigned');
+      const fakeSig = await signRent(other, fresh, landlord.address, tenant.address, rentAmt, dueDate);
+      await expect(fresh.connect(other).signRent(fakeSig)).to.be.revertedWithCustomError(fresh,'NotParty');
     });
   });
 
@@ -183,14 +262,14 @@ describe("ETH Payment", function () {
       await rentContract.connect(landlord).cancelContract();
 
       await expect(rentContract.connect(tenant).payRent(ethers.parseEther("0.5")))
-        .to.be.revertedWith("Contract is not active");
+        .to.be.revertedWithCustomError(rentContract, 'NotActive');
     });
   });
 
   describe("Detailed Cancellation Policy", function () {
     it("only landlord can set cancellation policy and emits event", async function () {
       await expect(rentContract.connect(tenant).setCancellationPolicy(3600, 500, true))
-        .to.be.revertedWith("Only landlord can call");
+        .to.be.revertedWithCustomError(rentContract, 'OnlyLandlord');
 
       await expect(rentContract.connect(landlord).setCancellationPolicy(3600, 500, true))
         .to.emit(rentContract, "CancellationPolicyUpdated")
@@ -230,7 +309,7 @@ describe("ETH Payment", function () {
 
       // Try to finalize before notice elapsed -> revert
       await expect(rentContract.connect(tenant).finalizeCancellation())
-        .to.be.revertedWith("Notice period not elapsed");
+        .to.be.revertedWithCustomError(rentContract, 'NoticeNotElapsed');
 
       // Move time forward 1 hour
       await ethers.provider.send("evm_increaseTime", [3600]);
@@ -243,7 +322,7 @@ describe("ETH Payment", function () {
       // Insufficient fee should revert
       if (expectedFee > 0n) {
         await expect(rentContract.connect(tenant).finalizeCancellation({ value: expectedFee - 1n }))
-          .to.be.revertedWith("Insufficient fee");
+          .to.be.revertedWithCustomError(rentContract, 'InsufficientFee');
       }
 
       // Track landlord balance change approximately by fee via event
@@ -254,6 +333,22 @@ describe("ETH Payment", function () {
         .and.to.emit(rentContract, "CancellationFinalized");
 
       expect(await rentContract.active()).to.equal(false);
+    });
+  });
+
+  // Guard scenarios merged from former CancellationScenarios.test.js (explicit address logic not needed)
+  describe("Cancellation Guards", function () {
+    it("prevent approve / finalize when no cancellation requested", async function () {
+      await expect(rentContract.connect(tenant).approveCancellation()).to.be.revertedWithCustomError(rentContract,'CancelNotRequested');
+      await expect(rentContract.connect(tenant).finalizeCancellation()).to.be.revertedWithCustomError(rentContract,'CancelNotRequested');
+    });
+
+    it("approve after mutual policy initiation finalizes and blocks further approve", async function () {
+      await rentContract.connect(landlord).setCancellationPolicy(0,0,true);
+      await rentContract.connect(landlord).initiateCancellation();
+      await expect(rentContract.connect(tenant).approveCancellation()).to.emit(rentContract,'CancellationApproved');
+      expect(await rentContract.active()).to.equal(false);
+      await expect(rentContract.connect(tenant).approveCancellation()).to.be.revertedWithCustomError(rentContract,'NotActive');
     });
   });
 });

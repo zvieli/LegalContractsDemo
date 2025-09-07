@@ -123,6 +123,15 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
+    if (request.method === 'GET') {
+      const info = {
+        name: 'nda-ai-endpoint',
+        version: '1',
+        usage: 'POST JSON: { reporter, offender, requestedPenaltyWei, evidenceHash?, evidenceText? }',
+        note: 'Returns structured decision JSON. This GET is a health/usage endpoint only.'
+      };
+      return new Response(JSON.stringify(info), { status: 200, headers: { 'content-type': 'application/json', ...cors } });
+    }
     if (request.method !== 'POST') {
       return new Response('Method Not Allowed', { status: 405, headers: cors });
     }
