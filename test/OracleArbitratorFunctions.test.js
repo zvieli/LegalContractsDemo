@@ -55,14 +55,23 @@ describe("OracleArbitratorFunctions -> NDATemplate integration", function () {
     }
     expect(requestId).to.be.properHex;
 
-    await oracle.connect(owner).testFulfill(requestId, true, ethers.parseEther("0.15"), partyA.address, partyB.address);
+    // Simulate oracle callback including classification & rationale
+    await oracle.connect(owner).testFulfill(
+      requestId,
+      true,
+      ethers.parseEther("0.15"),
+      partyA.address,
+      partyB.address,
+      'generic',
+      'cat=generic;test'
+    );
 
     const caseInfo = await nda.getCase(0);
     expect(caseInfo[4]).to.equal(true);
     expect(caseInfo[5]).to.equal(true);
 
-    const offenderDeposit = await nda.deposits(partyB.address);
-    // 0.5 - 0.15 (enforce) - 0.2 (approve payout) = 0.15
-    expect(offenderDeposit).to.equal(ethers.parseEther("0.15"));
+  const offenderDeposit = await nda.deposits(partyB.address);
+  // Single-step final resolution: only penaltyWei (0.15) deducted from 0.5 => 0.35 remaining
+  expect(offenderDeposit).to.equal(ethers.parseEther("0.35"));
   });
 });

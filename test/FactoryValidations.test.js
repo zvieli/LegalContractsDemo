@@ -18,40 +18,40 @@ describe("ContractFactory with Validations", function () {
     await mockPriceFeed.waitForDeployment();
 
     // Deploy Factory 
-    const Factory = await ethers.getContractFactory("ContractFactory");
-    factory = await Factory.deploy();
-    await factory.waitForDeployment();
+  const Factory = await ethers.getContractFactory("ContractFactory");
+  factory = await Factory.deploy();
+  await factory.waitForDeployment();
   });
 
   describe("createRentContract Validations", function () {
     it("should revert with zero tenant address", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-          ZERO_ADDRESS, // tenant = 0
+          ZERO_ADDRESS,
           100,
           mockPriceFeed.target
         )
-      ).to.be.revertedWith("Tenant cannot be zero address");
+      ).to.be.revertedWithCustomError(factory, 'ZeroTenant');
     });
 
     it("should revert when landlord is also tenant", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-          landlord.address, // tenant = landlord
+          landlord.address,
           100,
           mockPriceFeed.target
         )
-      ).to.be.revertedWith("Landlord cannot be tenant");
+      ).to.be.revertedWithCustomError(factory, 'SameAddresses');
     });
 
     it("should revert with zero rent amount", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
           tenant.address,
-          0, // rent = 0
+          0,
           mockPriceFeed.target
         )
-      ).to.be.revertedWith("Rent amount must be greater than 0");
+      ).to.be.revertedWithCustomError(factory, 'ZeroRentAmount');
     });
 
     it("should revert with zero price feed address", async function () {
@@ -59,9 +59,9 @@ describe("ContractFactory with Validations", function () {
         factory.connect(landlord).createRentContract(
           tenant.address,
           100,
-          ZERO_ADDRESS // priceFeed = 0
+          ZERO_ADDRESS
         )
-      ).to.be.revertedWith("Price feed cannot be zero address");
+      ).to.be.revertedWithCustomError(factory, 'ZeroPriceFeed');
     });
 
     it("should revert with EOA as price feed", async function () {
@@ -69,9 +69,9 @@ describe("ContractFactory with Validations", function () {
         factory.connect(landlord).createRentContract(
           tenant.address,
           100,
-          tenant.address // EOA instead of contract
+          tenant.address
         )
-      ).to.be.revertedWith("Price feed must be a contract");
+      ).to.be.revertedWithCustomError(factory, 'PriceFeedNotContract');
     });
   });
 
@@ -85,40 +85,40 @@ describe("ContractFactory with Validations", function () {
     it("should revert with zero partyB address", async function () {
       await expect(
         factory.connect(partyA).createNDA(
-          ZERO_ADDRESS, // partyB = 0
+          ZERO_ADDRESS,
           expiryDate,
           penaltyBps,
           clausesHash,
           ZERO_ADDRESS,
           minDeposit
         )
-      ).to.be.revertedWith("Party B cannot be zero address");
+      ).to.be.revertedWithCustomError(factory, 'ZeroPartyB');
     });
 
     it("should revert when partyA is also partyB", async function () {
       await expect(
         factory.connect(partyA).createNDA(
-          partyA.address, // partyB = partyA
+          partyA.address,
           expiryDate,
           penaltyBps,
           clausesHash,
           ZERO_ADDRESS,
           minDeposit
         )
-      ).to.be.revertedWith("Party A cannot be Party B");
+      ).to.be.revertedWithCustomError(factory, 'SameParties');
     });
 
     it("should revert with past expiry date", async function () {
       await expect(
         factory.connect(partyA).createNDA(
           partyB.address,
-          pastDate, // expiry in past
+          pastDate,
           penaltyBps,
           clausesHash,
           ZERO_ADDRESS,
           minDeposit
         )
-      ).to.be.revertedWith("Expiry date must be in the future");
+      ).to.be.revertedWithCustomError(factory, 'ExpiryNotFuture');
     });
 
     it("should revert with penalty over 100%", async function () {
@@ -126,12 +126,12 @@ describe("ContractFactory with Validations", function () {
         factory.connect(partyA).createNDA(
           partyB.address,
           expiryDate,
-          10001, // penalty > 10000 bps (100%)
+          10001,
           clausesHash,
           ZERO_ADDRESS,
           minDeposit
         )
-      ).to.be.revertedWith("Penalty must be 10000 bps or less");
+      ).to.be.revertedWithCustomError(factory, 'PenaltyTooHigh');
     });
 
     it("should revert with zero min deposit", async function () {
@@ -142,9 +142,9 @@ describe("ContractFactory with Validations", function () {
           penaltyBps,
           clausesHash,
           ZERO_ADDRESS,
-          0 // minDeposit = 0
+          0
         )
-      ).to.be.revertedWith("Minimum deposit must be greater than 0");
+      ).to.be.revertedWithCustomError(factory, 'MinDepositZero');
     });
 
     it("should revert with EOA as arbitrator", async function () {
@@ -154,10 +154,10 @@ describe("ContractFactory with Validations", function () {
           expiryDate,
           penaltyBps,
           clausesHash,
-          partyB.address, // EOA as arbitrator
+          partyB.address,
           minDeposit
         )
-      ).to.be.revertedWith("Arbitrator must be a contract");
+      ).to.be.revertedWithCustomError(factory, 'ArbitratorNotContract');
     });
   });
 

@@ -22,7 +22,7 @@ describe("ContractFactory", function () {
     await mockPriceFeed.waitForDeployment();
 
     // Deploy Factory
-    const Factory = await ethers.getContractFactory("ContractFactory");
+  const Factory = await ethers.getContractFactory("ContractFactory");
     factory = await Factory.deploy();
     await factory.waitForDeployment();
   });

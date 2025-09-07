@@ -40,6 +40,7 @@ contract NDATemplate is EIP712 {
     event BreachResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address offender, address beneficiary);
     event ContractDeactivated(address indexed by, string reason);
     event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
+    event BreachRationale(uint256 indexed caseId, string classification, string rationale);
     // debug removed
 
     struct BreachCase {
@@ -54,7 +55,13 @@ contract NDATemplate is EIP712 {
         mapping(address => bool) voted;
     }
 
+    struct CaseMeta {
+        string classification;
+        string rationale; // NOTE: demonstration only; in production consider hashing to save gas.
+    }
+
     BreachCase[] private _cases;
+    mapping(uint256 => CaseMeta) private _caseMeta; // caseId => meta
 
     constructor(
         address _partyA,
@@ -258,6 +265,44 @@ contract NDATemplate is EIP712 {
         require(!bc.resolved, "Case resolved");
         
         _applyResolution(caseId, approve, beneficiary);
+    }
+
+    /// @notice Final resolution specifying an applied penalty directly (used by oracle path to avoid double deduction)
+    function resolveByArbitratorFinal(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary, string calldata classification, string calldata rationale) external onlyActive {
+        require(arbitrator != address(0), "No arbitrator");
+        require(msg.sender == arbitrator, "Only arbitrator");
+        require(arbitrator.code.length > 0, "Arbitrator must be a contract");
+        require(caseId < _cases.length, "Invalid case ID");
+        require(beneficiary != address(0), "Invalid beneficiary");
+        require(bytes(classification).length <= 64, "classification too long");
+        require(bytes(rationale).length <= 512, "rationale too long");
+
+        BreachCase storage bc = _cases[caseId];
+        require(!bc.resolved, "Case resolved");
+
+        bc.resolved = true;
+        bc.approved = approve;
+        uint256 applied = 0;
+        if (approve && appliedPenalty > 0) {
+            if (appliedPenalty > deposits[bc.offender]) {
+                appliedPenalty = deposits[bc.offender];
+            }
+            if (appliedPenalty > 0) {
+                deposits[bc.offender] -= appliedPenalty;
+                (bool ok, ) = payable(beneficiary).call{value: appliedPenalty}("");
+                require(ok, "Payout failed");
+                applied = appliedPenalty;
+            }
+        }
+        _caseMeta[caseId] = CaseMeta({ classification: classification, rationale: rationale });
+        emit BreachResolved(caseId, approve, applied, bc.offender, beneficiary);
+        emit BreachRationale(caseId, classification, rationale);
+    }
+
+    function getCaseMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
+        require(caseId < _cases.length, "Invalid case ID");
+        CaseMeta storage m = _caseMeta[caseId];
+        return (m.classification, m.rationale);
     }
 
     function enforcePenalty(address guiltyParty, uint256 penaltyAmount, address beneficiary) external {

@@ -7,6 +7,7 @@ import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/l
 interface INDATemplateLite2 {
     function deposits(address party) external view returns (uint256);
     function resolveByArbitrator(uint256 caseId, bool approve, address beneficiary) external;
+    function resolveByArbitratorFinal(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary, string calldata classification, string calldata rationale) external;
     function enforcePenalty(address guiltyParty, uint256 penaltyAmount, address beneficiary) external;
     function getCase(uint256 caseId) external view returns (
         address reporter,
@@ -92,24 +93,7 @@ contract OracleArbitratorFunctions is FunctionsClient {
             FunctionsRequest.Request memory req;
             req.initializeRequestForInlineJavaScript(source);
             // Build arguments for the AI script: [chainId, nda, caseId, reporter, offender, requestedPenaltyWei, evidenceHash]
-            (
-                string memory chainIdStr,
-                string memory ndaStr,
-                string memory caseIdStr,
-                string memory reporterStr,
-                string memory offenderStr,
-                string memory requestedPenaltyStr,
-                string memory evidenceHashStr
-            ) = _buildArgs(nda, caseId, msg.sender, offender, n);
-
-            string[] memory args = new string[](7);
-            args[0] = chainIdStr;
-            args[1] = ndaStr;
-            args[2] = caseIdStr;
-            args[3] = reporterStr;
-            args[4] = offenderStr;
-            args[5] = requestedPenaltyStr;
-            args[6] = evidenceHashStr;
+            string[] memory args = _buildArgs(nda, caseId, msg.sender, offender, n);
             req.setArgs(args);
 
             // Note: secrets (e.g., API keys) should be configured via DON-hosted secrets or encrypted secrets; omitted here.
@@ -137,25 +121,23 @@ contract OracleArbitratorFunctions is FunctionsClient {
         require(meta.nda != address(0), "Unknown request");
         require(!meta.fulfilled, "Already fulfilled");
 
-        (bool approve, uint256 penaltyWei, address beneficiary, address guilty) = abi.decode(response, (bool, uint256, address, address));
+    (bool approve, uint256 penaltyWei, address beneficiary, address guilty, string memory classification, string memory rationale) = abi.decode(response, (bool, uint256, address, address, string, string));
         require(beneficiary != address(0), "Invalid beneficiary");
 
         INDATemplateLite2 n = INDATemplateLite2(meta.nda);
         uint256 available = n.deposits(guilty);
         if (penaltyWei > available) penaltyWei = available;
 
-        if (penaltyWei > 0) {
-            n.enforcePenalty(guilty, penaltyWei, beneficiary);
-        }
-        n.resolveByArbitrator(meta.caseId, approve, beneficiary);
+    // Single-step final resolution (no double deduction).
+    n.resolveByArbitratorFinal(meta.caseId, approve, penaltyWei, beneficiary, classification, rationale);
 
         meta.fulfilled = true;
         emit ResolutionFulfilled(requestId, meta.nda, meta.caseId, approve, penaltyWei, beneficiary, guilty);
     }
 
     // Test-only helper to simulate router callback
-    function testFulfill(bytes32 requestId, bool approve, uint256 penaltyWei, address beneficiary, address guilty) external onlyOwner {
-        bytes memory resp = abi.encode(approve, penaltyWei, beneficiary, guilty);
+    function testFulfill(bytes32 requestId, bool approve, uint256 penaltyWei, address beneficiary, address guilty, string calldata classification, string calldata rationale) external onlyOwner {
+        bytes memory resp = abi.encode(approve, penaltyWei, beneficiary, guilty, classification, rationale);
         _fulfillRequest(requestId, resp, "");
     }
 
@@ -172,32 +154,16 @@ contract OracleArbitratorFunctions is FunctionsClient {
         address reporter,
         address offender,
         INDATemplateLite2 n
-    ) internal view returns (
-        string memory chainIdStr,
-        string memory ndaStr,
-        string memory caseIdStr,
-        string memory reporterStr,
-        string memory offenderStr,
-        string memory requestedPenaltyStr,
-        string memory evidenceHashStr
-    ) {
-        (
-            ,
-            ,
-            uint256 requestedPenalty,
-            bytes32 evidenceHash,
-            ,
-            ,
-            ,
-            
-        ) = n.getCase(caseId);
-        chainIdStr = _uintToString(block.chainid);
-        ndaStr = _addrToString(nda);
-        caseIdStr = _uintToString(caseId);
-        reporterStr = _addrToString(reporter);
-        offenderStr = _addrToString(offender);
-        requestedPenaltyStr = _uintToString(requestedPenalty);
-        evidenceHashStr = _bytes32ToHexString(evidenceHash);
+    ) internal view returns (string[] memory args) {
+        (, , uint256 requestedPenalty, bytes32 evidenceHash, , , , ) = n.getCase(caseId);
+        args = new string[](7);
+        args[0] = _uintToString(block.chainid);
+        args[1] = _addrToString(nda);
+        args[2] = _uintToString(caseId);
+        args[3] = _addrToString(reporter);
+        args[4] = _addrToString(offender);
+        args[5] = _uintToString(requestedPenalty);
+        args[6] = _bytes32ToHexString(evidenceHash);
     }
 
     function _uintToString(uint256 value) internal pure returns (string memory) {

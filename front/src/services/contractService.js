@@ -151,7 +151,17 @@ export class ContractService {
         rentContract.cancelApprovals?.(landlord).catch(() => false) ?? false,
         rentContract.cancelApprovals?.(tenant).catch(() => false) ?? false,
       ]);
-      
+      // Signing status (new EIP712 flow). Best effort if ABI mismatch.
+      let landlordSigned = false; let tenantSigned = false; let fullySigned = false; let dueDate = 0n;
+      try {
+        dueDate = await rentContract.dueDate();
+        const [ls, ts, fs] = await Promise.all([
+          rentContract.signedBy?.(landlord).catch(() => false),
+          rentContract.signedBy?.(tenant).catch(() => false),
+          rentContract.isFullySigned?.().catch(() => rentContract.rentSigned?.().catch(() => false))
+        ]);
+        landlordSigned = !!ls; tenantSigned = !!ts; fullySigned = !!fs;
+      } catch (_) {}
       const formattedAmount = ethers.formatEther(rentAmount);
       // Derive a richer status for UI
       let status = 'Active';
@@ -178,7 +188,13 @@ export class ContractService {
           approvals: {
             landlord: !!landlordApproved,
             tenant: !!tenantApproved,
-          }
+            }
+        },
+        signatures: {
+          landlord: landlordSigned,
+          tenant: tenantSigned,
+          fullySigned,
+          dueDate: Number(dueDate || 0n)
         },
         // UI-friendly fields expected by Dashboard
         amount: formattedAmount,
@@ -298,15 +314,58 @@ export class ContractService {
           throw err;
         }
       } catch (addrErr) {
-        // If fetch failed for any reason, surface a helpful error instead of a revert on estimateGas
         if (addrErr?.reason) throw addrErr;
         throw new Error('Could not verify tenant address on-chain. Check network and contract address.');
       }
-  // Pay in ETH according to TemplateRentContract.payRentInEth()
-  const tx = await rentContract.payRentInEth({ value: ethers.parseEther(amount) });
+      // Check fully signed status before sending tx to avoid revert
+      try {
+        const fully = await rentContract.rentSigned();
+        if (!fully) {
+          const err = new Error('Both parties must sign before payment');
+          err.reason = 'Both parties must sign before payment';
+          throw err;
+        }
+      } catch (sigErr) {
+        if (sigErr?.reason) throw sigErr; // propagate friendly reason
+        // otherwise ignore and let tx attempt
+      }
+      const tx = await rentContract.payRentInEth({ value: ethers.parseEther(amount) });
       const receipt = await tx.wait();
       return receipt;
     } catch (error) {
+      // Map custom error selectors for nicer messages
+      try {
+        const data = error?.data || error?.error?.data;
+        if (data && typeof data === 'object' && data.data) {
+          const raw = data.data; // hardhat style nested
+          if (raw && raw.startsWith('0x')) {
+            const selector = raw.slice(2,10);
+            const map = {
+              'ac37e5cb':'Both parties must sign before payment', // NotFullySigned
+              '873cf48b':'Only tenant may call this',
+              '80cb55e2':'Contract inactive',
+              '1fbaba35':'Amount too low',
+              '00bfc921':'Invalid oracle price'
+            };
+            if (map[selector]) {
+              const friendly = new Error(map[selector]);
+              friendly.reason = map[selector];
+              throw friendly;
+            }
+          }
+        } else if (error?.data && typeof error.data === 'string' && error.data.startsWith('0x')) {
+          const selector = error.data.slice(2,10);
+          const map = { 'ac37e5cb':'Both parties must sign before payment','873cf48b':'Only tenant may call this','80cb55e2':'Contract inactive','1fbaba35':'Amount too low','00bfc921':'Invalid oracle price'};
+          if (map[selector]) {
+            const friendly = new Error(map[selector]);
+            friendly.reason = map[selector];
+            throw friendly;
+          }
+        }
+      } catch (mapped) {
+        console.error('Mapped rent payment error:', mapped?.reason || mapped?.message);
+        throw mapped;
+      }
       console.error('Error paying rent:', error);
       throw error;
     }
@@ -721,4 +780,57 @@ async ndaDeactivate(contractAddress, reason) {
     throw error;
   }
 }
+
+async signRent(contractAddress) {
+    try {
+      const rent = await this.getRentContract(contractAddress);
+      const myAddr = (await this.signer.getAddress()).toLowerCase();
+      const landlord = (await rent.landlord()).toLowerCase();
+      const tenant = (await rent.tenant()).toLowerCase();
+      if (myAddr !== landlord && myAddr !== tenant) {
+        throw new Error('Current wallet is not a party to this Rent contract');
+      }
+      // Check already signed
+      try {
+        if (await rent.signedBy(myAddr)) {
+          throw new Error('Already signed with this wallet');
+        }
+      } catch (_) {}
+      // Fetch dueDate (0 allowed pre-set). If not set, require landlord sets first for determinism.
+      const dueDate = await rent.dueDate();
+      const rentAmount = await rent.rentAmount();
+      const domain = {
+        name: 'TemplateRentContract',
+        version: '1',
+        chainId: Number(this.chainId),
+        verifyingContract: contractAddress
+      };
+      const types = {
+        RENT: [
+          { name: 'contractAddress', type: 'address' },
+          { name: 'landlord', type: 'address' },
+          { name: 'tenant', type: 'address' },
+          { name: 'rentAmount', type: 'uint256' },
+          { name: 'dueDate', type: 'uint256' }
+        ]
+      };
+      const value = {
+        contractAddress,
+        landlord,
+        tenant,
+        rentAmount: BigInt(rentAmount),
+        dueDate: BigInt(dueDate)
+      };
+      const signature = await this.signer.signTypedData(domain, types, value);
+      const tx = await rent.signRent(signature);
+      return await tx.wait();
+    } catch (error) {
+      console.error('Error signing Rent contract:', error);
+      const reason = error?.reason || error?.message || '';
+      if (/already signed/i.test(reason)) {
+        throw new Error('Already signed with this wallet');
+      }
+      throw error;
+    }
+  }
 }

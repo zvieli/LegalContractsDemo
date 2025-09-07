@@ -4,46 +4,77 @@ pragma solidity ^0.8.20;
 import "./Rent/TemplateRentContract.sol";
 import "./NDA/NDATemplate.sol";
 
+// Lightweight deployer for Rent contracts (keeps large creation bytecode out of factory runtime)
+contract _RentDeployer {
+    function deploy(address _landlord, address _tenant, uint256 _rentAmount, address _priceFeed) external returns (address) {
+        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _priceFeed);
+        return address(c);
+    }
+}
+
+// Lightweight deployer for NDA contracts
+contract _NDADeployer {
+    function deploy(
+        address _partyA,
+        address _partyB,
+        uint256 _expiryDate,
+        uint16 _penaltyBps,
+        bytes32 _customClausesHash,
+        address _arbitrator,
+        uint256 _minDeposit
+    ) external returns (address) {
+        NDATemplate c = new NDATemplate(
+            _partyA,
+            _partyB,
+            _expiryDate,
+            _penaltyBps,
+            _customClausesHash,
+            _arbitrator,
+            _minDeposit
+        );
+        return address(c);
+    }
+}
+
 contract ContractFactory {
     address[] public allContracts;
     mapping(address => address[]) public contractsByCreator;
+    _RentDeployer private immutable rentDeployer;
+    _NDADeployer private immutable ndaDeployer;
 
-    event RentContractCreated(
-        address indexed contractAddress, 
-        address indexed landlord, 
-        address indexed tenant
-    );
+    // Custom errors (gas-cheaper than revert strings)
+    error ZeroTenant();
+    error SameAddresses();
+    error ZeroRentAmount();
+    error ZeroPriceFeed();
+    error PriceFeedNotContract();
+    error ZeroPartyB();
+    error SameParties();
+    error ExpiryNotFuture();
+    error PenaltyTooHigh();
+    error MinDepositZero();
+    error ArbitratorNotContract();
 
-    event NDACreated(
-        address indexed contractAddress,
-        address indexed partyA,
-        address indexed partyB
-    );
+    event RentContractCreated(address indexed contractAddress, address indexed landlord, address indexed tenant);
 
-    function createRentContract(
-        address _tenant, 
-        uint256 _rentAmount, 
-        address _priceFeed
-    ) external returns (address) {
-    address creator = msg.sender;
-    require(_tenant != address(0), "Tenant cannot be zero address");
-    require(_tenant != creator, "Landlord cannot be tenant");
-        require(_rentAmount > 0, "Rent amount must be greater than 0");
-        require(_priceFeed != address(0), "Price feed cannot be zero address");
-        require(_priceFeed.code.length > 0, "Price feed must be a contract");
+    event NDACreated(address indexed contractAddress, address indexed partyA, address indexed partyB);
 
-        TemplateRentContract newContract = new TemplateRentContract(
-            msg.sender,
-            _tenant, 
-            _rentAmount,
-            _priceFeed   
-        );
+    constructor() {
+        rentDeployer = new _RentDeployer();
+        ndaDeployer = new _NDADeployer();
+    }
 
-        address newAddr = address(newContract);
-    allContracts.push(newAddr);
-    contractsByCreator[creator].push(newAddr);
-
-    emit RentContractCreated(newAddr, creator, _tenant);
+    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed) external returns (address) {
+        address creator = msg.sender;
+    if (_tenant == address(0)) revert ZeroTenant();
+    if (_tenant == creator) revert SameAddresses();
+    if (_rentAmount == 0) revert ZeroRentAmount();
+    if (_priceFeed == address(0)) revert ZeroPriceFeed();
+    if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
+        address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _priceFeed);
+        allContracts.push(newAddr);
+        contractsByCreator[creator].push(newAddr);
+        emit RentContractCreated(newAddr, creator, _tenant);
         return newAddr;
     }
 
@@ -55,32 +86,25 @@ contract ContractFactory {
         address _arbitrator,
         uint256 _minDeposit
     ) external returns (address) {
-    address creator = msg.sender;
-    require(_partyB != address(0), "Party B cannot be zero address");
-    require(_partyB != creator, "Party A cannot be Party B");
-        require(_expiryDate > block.timestamp, "Expiry date must be in the future");
-        require(_penaltyBps <= 10000, "Penalty must be 10000 bps or less");
-        require(_minDeposit > 0, "Minimum deposit must be greater than 0");
-        
-        if (_arbitrator != address(0)) {
-            require(_arbitrator.code.length > 0, "Arbitrator must be a contract");
-        }
-
-        NDATemplate newNDA = new NDATemplate(
-            msg.sender,    
-            _partyB,       
-            _expiryDate,   
-            _penaltyBps,    
-            _customClausesHash,  
-            _arbitrator,       
-            _minDeposit         
+        address creator = msg.sender;
+    if (_partyB == address(0)) revert ZeroPartyB();
+    if (_partyB == creator) revert SameParties();
+    if (!(_expiryDate > block.timestamp)) revert ExpiryNotFuture();
+    if (!(_penaltyBps <= 10000)) revert PenaltyTooHigh();
+    if (_minDeposit == 0) revert MinDepositZero();
+    if (_arbitrator != address(0) && _arbitrator.code.length == 0) revert ArbitratorNotContract();
+        address newAddr = ndaDeployer.deploy(
+            creator,
+            _partyB,
+            _expiryDate,
+            _penaltyBps,
+            _customClausesHash,
+            _arbitrator,
+            _minDeposit
         );
-
-    address newAddr = address(newNDA);
-    allContracts.push(newAddr);
-    contractsByCreator[creator].push(newAddr);
-
-    emit NDACreated(newAddr, creator, _partyB);
+        allContracts.push(newAddr);
+        contractsByCreator[creator].push(newAddr);
+        emit NDACreated(newAddr, creator, _partyB);
         return newAddr;
     }
 

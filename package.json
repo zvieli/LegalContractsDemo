@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-"dev": "vite",
+    "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -21,7 +21,13 @@
     "copy-abi": "node scripts/copy-abi.js",
     "node": "npx hardhat node",
   "build:all": "npm run compile && npm run copy-abi && npm run build",
-  "functions:config": "node scripts/configure-functions.js"
+  "functions:config": "node scripts/configure-functions.js",
+  "ai:dev": "bash scripts/dev-ai-worker.sh",
+  "ai:dev:ps": "powershell -ExecutionPolicy Bypass -File scripts/dev-ai-worker.ps1",
+  "ai:smoke": "node scripts/worker_http_batch.js --single",
+  "ai:batch": "node scripts/worker_http_batch.js",
+  "ai:batch:local": "node scripts/worker_batch.js",
+  "ai:dev:setup": "powershell -ExecutionPolicy Bypass -File scripts/dev-ai-worker.ps1 --Setup"
   },
   "keywords": [],
   "author": "",
@@ -45,7 +51,7 @@
     "typechain": "^8.3.2"
   },
   "dependencies": {
-  "@chainlink/contracts": "^1.4.0",
-  "dotenv": "^16.4.5"
+    "@chainlink/contracts": "^1.4.0",
+    "dotenv": "^16.6.1"
   }
 }

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Employee leaks confidential roadmap to media",
+    "requestedEth": "0.4",
+    "factor": 93,
+    "approve": true,
+    "penaltyWei": "372000000000000000",
+    "classification": "roadmap",
+    "rationale": "cat=roadmap;catWeight=8;band=high;factor=93;requestedWei=400000000000000000"
+  },
+  {
+    "name": "Investor forwards pitch deck to competitor",
+    "requestedEth": "0.2",
+    "factor": 78,
+    "approve": true,
+    "penaltyWei": "156000000000000000",
+    "classification": "investor_material",
+    "rationale": "cat=investor_material;catWeight=6;band=medium;factor=78;requestedWei=200000000000000000"
+  },
+  {
+    "name": "Source code snippet published publicly (GitHub gist)",
+    "requestedEth": "0.6",
+    "factor": 95,
+    "approve": true,
+    "penaltyWei": "570000000000000000",
+    "classification": "source_code",
+    "rationale": "cat=source_code;catWeight=15;band=high;factor=95;requestedWei=600000000000000000"
+  },
+  {
+    "name": "Subcontractor shares customer list",
+    "requestedEth": "0.3",
+    "factor": 85,
+    "approve": true,
+    "penaltyWei": "255000000000000000",
+    "classification": "customer_data",
+    "rationale": "cat=customer_data;catWeight=10;band=high;factor=85;requestedWei=300000000000000000"
+  },
+  {
+    "name": "Executive discloses earnings guidance externally",
+    "requestedEth": "0.5",
+    "factor": 95,
+    "approve": true,
+    "penaltyWei": "475000000000000000",
+    "classification": "financial_forecast",
+    "rationale": "cat=financial_forecast;catWeight=12;band=high;factor=95;requestedWei=500000000000000000"
+  },
+  {
+    "name": "Minor internal wording leak (below threshold)",
+    "requestedEth": "0.005",
+    "factor": 0,
+    "approve": false,
+    "penaltyWei": "0",
+    "classification": "generic",
+    "rationale": "cat=generic;catWeight=0;band=low;factor=0;requestedWei=5000000000000000"
+  }
+]

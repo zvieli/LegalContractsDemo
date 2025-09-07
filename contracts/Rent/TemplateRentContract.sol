@@ -5,8 +5,11 @@ import "../AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 
-contract TemplateRentContract {
+/// @title TemplateRentContract with EIP712 dual-party signature (similar to NDATemplate)
+/// @notice Adds structured data signing so BOTH landlord & tenant can sign immutable core terms.
+contract TemplateRentContract is EIP712 {
     address public immutable landlord;
     address public immutable tenant;
     uint256 public rentAmount;
@@ -22,7 +25,17 @@ AggregatorV3Interface public immutable priceFeed;
 
     mapping(address => uint256) public tokenPaid; 
 
-    bool public rentSigned;
+    // Signing state (EIP712)
+    mapping(address => bool) public signedBy; // landlord/tenant => signed?
+    bool public rentSigned; // true once BOTH have signed (backwards compatibility flag)
+
+    string public constant CONTRACT_NAME = "TemplateRentContract";
+    string public constant CONTRACT_VERSION = "1";
+
+    // Typed data hash for core immutable terms (dueDate may still be mutable until fully signed)
+    bytes32 private constant RENT_TYPEHASH = keccak256(
+        "RENT(address contractAddress,address landlord,address tenant,uint256 rentAmount,uint256 dueDate)"
+    );
 
     // Cancellation policy and state
     bool public requireMutualCancel;           // if true, both parties must approve
@@ -51,7 +64,7 @@ AggregatorV3Interface public immutable priceFeed;
         address _tenant,
         uint256 _rentAmount,
         address _priceFeed
-    ) {
+    ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         landlord = _landlord;
         tenant = _tenant;
         rentAmount = _rentAmount;
@@ -66,23 +79,50 @@ AggregatorV3Interface public immutable priceFeed;
     }
 
     // Modifiers
+    // Custom errors
+    error OnlyTenant();
+    error OnlyLandlord();
+    error NotActive();
+    error AmountTooLow();
+    error InvalidPrice();
+    error AlreadySigned();
+    error SignatureMismatch();
+    error NotParty();
+    error FullySignedDueDateLocked();
+    error CancelAlreadyRequested();
+    error CancelNotRequested();
+    error NotInitiator();
+    error AlreadyApproved();
+    error BothMustApprove();
+    error NoticeNotElapsed();
+    error InsufficientFee();
+    error AlreadyInactive();
+    error InvalidFeeBps();
+    error FeeTransferFailed();
+    error NotFullySigned();
+
     modifier onlyTenant() {
-        require(msg.sender == tenant, "Only tenant can pay");
+        if (msg.sender != tenant) revert OnlyTenant();
         _;
     }
 
     modifier onlyLandlord() {
-        require(msg.sender == landlord, "Only landlord can call");
+        if (msg.sender != landlord) revert OnlyLandlord();
         _;
     }
 
     modifier onlyActive() {
-        require(active, "Contract is not active");
+        if (!active) revert NotActive();
         _;
     }
 
-    function payRent(uint256 amount) external onlyTenant onlyActive {
-        require(amount >= rentAmount, "Not enough amount");
+    modifier onlyFullySigned() {
+        if (!rentSigned) revert NotFullySigned();
+        _;
+    }
+
+    function payRent(uint256 amount) external onlyTenant onlyActive onlyFullySigned {
+        if (amount < rentAmount) revert AmountTooLow();
         rentPaid = true;
         totalPaid += amount;
         emit RentPaid(msg.sender, amount, false, address(0));
@@ -96,7 +136,7 @@ AggregatorV3Interface public immutable priceFeed;
     // contracts/Rent/TemplateRentContract.sol - תיקון הפונקציה
 function getRentInEth() public view returns (uint256) {
     int256 price = checkRentPrice();
-    require(price > 0, "Invalid price");
+    if (price <= 0) revert InvalidPrice();
     
     // Assuming:
     // - rentAmount is in USD (e.g., 0.5 = $0.5)
@@ -107,17 +147,17 @@ function getRentInEth() public view returns (uint256) {
     return (rentAmount * 1e8) / uint256(price);
 }
 
-    function payRentInEth() external payable onlyTenant onlyActive {
+    function payRentInEth() external payable onlyTenant onlyActive onlyFullySigned {
         uint256 requiredEth = getRentInEth();
-        require(msg.value >= requiredEth, "Not enough ETH sent");
+    if (msg.value < requiredEth) revert AmountTooLow();
         rentPaid = true;
         totalPaid += msg.value;
         (bool sent, ) = payable(landlord).call{value: msg.value}("");
-        require(sent, "ETH transfer to landlord failed");
+    require(sent, "transfer fail");
         emit RentPaid(msg.sender, msg.value, false, address(0));
     }
 
-    function payRentWithLateFee() external payable onlyTenant onlyActive {
+    function payRentWithLateFee() external payable onlyTenant onlyActive onlyFullySigned {
         uint256 requiredEth = getRentInEth();
         bool late = false;
 
@@ -127,27 +167,27 @@ function getRentInEth() public view returns (uint256) {
             late = true;
         }
 
-        require(msg.value >= requiredEth, "Not enough ETH sent");
+    if (msg.value < requiredEth) revert AmountTooLow();
         totalPaid += msg.value;
         rentPaid = true;
         (bool sent, ) = payable(landlord).call{value: msg.value}("");
-        require(sent, "ETH transfer to landlord failed");
+    require(sent, "transfer fail");
         emit RentPaid(msg.sender, msg.value, late, address(0));
     }
 
-    function payRentPartial() external payable onlyTenant onlyActive {
+    function payRentPartial() external payable onlyTenant onlyActive onlyFullySigned {
         bool late = false;
         if (block.timestamp > dueDate && dueDate != 0) late = true;
 
         totalPaid += msg.value;
         if (totalPaid >= getRentInEth()) rentPaid = true;
 
-        (bool sent, ) = payable(landlord).call{value: msg.value}("");
-        require(sent, "ETH transfer to landlord failed");
+    (bool sent, ) = payable(landlord).call{value: msg.value}("");
+    require(sent, "transfer fail");
         emit RentPaid(msg.sender, msg.value, late, address(0));
     }
 
-    function payRentWithToken(address tokenAddress, uint256 amount) external onlyTenant onlyActive {
+    function payRentWithToken(address tokenAddress, uint256 amount) external onlyTenant onlyActive onlyFullySigned {
     IERC20 token = IERC20(tokenAddress);
     // use SafeERC20 to support non-standard ERC20 tokens
     token.safeTransferFrom(msg.sender, landlord, amount);
@@ -165,14 +205,16 @@ function getRentInEth() public view returns (uint256) {
     }
 
     function setDueDate(uint256 timestamp) external onlyLandlord onlyActive {
+        // Once both parties have signed, freeze dueDate (ensures signature remains valid for agreed terms)
+    if (rentSigned) revert FullySignedDueDateLocked();
         dueDate = timestamp;
         emit DueDateUpdated(timestamp);
     }
 
     // contracts/Rent/TemplateRentContract.sol - תיקון ה-cancelContract
 function cancelContract() external {
-    require(msg.sender == landlord || msg.sender == tenant, "Only landlord or tenant can cancel");
-    require(active, "Contract already inactive");
+    if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+    if (!active) revert AlreadyInactive();
     // Backward-compat immediate cancellation only when policy allows (no notice, no fee, no mutual)
     if (!requireMutualCancel && noticePeriod == 0 && earlyTerminationFeeBps == 0) {
         active = false;
@@ -201,18 +243,40 @@ function cancelContract() external {
     }
 }
 
-    function signRent(bytes calldata signature) external onlyTenant onlyActive {
-        require(!rentSigned, "Rent already signed");
+        /// @notice Hash (EIP712 typed data) for the contract's core terms that are being signed.
+        function hashMessage() public view returns (bytes32) {
+            return _hashTypedDataV4(
+                keccak256(
+                    abi.encode(
+                        RENT_TYPEHASH,
+                        address(this),
+                        landlord,
+                        tenant,
+                        rentAmount,
+                        dueDate
+                    )
+                )
+            );
+        }
 
-        bytes32 messageHash = keccak256(abi.encodePacked(address(this), rentAmount, dueDate));
-        bytes32 ethSignedMessageHash = ECDSA.toEthSignedMessageHash(messageHash);
+        /// @notice Landlord or tenant can provide an EIP712 signature over core terms. When both sign -> rentSigned = true.
+        /// @dev If dueDate changes before both signatures collected, previously gathered signature(s) become invalid off-chain.
+        function signRent(bytes calldata signature) external onlyActive {
+            if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+            bytes32 digest = hashMessage();
+            address recovered = ECDSA.recover(digest, signature);
+            if (recovered != msg.sender) revert SignatureMismatch();
+            if (signedBy[recovered]) revert AlreadySigned();
+            signedBy[recovered] = true;
+            emit RentSigned(recovered, block.timestamp);
+            if (signedBy[landlord] && signedBy[tenant] && !rentSigned) {
+                rentSigned = true; // backward compatibility flag
+            }
+        }
 
-        address signerAddress = ECDSA.recover(ethSignedMessageHash, signature);
-        require(signerAddress == tenant, "Invalid signature");
-
-        rentSigned = true;
-        emit RentSigned(signerAddress, block.timestamp);
-    }
+        function isFullySigned() external view returns (bool) {
+            return rentSigned;
+        }
 
     // ============ Cancellation Policy Management ============
     function setCancellationPolicy(uint256 _noticePeriod, uint16 _feeBps, bool _requireMutual)
@@ -220,7 +284,7 @@ function cancelContract() external {
         onlyLandlord
         onlyActive
     {
-        require(_feeBps <= 10_000, "Invalid fee bps");
+    if (_feeBps > 10_000) revert InvalidFeeBps();
         noticePeriod = _noticePeriod;
         earlyTerminationFeeBps = _feeBps;
         requireMutualCancel = _requireMutual;
@@ -228,8 +292,8 @@ function cancelContract() external {
     }
 
     function initiateCancellation() external onlyActive {
-        require(msg.sender == landlord || msg.sender == tenant, "Only landlord or tenant");
-        require(!cancelRequested, "Cancellation already requested");
+    if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+    if (cancelRequested) revert CancelAlreadyRequested();
         cancelRequested = true;
         cancelInitiator = msg.sender;
         cancelEffectiveAt = block.timestamp + noticePeriod;
@@ -241,10 +305,10 @@ function cancelContract() external {
     }
 
     function approveCancellation() external onlyActive {
-        require(msg.sender == landlord || msg.sender == tenant, "Only landlord or tenant");
-        require(cancelRequested, "No cancellation requested");
-        require(msg.sender != cancelInitiator, "Initiator already approved");
-        require(!cancelApprovals[msg.sender], "Already approved");
+    if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+    if (!cancelRequested) revert CancelNotRequested();
+    if (msg.sender == cancelInitiator) revert NotInitiator();
+    if (cancelApprovals[msg.sender]) revert AlreadyApproved();
         cancelApprovals[msg.sender] = true;
         emit CancellationApproved(msg.sender);
         if (requireMutualCancel) {
@@ -255,24 +319,24 @@ function cancelContract() external {
     }
 
     function finalizeCancellation() external payable onlyActive {
-        require(msg.sender == landlord || msg.sender == tenant, "Only landlord or tenant");
-        require(cancelRequested, "No cancellation requested");
+        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+        if (!cancelRequested) revert CancelNotRequested();
         if (requireMutualCancel) {
-            require(cancelApprovals[landlord] && cancelApprovals[tenant], "Both must approve");
+            if (!(cancelApprovals[landlord] && cancelApprovals[tenant])) revert BothMustApprove();
             _finalizeCancellationNoFeePath();
             return;
         }
-        require(block.timestamp >= cancelEffectiveAt, "Notice period not elapsed");
+        if (block.timestamp < cancelEffectiveAt) revert NoticeNotElapsed();
         // Unilateral path: optional early termination fee
         uint256 fee = 0;
         if (earlyTerminationFeeBps > 0) {
             uint256 requiredEth = getRentInEth();
             fee = (requiredEth * uint256(earlyTerminationFeeBps)) / 10_000;
-            require(msg.value >= fee, "Insufficient fee");
+            if (msg.value < fee) revert InsufficientFee();
             address counterparty = msg.sender == landlord ? tenant : landlord;
             if (fee > 0) {
                 (bool sent, ) = payable(counterparty).call{value: fee}("");
-                require(sent, "Fee transfer failed");
+                if (!sent) revert FeeTransferFailed();
                 emit EarlyTerminationFeePaid(msg.sender, fee, counterparty);
             }
         }
@@ -284,7 +348,7 @@ function cancelContract() external {
     }
 
     function _finalizeCancellationStateOnly() internal {
-        require(active, "Already inactive");
+    if (!active) revert AlreadyInactive();
         active = false;
         emit ContractCancelled(msg.sender);
         emit CancellationFinalized(msg.sender);

@@ -29,6 +29,9 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
   const [arbBeneficiary, setArbBeneficiary] = useState('');
   const [createDisputeCaseId, setCreateDisputeCaseId] = useState('');
   const [createDisputeEvidence, setCreateDisputeEvidence] = useState('');
+  const [rentSigning, setRentSigning] = useState(false);
+  const [rentAlreadySigned, setRentAlreadySigned] = useState(false);
+  const [rentCanSign, setRentCanSign] = useState(true);
 
   const formatDuration = (sec) => {
     const s = Number(sec || 0);
@@ -84,6 +87,21 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
           setNdaCanSign(true);
           setNdaAlreadySigned(false);
         }
+        // Rent signing gating
+        try {
+          if (details?.type === 'Rental' && account) {
+            const me = account.toLowerCase();
+            const landlord = (details.landlord||'').toLowerCase();
+            const tenant = (details.tenant||'').toLowerCase();
+            const fully = details?.signatures?.fullySigned;
+            const signed = (me===landlord && details?.signatures?.landlord) || (me===tenant && details?.signatures?.tenant);
+            setRentAlreadySigned(!!signed);
+            setRentCanSign(!fully && (me===landlord || me===tenant) && !signed);
+          } else {
+            setRentAlreadySigned(false);
+            setRentCanSign(true);
+          }
+        } catch(_){}
       } catch (_) {}
       // initialize policy form from details
       try {
@@ -518,6 +536,21 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
     }
   };
 
+  // ---- Rent EIP712 signing wrapper ----
+  const handleRentSign = async () => {
+    try {
+      setRentSigning(true);
+      const svc = new ContractService(signer, chainId);
+      await svc.signRent(contractAddress);
+      await loadContractData();
+    } catch (e) {
+      const reason = e?.reason || e?.message || 'Failed to sign';
+      alert(`Sign failed: ${reason}`);
+    } finally {
+      setRentSigning(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -689,6 +722,9 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                 {contractDetails?.cancellation?.cancelRequested && (
                   <div className="alert warning">Cancellation is pending; payments are disabled until completion.</div>
                 )}
+                {contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned && (
+                  <div className="alert info">Both parties must sign before payments are enabled.</div>
+                )}
                 {requiredEth && (
                   <p className="muted">Required ETH for rent: {requiredEth} ETH</p>
                 )}
@@ -699,19 +735,19 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                       placeholder="Amount in ETH"
                       value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)}
-                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested}
+                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
                     />
                     {!isTenant && <small className="muted">Switch wallet to the tenant address shown above.</small>}
                     <button 
                       onClick={handlePayRent}
-                      disabled={actionLoading || !paymentAmount || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested}
+                      disabled={actionLoading || !paymentAmount || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
                       className="btn-primary"
                     >
                       {actionLoading ? 'Processing...' : 'Pay Rent'}
                     </button>
                     <button 
                       onClick={() => setPaymentAmount(requiredEth || '')}
-                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !requiredEth || !!contractDetails?.cancellation?.cancelRequested}
+                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !requiredEth || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
                       className="btn-secondary"
                     >
                       Use required amount
@@ -741,14 +777,34 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                 <h3>Contract Actions</h3>
                 <div className="actions-grid">
                   {contractDetails.type === 'Rental' ? (
-                    <button 
-                      onClick={handleTerminate}
-                      disabled={actionLoading || (!isTenant && !isLandlord) || (contractDetails && !contractDetails.isActive)}
-                      className="btn-action danger"
-                    >
-                      <i className="fas fa-times-circle"></i>
-                      Terminate Contract
-                    </button>
+                    <div style={{display:'flex', flexDirection:'column', gap:'12px'}}>
+                      <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
+                        <button 
+                          onClick={handleRentSign}
+                          disabled={rentSigning || !rentCanSign}
+                          className="btn-action primary"
+                        >
+                          {rentSigning ? 'Signing...' : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
+                        </button>
+                        <button 
+                          onClick={handleTerminate}
+                          disabled={actionLoading || (!isTenant && !isLandlord) || (contractDetails && !contractDetails.isActive)}
+                          className="btn-action danger"
+                        >
+                          <i className="fas fa-times-circle"></i>
+                          Terminate Contract
+                        </button>
+                      </div>
+                      {!rentCanSign && !rentAlreadySigned && (
+                        <small className="muted">Connect as landlord or tenant to sign.</small>
+                      )}
+                      {rentAlreadySigned && !contractDetails?.signatures?.fullySigned && (
+                        <small className="muted">Waiting for the other party to sign.</small>
+                      )}
+                      {contractDetails?.signatures?.fullySigned && (
+                        <small className="muted" style={{color:'#44c767'}}>Both parties signed.</small>
+                      )}
+                    </div>
                   ) : (
                     <button 
                       onClick={handleNdaDeactivate}
