@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+// factory enforcement removed (size optimization) - use off-chain policy & deployer pattern
 contract NDATemplate is EIP712 {
     using ECDSA for bytes32;
 
@@ -70,8 +71,10 @@ contract NDATemplate is EIP712 {
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
         address _arbitrator,
-        uint256 _minDeposit
+        uint256 _minDeposit,
+        address _admin
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
+        require(_admin != address(0), "admin=0");
         require(_partyA != address(0) && _partyB != address(0), "Invalid parties");
         require(_expiryDate > block.timestamp, "Expiry must be in future");
         require(_penaltyBps <= 10_000, "penaltyBps > 100%");
@@ -82,7 +85,7 @@ contract NDATemplate is EIP712 {
 
         partyA = _partyA;
         partyB = _partyB;
-        admin = msg.sender;
+    admin = _admin;
 
         expiryDate = _expiryDate;
         penaltyBps = _penaltyBps;

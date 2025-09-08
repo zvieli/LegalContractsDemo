@@ -27,9 +27,10 @@ describe("ContractFactory with Validations", function () {
     it("should revert with zero tenant address", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-          ZERO_ADDRESS,
-          100,
-          mockPriceFeed.target
+            ZERO_ADDRESS,
+            100,
+            mockPriceFeed.target,
+            0
         )
       ).to.be.revertedWithCustomError(factory, 'ZeroTenant');
     });
@@ -37,9 +38,10 @@ describe("ContractFactory with Validations", function () {
     it("should revert when landlord is also tenant", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-          landlord.address,
-          100,
-          mockPriceFeed.target
+            landlord.address,
+            100,
+            mockPriceFeed.target,
+            0
         )
       ).to.be.revertedWithCustomError(factory, 'SameAddresses');
     });
@@ -47,9 +49,10 @@ describe("ContractFactory with Validations", function () {
     it("should revert with zero rent amount", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-          tenant.address,
-          0,
-          mockPriceFeed.target
+            tenant.address,
+            0,
+            mockPriceFeed.target,
+            0
         )
       ).to.be.revertedWithCustomError(factory, 'ZeroRentAmount');
     });
@@ -57,9 +60,10 @@ describe("ContractFactory with Validations", function () {
     it("should revert with zero price feed address", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-          tenant.address,
-          100,
-          ZERO_ADDRESS
+            tenant.address,
+            100,
+            ZERO_ADDRESS,
+            0
         )
       ).to.be.revertedWithCustomError(factory, 'ZeroPriceFeed');
     });

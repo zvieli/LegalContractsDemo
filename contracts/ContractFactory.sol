@@ -2,17 +2,18 @@
 pragma solidity ^0.8.20;
 
 import "./Rent/TemplateRentContract.sol";
+import "./Rent/PropertyRegistry.sol";
 import "./NDA/NDATemplate.sol";
 
-// Lightweight deployer for Rent contracts (keeps large creation bytecode out of factory runtime)
+// Lightweight deployer for Rent contracts (keeps large creation bytecode out of main factory runtime)
 contract _RentDeployer {
-    function deploy(address _landlord, address _tenant, uint256 _rentAmount, address _priceFeed) external returns (address) {
-        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _priceFeed);
+    function deploy(address _landlord, address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId) external returns (address) {
+        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _priceFeed, _propertyId);
         return address(c);
     }
 }
 
-// Lightweight deployer for NDA contracts
+// Lightweight deployer for NDA contracts (now passes explicit admin)
 contract _NDADeployer {
     function deploy(
         address _partyA,
@@ -21,7 +22,8 @@ contract _NDADeployer {
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
         address _arbitrator,
-        uint256 _minDeposit
+        uint256 _minDeposit,
+        address _admin
     ) external returns (address) {
         NDATemplate c = new NDATemplate(
             _partyA,
@@ -30,7 +32,8 @@ contract _NDADeployer {
             _penaltyBps,
             _customClausesHash,
             _arbitrator,
-            _minDeposit
+            _minDeposit,
+            _admin
         );
         return address(c);
     }
@@ -41,6 +44,7 @@ contract ContractFactory {
     mapping(address => address[]) public contractsByCreator;
     _RentDeployer private immutable rentDeployer;
     _NDADeployer private immutable ndaDeployer;
+    PropertyRegistry public immutable propertyRegistry; // optional registry (may be zero address if not used)
 
     // Custom errors (gas-cheaper than revert strings)
     error ZeroTenant();
@@ -62,20 +66,31 @@ contract ContractFactory {
     constructor() {
         rentDeployer = new _RentDeployer();
         ndaDeployer = new _NDADeployer();
+        propertyRegistry = new PropertyRegistry();
     }
 
-    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed) external returns (address) {
+    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId) external returns (address) {
         address creator = msg.sender;
     if (_tenant == address(0)) revert ZeroTenant();
     if (_tenant == creator) revert SameAddresses();
     if (_rentAmount == 0) revert ZeroRentAmount();
     if (_priceFeed == address(0)) revert ZeroPriceFeed();
     if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
-        address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _priceFeed);
+    // Validate property if provided
+    if (_propertyId != 0) {
+        (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
+        require(active && owner == creator, "Bad property");
+    }
+    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _priceFeed, _propertyId);
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         emit RentContractCreated(newAddr, creator, _tenant);
         return newAddr;
+    }
+
+    /// @notice Register a property and return propertyId (helper passthrough)
+    function registerProperty(bytes32 locationHash, string calldata metadataURI) external returns (uint256) {
+        return propertyRegistry.register(locationHash, metadataURI);
     }
 
     function createNDA(
@@ -100,7 +115,8 @@ contract ContractFactory {
             _penaltyBps,
             _customClausesHash,
             _arbitrator,
-            _minDeposit
+            _minDeposit,
+            creator // admin = creator
         );
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);

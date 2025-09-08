@@ -19,20 +19,38 @@
     "test:gas": "REPORT_GAS=true npx hardhat test",
     "compile": "npx hardhat compile",
     "copy-abi": "node scripts/copy-abi.js",
-  "node": "npx hardhat node",
-  "build:all": "npm run compile && npm run copy-abi && npm run build",
-  "functions:config": "node scripts/configure-functions.js",
-  "ai:dev": "npx wrangler dev --config server/wrangler.toml",
-  "ai:deploy": "npx wrangler deploy --config server/wrangler.toml",
-  "ai:smoke": "node scripts/worker_http_batch.js --single",
-  "ai:batch": "node scripts/worker_http_batch.js",
-  "ai:batch:local": "node scripts/worker_http_batch.js --url http://127.0.0.1:8787",
-  "e2e:functions": "npx hardhat run scripts/e2e_functions.js --network sepolia",
-  "case:open": "npx hardhat run scripts/open_case_request.js --network sepolia",
-  "deploy:minimal": "cross-env DEPLOY_MODE=minimal npx hardhat run --network sepolia scripts/deploy_ndas.js",
-  "deploy:archetypes": "cross-env DEPLOY_MODE=archetypes npx hardhat run --network sepolia scripts/deploy_ndas.js"
-  , "router:check": "npx hardhat run scripts/check_router.js --network sepolia"
-  , "playground:sim": "node scripts/simulate_functions_playground.js"
+    "node": "npx hardhat node",
+    "build:all": "npm run compile && npm run copy-abi && npm run build",
+    "functions:config": "node scripts/configure-functions.js",
+    "ai:smoke": "node scripts/worker_http_batch.js --single",
+    "ai:batch": "node scripts/worker_http_batch.js",
+    "ai:batch:local": "node scripts/worker_http_batch.js --url http://127.0.0.1:8787",
+    "e2e:functions": "npx hardhat run scripts/e2e_functions.js --network sepolia",
+    "case:open": "npx hardhat run scripts/open_case_request.js --network sepolia",
+    "deploy:minimal": "cross-env DEPLOY_MODE=minimal npx hardhat run --network sepolia scripts/deploy_ndas.js",
+    "deploy:archetypes": "cross-env DEPLOY_MODE=archetypes npx hardhat run --network sepolia scripts/deploy_ndas.js",
+  "router:check": "npx hardhat run scripts/check_router.js --network sepolia",
+  "ai:eval": "node scripts/eval_worker.js <dataset.jsonl> --url http://127.0.0.1:8787",
+  "ai:eval:rent": "node scripts/eval_worker_rent.js <rent_dataset.jsonl> --url http://127.0.0.1:8787",
+  "data:fetch:nda": "node scripts/data/fetch_courtlistener_nda.js 'non-disclosure+agreement+breach' 50 > data/raw/nda/courtlistener.jsonl",
+  "data:csv:rent": "node scripts/data/csv_rent_ingest.js data/raw/rent/rent_cases.csv > data/raw/rent/converted.jsonl",
+  "data:label:nda": "node scripts/data/label_gemini.js data/raw/nda/courtlistener.jsonl NDA > data/processed/nda_labeled.jsonl",
+  "data:label:rent": "node scripts/data/label_gemini.js data/raw/rent/converted.jsonl RENT > data/processed/rent_labeled.jsonl",
+  "data:stats:nda": "node scripts/data/stats.js data/processed/nda_labeled.jsonl",
+  "data:stats:rent": "node scripts/data/stats.js data/processed/rent_labeled.jsonl",
+  "data:sample:nda": "node scripts/data/sample.js data/processed/nda_labeled.jsonl 2",
+  "data:sample:rent": "node scripts/data/sample.js data/processed/rent_labeled.jsonl 2",
+  "data:validate:nda": "node scripts/data/validate.js data/test/worker_cases.nda.jsonl data/schemas/nda.schema.json",
+  "data:validate:rent": "node scripts/data/validate.js data/test/worker_cases.rent.jsonl data/schemas/rent.schema.json",
+  "data:normalize:nda": "node scripts/data/normalize_courtlistener_nda.js data/raw/nda/courtlistener.jsonl > data/processed/nda_normalized.jsonl",
+  "data:pipeline:nda": "node scripts/data/pipeline_nda.js \"non-disclosure agreement breach\" 50",
+  "data:buildEval:nda": "node scripts/data/build_eval_nda.js data/processed/nda_labeled.jsonl > data/processed/nda_eval.jsonl",
+  "data:ingest:rentCsv": "node scripts/data/csv_rent_ingest.js data/raw/rent/rent_cases.csv > data/raw/rent/converted.jsonl",
+  "data:normalize:rentCsv": "node scripts/data/normalize_rent_csv.js data/raw/rent/converted.jsonl > data/processed/rent_normalized.jsonl",
+  "data:label:rent:normalized": "node scripts/data/label_gemini.js data/processed/rent_normalized.jsonl RENT > data/processed/rent_labeled.jsonl",
+  "data:mix:oneoff": "node scripts/data/build_mixed_oneoff.js 0.6 > data/processed/mixed_oneoff.jsonl",
+  "ai:serve": "node server/src/node_server.js"
+  ,"data:e2e:mixed": "node scripts/data/pipeline_mixed.js"
   },
   "keywords": [],
   "author": "",
@@ -53,11 +71,13 @@
     "hardhat": "^2.26.3",
     "hardhat-gas-reporter": "^2.3.0",
     "solidity-coverage": "^0.8.16",
-  "typechain": "^8.3.2",
-  "cross-env": "^7.0.3"
+    "typechain": "^8.3.2",
+    "cross-env": "^7.0.3"
   },
   "dependencies": {
     "@chainlink/contracts": "^1.4.0",
-    "dotenv": "^16.6.1"
+  "dotenv": "^16.6.1",
+  "ajv": "^8.17.1",
+  "ajv-formats": "^3.0.1"
   }
 }

@@ -14,7 +14,7 @@ What you get:
 - NDATemplate contract with deposits, breach reporting, voting, and arbitrator hooks
 - Two arbitrators: a simple owner-controlled one, and an oracle-driven one
 - Chainlink Functions client that forwards case context to a JS script (ai_oracle.js)
-- Optional Cloudflare Worker acting as the AI endpoint (with secure secrets)
+	(Former Cloudflare Worker path removed; now local Node server or any host)
 - Hardhat tests and scripts to deploy/configure
 
 ## Architecture
@@ -27,7 +27,7 @@ What you get:
 
 - Off-chain components:
 	- `chainlink/functions/ai_oracle.js` — inline JS executed by Chainlink DON. It can call your external AI endpoint using DON secrets and returns an ABI-encoded tuple `(approve, penaltyWei, beneficiary, guilty)`.
-	- `server/` (optional) — Cloudflare Worker that accepts the case payload and returns a JSON decision. Includes a deterministic fallback.
+	- `server/` — AI HTTP endpoint (Node) returning JSON decision with deterministic fallback.
 
 Flow (prod):
 1. Party reports breach in `NDATemplate`.
@@ -37,6 +37,60 @@ Flow (prod):
 5. The DON calls back `_fulfillRequest`, which clamps penalty to available deposit, enforces, and resolves the case.
 
 Flow (local/test): If Functions isn’t configured, the contract produces a deterministic requestId and you can simulate fulfillment using `testFulfill` without external services.
+
+### Detailed Resolution Flow Diagram
+
+```
+ (Deployment Phase)
+ ┌──────────────┐        creates        ┌────────────────────┐
+ │ Deployer /   │ ───────────────────▶  │ ContractFactory    │
+ │ Frontend     │  (optional)          │ (creates templates)│
+ └─────┬────────┘                       └─────────┬──────────┘
+	 │ direct deploy (without Factory)          │ createNDA()
+	 ▼                                          ▼
+ ┌──────────────────────────────────────────────────────────┐
+ │                     NDATemplate                          │
+ │  - deposits(A,B)                                         │
+ │  - reportBreach(offender, requested, evidenceHash)       │
+ │  - stores case state                                     │
+ │  - receives resolution (approve, penalty, classification)│
+ └──────────┬───────────────────────────────┬───────────────┘
+		│                               │
+		│ chooses one arbitrator impl   │
+		│                               │
+   ┌──────────────────┐        ┌───────────────────────────┐        ┌──────────────────────┐
+   │ Arbitrator        │        │ OracleArbitrator          │        │ OracleArbitratorFunc │
+   │ (manual/off-chain │        │ (oracle pushes decision) │        │ (Chainlink Functions) │
+   └─────────┬─────────┘        └──────────┬────────────────┘        └──────────┬──────────┘
+		 │ resolve() call               │ fulfillExternal()                  │ requestResolution()
+		 │ (owner / votes)              │ (trusted caller)                   │  emits RequestSent
+		 │                              │                                    │
+		 │                              │                                    ▼
+		 │                              │                          ┌──────────────────────┐
+		 │                              │                          │ Chainlink Functions  │
+		 │                              │                          │ Router (DON)         │
+		 │                              │                          └─────────┬───────────┘
+		 │                              │                                    │ executes JS source
+		 │                              │                                    ▼
+		 │                              │                          ┌──────────────────────┐
+		 │                              │                          │ Off-chain Code + AI  │
+		 │                              │                          │ (Worker / API calls) │
+		 │                              │                          └─────────┬───────────┘
+		 │                              │                           returns JSON
+		 │                              │                                    │
+		 │                              │                          encode ABI (bool,uint256,address,address,string,string)
+		 │                              │                                    │
+		 │                              │                                    ▼
+		 │                              │                          fulfill(requestId, bytes)
+		 │                              │                                    ▼
+		 └──────────────────────────────┴──────────────────────────┬─────────
+											    │
+									     NDATemplate.applyResolution()
+											    │
+											    ▼
+									   Funds distribution + case closed
+```
+
 
 ## Quickstart
 
@@ -75,7 +129,7 @@ Required for Chainlink Functions config:
 - `CLF_GAS_LIMIT` — callback gas limit (default 300000)
 
 AI router variables used by `chainlink/functions/ai_oracle.js`:
-- `AI_ENDPOINT_URL` — your AI HTTP endpoint (e.g., Cloudflare Worker)
+- `AI_ENDPOINT_URL` — your AI HTTP endpoint
 - `AI_API_KEY` — Bearer token for that endpoint
 
 Optional:
@@ -121,23 +175,22 @@ Inline script response ABI (must match):
 - If DON secrets `AI_ENDPOINT_URL` and `AI_API_KEY` exist, calls your endpoint via HTTP POST and validates/coerces the output.
 - Always ABI-encodes the tuple in the expected format.
 
-## Cloudflare Worker (optional AI endpoint)
+## AI Endpoint (Gemini or Heuristic)
 
 Folder: `server/`
 
-Key files:
-- `server/wrangler.toml` — Worker config (no secrets checked in)
+Key file:
 - `server/src/index.js` — Endpoint that:
-	- Validates input and Bearer auth (`AI_API_KEY`)
-	- Optionally calls Cloudflare Workers AI via REST using `CF_ACCOUNT_ID` and `CF_API_TOKEN`
-	- Sanitizes JSON and caps `penaltyWei` to `requestedPenaltyWei`
-	- Falls back to approve/half if AI fails
+	- Validates input + optional Bearer auth (`AI_API_KEY`)
+	- Tries Google Gemini (env: `GEMINI_API_KEY`, optional `GEMINI_MODEL`)
+	- Falls back to deterministic heuristic if Gemini unavailable or invalid
+	- Caps `penaltyWei` to `requestedPenaltyWei`
 
-Secrets (set with Wrangler, not in `.env`):
-- `CF_ACCOUNT_ID`, `CF_API_TOKEN` (Workers AI REST)
-- `AI_API_KEY` (for your endpoint)
+Secrets:
+- `GEMINI_API_KEY` (Gemini REST)
+- `AI_API_KEY` (optional auth gate)
 
-See `server/worker.md` for exact deploy steps (wrangler login, secret put, deploy), and then set `AI_ENDPOINT_URL` in your `.env` and as DON secret.
+Deployment: run on any Node/edge runtime (Wrangler removed). Set `AI_ENDPOINT_URL` for Chainlink Functions DON secrets.
 
 ## Deploying contracts
 
@@ -174,13 +227,13 @@ npm test
 - Functions not configured:
 	- Contract falls back to deterministic mode; use `testFulfill` in tests.
 - Secrets handling:
-	- `.env` is only for local scripts. In production, set DON secrets for the JS runtime (AI_ENDPOINT_URL, AI_API_KEY) and Wrangler secrets for the Worker (CF_ACCOUNT_ID, CF_API_TOKEN, AI_API_KEY).
+	- `.env` is only for local scripts. In production, set DON secrets (AI_ENDPOINT_URL, AI_API_KEY, GEMINI_API_KEY if needed).
 
 
 
 ## Security
 
-- Never commit real secrets. `.env` is git-ignored. Use DON secrets and Wrangler secrets for production.
+- Never commit real secrets. `.env` is git-ignored. Use DON secrets / your secret manager.
 - Fund and monitor your Chainlink Functions subscription appropriately.
 - The oracle clamps penalties to the offender’s available deposit to avoid overdrafts.
 

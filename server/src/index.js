@@ -54,8 +54,91 @@ function baselineDecision(body) {
   };
 }
 
+import { callGemini } from './provider_gemini.js';
+let RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+let RATE_LIMIT_MAX = 120; // per IP per window
+const rlState = new Map(); // ip => {windowStart,count}
+function checkRateLimit(ip){
+  const now = Date.now();
+  let st = rlState.get(ip);
+  if(!st || now - st.windowStart > RATE_LIMIT_WINDOW_MS){ st={windowStart:now,count:0}; }
+  st.count++;
+  rlState.set(ip, st);
+  return st.count <= RATE_LIMIT_MAX;
+}
+
+function _parseRequested(body){
+  let v = body?.requestedPenaltyWei ?? body?.requestedAmountWei ?? 0;
+  try { return BigInt(v); } catch { return 0n; }
+}
+
+function baselineDecisionNDA(body){
+  const reporter = isHexAddress(body?.reporter) ? body.reporter : '0x0000000000000000000000000000000000000000';
+  const offender = isHexAddress(body?.offender) ? body.offender : '0x0000000000000000000000000000000000000000';
+  let req = _parseRequested(body); if (req < 0n) req = 0n;
+  const ethScaled = Number(req) / 1e18;
+  let factor = 0;
+  if (ethScaled < 0.01) factor = 0; else if (ethScaled <= 0.1) factor = 60; else if (ethScaled <= 0.3) factor = 70; else if (ethScaled <= 0.5) factor = 80; else factor = 90;
+  const evidenceStr = (body?.evidenceHash || body?.evidenceText || '').toLowerCase();
+  const CATEGORY_RULES = [
+    { key: 'source_code', keywords: ['source','code','gist'], weight: 15 },
+    { key: 'financial_forecast', keywords: ['earnings','guidance','forecast'], weight: 12 },
+    { key: 'customer_data', keywords: ['customer','customers','client','clientlist','customerlist'], weight: 10 },
+    { key: 'roadmap', keywords: ['roadmap','timeline','releaseplan','milestone'], weight: 8 },
+    { key: 'investor_material', keywords: ['investor','pitch','deck'], weight: 6 },
+  ];
+  function detectCategory(t){ let best={ key:'generic', weight:0}; for(const r of CATEGORY_RULES){ for(const kw of r.keywords){ if(t.includes(kw)){ if(r.weight>best.weight) best={key:r.key,weight:r.weight}; break; }}} return best; }
+  const cat = detectCategory(evidenceStr);
+  const bumpKeywords = ['source','code','gist','roadmap','customer','earnings'];
+  const minorKeywords = ['investor','pitch'];
+  for (const k of bumpKeywords) if (evidenceStr.includes(k)) factor += 5;
+  for (const k of minorKeywords) if (evidenceStr.includes(k)) factor += 2;
+  factor += cat.weight; if (factor > 95) factor = 95;
+  let penalty = 0n; if (factor > 0) penalty = (req * BigInt(factor)) / 100n; if (penalty > req) penalty = req;
+  const approve = factor >= 60 && penalty > 0n && reporter !== offender;
+  let band = 'low'; if (factor >= 80) band = 'high'; else if (factor >= 60) band='medium';
+  const classification = cat.key;
+  const rationale = `domain=NDA;cat=${cat.key};catWeight=${cat.weight};band=${band};factor=${factor};requested=${body?.requestedPenaltyWei||body?.requestedAmountWei||0}`;
+  return { reporter, offender, approve, penaltyWei: penalty.toString(), classification, rationale };
+}
+
+function baselineDecisionRent(body){
+  const reporter = isHexAddress(body?.reporter) ? body.reporter : '0x0000000000000000000000000000000000000000';
+  const offender = isHexAddress(body?.offender) ? body.offender : '0x0000000000000000000000000000000000000000';
+  let req = _parseRequested(body); if (req < 0n) req = 0n;
+  const disputeTypeRaw = (body?.disputeType || '').toString();
+  const dt = disputeTypeRaw.toLowerCase();
+  let base = 50; // default
+  if (dt === 'damage') base = 75;
+  else if (dt === 'conditionend') base = 65;
+  else if (dt === 'conditionstart') base = 55;
+  else if (dt === 'quality') base = 60;
+  else if (dt === 'depositsplit') base = 50;
+  else if (dt === 'earlyterminationjustcause') base = 70;
+  else if (dt === 'externalvaluation') base = 45;
+  let factor = base;
+  const evidence = (body?.evidenceText || body?.evidenceHash || '').toLowerCase();
+  const severePlus = ['severe','major','extensive','fire','flood','mold','structural'];
+  const minorMinus = ['minor','cosmetic'];
+  for (const kw of severePlus) if (evidence.includes(kw)) factor += 10;
+  for (const kw of minorMinus) if (evidence.includes(kw)) factor -= 5;
+  if (factor < 0) factor = 0; if (factor > 95) factor = 95;
+  let penalty = 0n; if (factor > 0) penalty = (req * BigInt(factor)) / 100n; if (penalty > req) penalty = req;
+  const approve = factor >= 60 && penalty > 0n && reporter !== offender;
+  let band='low'; if (factor >= 80) band='high'; else if (factor >= 60) band='medium';
+  const classification = `rent_${dt||'generic'}`.slice(0,64);
+  const rationale = `domain=RENT;type=${dt};band=${band};factor=${factor};requested=${body?.requestedPenaltyWei||body?.requestedAmountWei||0}`;
+  return { reporter, offender, approve, penaltyWei: penalty.toString(), classification, rationale };
+}
+
+function selectBaseline(body){
+  const domain = (body?.domain || 'NDA').toUpperCase();
+  if (domain === 'RENT') return baselineDecisionRent(body);
+  return baselineDecisionNDA(body);
+}
+
 function coerceDecision(body, raw) {
-  const base = baselineDecision(body);
+  const base = selectBaseline(body);
   if (!raw || typeof raw !== 'object') return base;
   const out = { ...base };
   if (typeof raw.approve === 'boolean') out.approve = raw.approve;
@@ -79,37 +162,6 @@ function coerceDecision(body, raw) {
   return out;
 }
 
-async function callWorkersAiREST(env, prompt) {
-  const accountId = env.CF_ACCOUNT_ID;
-  const apiToken = env.CF_API_TOKEN;
-  const model = env.WORKERS_AI_MODEL || '@cf/meta/llama-3-8b-instruct';
-  if (!accountId || !apiToken) return null;
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${encodeURIComponent(model)}`;
-  const r = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiToken}`
-    },
-    body: JSON.stringify({
-      messages: [
-        { role: 'system', content: 'You are an arbitration assistant. Reply with ONLY a compact JSON. No prose.' },
-        { role: 'user', content: prompt }
-      ]
-    })
-  });
-  if (!r.ok) return null;
-  const data = await r.json();
-  // Try extracting text from typical fields
-  let text = '';
-  if (typeof data === 'string') text = data;
-  else if (typeof data?.result === 'string') text = data.result;
-  else if (typeof data?.response === 'string') text = data.response;
-  else if (typeof data?.output_text === 'string') text = data.output_text;
-  else if (typeof data?.result?.response === 'string') text = data.result.response;
-  if (!text) return null;
-  try { return JSON.parse(text); } catch { return null; }
-}
 
 export default {
   async fetch(request, env) {
@@ -143,6 +195,13 @@ export default {
   if (expected && auth !== expected) return new Response('Unauthorized', { status: 401, headers: cors });
 
       const body = await request.json();
+      // evidence length guard
+      if (body && typeof body.evidenceText === 'string' && body.evidenceText.length > 2048) {
+        body.evidenceText = body.evidenceText.slice(0,2048);
+      }
+      // rate limit (best-effort; relies on CF connecting IP header or fallback)
+      const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'local';
+      if(!checkRateLimit(ip)) return new Response('Rate Limited', {status:429, headers: cors});
 
       // Build a strict prompt for JSON-only output
       const reporter = body?.reporter;
@@ -159,19 +218,27 @@ Context:
 - evidenceHash: ${evidenceHash}
 - evidenceText: ${evidenceText ?? ''}`;
 
-      // Try Cloudflare Workers AI via REST if configured
+  // Gemini provider (fallback heuristic if null).
       let aiDecision = null;
-      try {
-        aiDecision = await callWorkersAiREST(env, prompt);
-      } catch {}
+      if (env.GEMINI_API_KEY) {
+        try { aiDecision = await callGemini(env.GEMINI_API_KEY, env.GEMINI_MODEL || 'gemini-1.5-flash', prompt); } catch {}
+      }
 
       const decision = coerceDecision(body, aiDecision);
+      // audit log (Node only)
+      try {
+        if (typeof process !== 'undefined' && process?.versions?.node) {
+          const fs = await import('fs');
+          const rec = { ts: Date.now(), ip, domain: body?.domain||'NDA', approve: decision.approve, classification: decision.classification, penaltyWei: decision.penaltyWei, requested: body?.requestedPenaltyWei||body?.requestedAmountWei||'0' };
+          fs.appendFileSync('server/logs/ai_decisions.jsonl', JSON.stringify(rec)+'\n');
+        }
+      } catch {}
 
       return new Response(JSON.stringify(decision), {
         headers: { 'content-type': 'application/json', ...cors },
       });
     } catch (err) {
-      const decision = baselineDecision({});
+  const decision = selectBaseline({});
       return new Response(JSON.stringify(decision), { status: 200, headers: { 'content-type': 'application/json', ...cors } });
     }
   }

@@ -6,12 +6,14 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+// factory enforcement removed (size optimization) - relying on factory pattern off-chain
 
 /// @title TemplateRentContract with EIP712 dual-party signature (similar to NDATemplate)
 /// @notice Adds structured data signing so BOTH landlord & tenant can sign immutable core terms.
 contract TemplateRentContract is EIP712 {
     address public immutable landlord;
     address public immutable tenant;
+    uint256 public immutable propertyId; // 0 if not linked
     uint256 public rentAmount;
     bool public rentPaid;
     uint256 public totalPaid;
@@ -47,6 +49,32 @@ AggregatorV3Interface public immutable priceFeed;
     uint256 public cancelEffectiveAt;          // timestamp when finalize is allowed (unilateral)
     mapping(address => bool) public cancelApprovals; // who approved (for mutual or record)
 
+    // ============ Arbitration & Disputes (extension) ============
+    address public arbitrator;               // optional arbitrator / oracle aggregator
+    bool public arbitrationConfigured;       // one-time configuration gate
+    uint256 public requiredDeposit;          // required security deposit amount (in wei) set during configuration
+    uint256 public depositBalance;           // tenant security deposit locked in contract
+
+    enum DisputeType { Damage, ConditionStart, ConditionEnd, Quality, EarlyTerminationJustCause, DepositSplit, ExternalValuation }
+
+    struct DisputeCase {
+        address initiator;
+        DisputeType dtype;
+        uint256 requestedAmount;    // claim amount (e.g., damages or amount to release)
+        bytes32 evidenceHash;       // off-chain evidence reference (IPFS hash etc.)
+        bool resolved;
+        bool approved;
+        uint256 appliedAmount;      // actual amount applied (deducted or released)
+    }
+
+    struct DisputeMeta { // classification & rationale produced by oracle/AI
+        string classification;
+        string rationale; // demonstration (could hash in production)
+    }
+
+    DisputeCase[] private _disputes;
+    mapping(uint256 => DisputeMeta) private _disputeMeta; // id => meta
+
     // events
     event RentPaid(address indexed tenant, uint256 amount, bool late, address token);
     event ContractCancelled(address indexed by);
@@ -58,15 +86,22 @@ AggregatorV3Interface public immutable priceFeed;
     event CancellationApproved(address indexed by);
     event CancellationFinalized(address indexed by);
     event EarlyTerminationFeePaid(address indexed from, uint256 amount, address indexed to);
+    event ArbitrationConfigured(address indexed arbitrator, uint256 requiredDeposit);
+    event SecurityDepositPaid(address indexed tenant, uint256 amount, uint256 total);
+    event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount, bytes32 evidenceHash);
+    event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
+    event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
 
     constructor(
         address _landlord,
         address _tenant,
         uint256 _rentAmount,
-        address _priceFeed
+        address _priceFeed,
+        uint256 _propertyId
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         landlord = _landlord;
         tenant = _tenant;
+        propertyId = _propertyId;
         rentAmount = _rentAmount;
         rentPaid = false;
         totalPaid = 0;
@@ -100,6 +135,16 @@ AggregatorV3Interface public immutable priceFeed;
     error InvalidFeeBps();
     error FeeTransferFailed();
     error NotFullySigned();
+    error ArbitrationAlreadyConfigured();
+    error ArbitratorInvalid();
+    error DepositAlreadySatisfied();
+    error DepositTooLow();
+    error ArbitrationNotConfigured();
+    error DisputeTypeInvalid();
+    error DisputeAlreadyResolved();
+    error OnlyArbitrator();
+    error ClassificationTooLong();
+    error RationaleTooLong();
 
     modifier onlyTenant() {
         if (msg.sender != tenant) revert OnlyTenant();
@@ -352,5 +397,112 @@ function cancelContract() external {
         active = false;
         emit ContractCancelled(msg.sender);
         emit CancellationFinalized(msg.sender);
+    }
+
+    // ================= Arbitration / Deposit / Disputes =================
+
+    modifier onlyArbitrator() {
+        if (msg.sender != arbitrator) revert OnlyArbitrator();
+        _;
+    }
+
+    function configureArbitration(address _arbitrator, uint256 _requiredDeposit) external onlyLandlord onlyActive {
+        if (arbitrationConfigured) revert ArbitrationAlreadyConfigured();
+        if (_arbitrator == address(0)) revert ArbitratorInvalid();
+        // allow EOAs or contracts (no code.length check for flexibility with upgradeable/oracle addresses)
+        arbitrator = _arbitrator;
+        requiredDeposit = _requiredDeposit;
+        arbitrationConfigured = true;
+        emit ArbitrationConfigured(_arbitrator, _requiredDeposit);
+    }
+
+    function depositSecurity() external payable onlyTenant onlyActive onlyFullySigned {
+        if (!arbitrationConfigured) revert ArbitrationNotConfigured();
+        if (depositBalance >= requiredDeposit) revert DepositAlreadySatisfied();
+        if (msg.value == 0) revert DepositTooLow();
+        depositBalance += msg.value;
+        emit SecurityDepositPaid(msg.sender, msg.value, depositBalance);
+        if (depositBalance < requiredDeposit) revert DepositTooLow(); // needs at least requiredDeposit overall
+    }
+
+    function getDisputesCount() external view returns (uint256) { return _disputes.length; }
+
+    function getDispute(uint256 caseId) external view returns (
+        address initiator,
+        DisputeType dtype,
+        uint256 requestedAmount,
+        bytes32 evidenceHash,
+        bool resolved,
+        bool approved,
+        uint256 appliedAmount
+    ) {
+        require(caseId < _disputes.length, "bad id");
+        DisputeCase storage dc = _disputes[caseId];
+        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidenceHash, dc.resolved, dc.approved, dc.appliedAmount);
+    }
+
+    function getDisputeMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
+        require(caseId < _disputes.length, "bad id");
+        DisputeMeta storage m = _disputeMeta[caseId];
+        return (m.classification, m.rationale);
+    }
+
+    function reportDispute(DisputeType dtype, uint256 requestedAmount, bytes32 evidenceHash) external onlyActive returns (uint256 caseId) {
+        if (!arbitrationConfigured) revert ArbitrationNotConfigured();
+        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+        // For damage/quality claims requestedAmount must be >0
+        if (requestedAmount == 0 && (dtype == DisputeType.Damage || dtype == DisputeType.Quality || dtype == DisputeType.DepositSplit)) revert AmountTooLow();
+
+        caseId = _disputes.length;
+        _disputes.push();
+        DisputeCase storage dc = _disputes[caseId];
+        dc.initiator = msg.sender;
+        dc.dtype = dtype;
+        dc.requestedAmount = requestedAmount;
+        dc.evidenceHash = evidenceHash;
+
+        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceHash);
+    }
+
+    /// @notice Final resolution used by arbitrator/oracle (single-step) similar to NDA oracle path.
+    /// @param caseId dispute id
+    /// @param approve whether claim approved
+    /// @param appliedAmount amount to transfer (capped by depositBalance when deducting)
+    /// @param beneficiary receiver of funds (usually landlord for damage; tenant for refund scenarios)
+    /// @param classification short label (<=64 chars)
+    /// @param rationale explanation (<=512 chars)
+    function resolveDisputeFinal(
+        uint256 caseId,
+        bool approve,
+        uint256 appliedAmount,
+        address beneficiary,
+        string calldata classification,
+        string calldata rationale
+    ) external onlyArbitrator onlyActive {
+        if (caseId >= _disputes.length) revert DisputeTypeInvalid();
+        if (beneficiary == address(0)) revert FeeTransferFailed(); // reuse error for zero address
+        if (bytes(classification).length > 64) revert ClassificationTooLong();
+        if (bytes(rationale).length > 512) revert RationaleTooLong();
+
+        DisputeCase storage dc = _disputes[caseId];
+        if (dc.resolved) revert DisputeAlreadyResolved();
+        dc.resolved = true;
+        dc.approved = approve;
+
+        uint256 applied = 0;
+        if (approve && appliedAmount > 0) {
+            // For damage / quality / deposit split we deduct from depositBalance to beneficiary (landlord or tenant)
+            if (appliedAmount > depositBalance) appliedAmount = depositBalance;
+            if (appliedAmount > 0) {
+                depositBalance -= appliedAmount;
+                (bool ok, ) = payable(beneficiary).call{value: appliedAmount}("");
+                if (!ok) revert FeeTransferFailed();
+                applied = appliedAmount;
+            }
+        }
+        dc.appliedAmount = applied;
+        _disputeMeta[caseId] = DisputeMeta({classification: classification, rationale: rationale});
+        emit DisputeResolved(caseId, approve, applied, beneficiary);
+        emit DisputeRationale(caseId, classification, rationale);
     }
 }

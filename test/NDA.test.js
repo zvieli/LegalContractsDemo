@@ -43,18 +43,22 @@ describe("NDATemplate", function () {
     arbitrator = await Arbitrator.connect(arbitratorOwner).deploy();
     await arbitrator.waitForDeployment();
 
-    // Deploy NDATemplate
-    const NDATemplate = await ethers.getContractFactory("NDATemplate");
-    ndaTemplate = await NDATemplate.deploy(
-      partyA.address,
+    // Deploy via factory (enforced)
+    const Factory = await ethers.getContractFactory("ContractFactory");
+    const factory = await Factory.deploy();
+    await factory.waitForDeployment();
+    const tx = await factory.connect(partyA).createNDA(
       partyB.address,
-      Math.floor(Date.now() / 1000) + 86400, // +1 day
-      1000, // penaltyBps (10%)
+      Math.floor(Date.now() / 1000) + 86400,
+      1000,
       ethers.keccak256(ethers.toUtf8Bytes("Test confidentiality clauses")),
       arbitrator.target,
-      ethers.parseEther("0.1") // minDeposit
+      ethers.parseEther("0.1")
     );
-    await ndaTemplate.waitForDeployment();
+    const receipt = await tx.wait();
+    const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+    ndaTemplate = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+    admin = partyA; // factory sets admin = deployer (partyA here)
   });
 
   describe("Deployment", function () {
@@ -121,7 +125,8 @@ describe("NDATemplate", function () {
     });
 
     it("should revert when non-admin tries to add party", async function () {
-      await expect(ndaTemplate.connect(partyA).addParty(partyC.address))
+      // admin is partyA (set during factory deployment); use partyB as non-admin
+      await expect(ndaTemplate.connect(partyB).addParty(partyC.address))
         .to.be.revertedWith("Only admin");
     });
 
@@ -281,18 +286,21 @@ it("should allow parties to sign with valid signature", async function () {
     let ndaWithoutArbitrator;
 
     beforeEach(async function () {
-      // Deploy NDA without arbitrator
-      const NDATemplate = await ethers.getContractFactory("NDATemplate");
-      ndaWithoutArbitrator = await NDATemplate.deploy(
-        partyA.address,
+      // Deploy NDA without arbitrator via factory
+      const Factory = await ethers.getContractFactory('ContractFactory');
+      const factory = await Factory.deploy();
+      await factory.waitForDeployment();
+      const tx2 = await factory.connect(partyA).createNDA(
         partyB.address,
         Math.floor(Date.now() / 1000) + 86400,
         1000,
-        ethers.keccak256(ethers.toUtf8Bytes("Test clauses")),
-        ethers.ZeroAddress, // No arbitrator
-        ethers.parseEther("0.1")
+        ethers.keccak256(ethers.toUtf8Bytes('Test clauses')),
+        ethers.ZeroAddress,
+        ethers.parseEther('0.1')
       );
-      await ndaWithoutArbitrator.waitForDeployment();
+      const r2 = await tx2.wait();
+      const log2 = r2.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+      ndaWithoutArbitrator = await ethers.getContractAt('NDATemplate', log2.args.contractAddress);
 
       // Setup deposits and report breach
       await ndaWithoutArbitrator.connect(partyA).deposit({ value: ethers.parseEther("0.5") });
@@ -352,17 +360,20 @@ it("should allow parties to sign with valid signature", async function () {
       const chainNow = Number(latestBlock.timestamp);
       const futureDate = chainNow + 3600; // +1 hour from chain time
 
-      const NDATemplate = await ethers.getContractFactory("NDATemplate");
-      const testNDA = await NDATemplate.deploy(
-        partyA.address,
+      const Factory = await ethers.getContractFactory('ContractFactory');
+      const factory = await Factory.deploy();
+      await factory.waitForDeployment();
+      const tx3 = await factory.connect(partyA).createNDA(
         partyB.address,
         futureDate,
         1000,
-        ethers.keccak256(ethers.toUtf8Bytes("Test")),
+        ethers.keccak256(ethers.toUtf8Bytes('Test')),
         arbitrator.target,
-        ethers.parseEther("0.1")
+        ethers.parseEther('0.1')
       );
-      await testNDA.waitForDeployment();
+      const r3 = await tx3.wait();
+      const log3 = r3.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+      const testNDA = await ethers.getContractAt('NDATemplate', log3.args.contractAddress);
 
       // Fast forward time beyond expiry
       await ethers.provider.send("evm_setNextBlockTimestamp", [futureDate + 1]);
@@ -372,7 +383,8 @@ it("should allow parties to sign with valid signature", async function () {
     });
 
     it("should revert when unauthorized user tries to deactivate", async function () {
-      await expect(ndaTemplate.connect(partyA).deactivate("Unauthorized"))
+      // admin == partyA; choose partyB as unauthorized
+      await expect(ndaTemplate.connect(partyB).deactivate("Unauthorized"))
         .to.be.revertedWith("Not authorized");
     });
   });
@@ -435,22 +447,24 @@ it("should allow withdrawal after deactivation and resolution", async function (
 });
 
     it("should revert withdrawal when contract is active", async function () {
-      const NDATemplateFactory = await ethers.getContractFactory("NDATemplate");
-      const activeNDA = await NDATemplateFactory.deploy(
-        partyA.address,
+      // Create fresh NDA via factory
+      const Factory = await ethers.getContractFactory('ContractFactory');
+      const factory = await Factory.deploy();
+      await factory.waitForDeployment();
+      const tx4 = await factory.connect(partyA).createNDA(
         partyB.address,
         Math.floor(Date.now() / 1000) + 86400,
         1000,
-        ethers.keccak256(ethers.toUtf8Bytes("Test")),
+        ethers.keccak256(ethers.toUtf8Bytes('Test')),
         arbitrator.target,
-        ethers.parseEther("0.1")
+        ethers.parseEther('0.1')
       );
-      await activeNDA.waitForDeployment();
-
-      await activeNDA.connect(partyA).deposit({ value: ethers.parseEther("0.5") });
-
-      await expect(activeNDA.connect(partyA).withdrawDeposit(ethers.parseEther("0.1")))
-        .to.be.revertedWith("Cannot withdraw yet");
+      const r4 = await tx4.wait();
+      const log4 = r4.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+      const activeNDA = await ethers.getContractAt('NDATemplate', log4.args.contractAddress);
+      await activeNDA.connect(partyA).deposit({ value: ethers.parseEther('0.5') });
+      await expect(activeNDA.connect(partyA).withdrawDeposit(ethers.parseEther('0.1')))
+        .to.be.revertedWith('Cannot withdraw yet');
     });
   });
 

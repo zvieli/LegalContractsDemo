@@ -13,9 +13,10 @@ describe("OracleArbitratorFunctions -> NDATemplate integration", function () {
     oracle = await Oracle.connect(owner).deploy(owner.address);
     await oracle.waitForDeployment();
 
-    const NDATemplate = await ethers.getContractFactory("NDATemplate");
-    nda = await NDATemplate.deploy(
-      partyA.address,
+    const Factory = await ethers.getContractFactory("ContractFactory");
+    const factory = await Factory.deploy();
+    await factory.waitForDeployment();
+    const tx = await factory.connect(partyA).createNDA(
       partyB.address,
       Math.floor(Date.now() / 1000) + 86400,
       1000,
@@ -23,7 +24,9 @@ describe("OracleArbitratorFunctions -> NDATemplate integration", function () {
       oracle.target,
       ethers.parseEther("0.1")
     );
-    await nda.waitForDeployment();
+    const receipt = await tx.wait();
+    const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+    nda = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
 
     await nda.connect(partyA).deposit({ value: ethers.parseEther("0.5") });
     await nda.connect(partyB).deposit({ value: ethers.parseEther("0.5") });

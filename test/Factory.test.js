@@ -30,9 +30,10 @@ describe("ContractFactory", function () {
   describe("createRentContract", function () {
     it("should create rent contract successfully", async function () {
       const tx = await factory.connect(landlord).createRentContract(
-        tenant.address,
-        100,
-        mockPriceFeed.target
+          tenant.address,
+          100,
+          mockPriceFeed.target,
+          0
       );
       const receipt = await tx.wait();
 

@@ -14,9 +14,10 @@ describe("Arbitrator", function () {
     arbitrator = await Arbitrator.deploy();
     await arbitrator.waitForDeployment();
 
-    const NDATemplate = await ethers.getContractFactory("NDATemplate");
-    ndaTemplate = await NDATemplate.deploy(
-      partyA.address,
+    const Factory = await ethers.getContractFactory("ContractFactory");
+    const factory = await Factory.deploy();
+    await factory.waitForDeployment();
+    const tx = await factory.connect(partyA).createNDA(
       partyB.address,
       Math.floor(Date.now() / 1000) + 86400,
       1000,
@@ -24,7 +25,9 @@ describe("Arbitrator", function () {
       arbitrator.target,
       ethers.parseEther("0.1")
     );
-    await ndaTemplate.waitForDeployment();
+    const receipt = await tx.wait();
+    const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+    ndaTemplate = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
 
     await ndaTemplate.connect(partyA).deposit({ value: ethers.parseEther("0.2") });
     await ndaTemplate.connect(partyB).deposit({ value: ethers.parseEther("0.2") });

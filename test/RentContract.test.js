@@ -55,15 +55,20 @@ beforeEach(async function () {
   token = await MockERC20.deploy("TestToken", "TTK", ethers.parseUnits("1000", 18));
   await token.waitForDeployment();
 
-  // Deploy RentContract
-  RentContract = await ethers.getContractFactory("TemplateRentContract");
-  rentContract = await RentContract.deploy(
-    landlord.address,
-    tenant.address,
-    ethers.parseEther("0.5"), // שכירות קטנה יותר לבדיקות
-    mockPriceFeed.target
+  // Deploy via factory (enforce factory-only policy)
+  const Factory = await ethers.getContractFactory("ContractFactory");
+  const factory = await Factory.deploy();
+  await factory.waitForDeployment();
+  const tx = await factory.connect(landlord).createRentContract(
+          tenant.address,
+          ethers.parseEther("0.5"),
+          mockPriceFeed.target,
+          0
   );
-  await rentContract.waitForDeployment();
+  const receipt = await tx.wait();
+  const evt = receipt.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
+  const deployedAddr = evt.args.contractAddress;
+  rentContract = await ethers.getContractAt('TemplateRentContract', deployedAddr);
 
   // Mint & Approve tokens for tenant
   await token.transfer(tenant.address, ethers.parseUnits("500", 18));
@@ -201,9 +206,13 @@ describe("ETH Payment", function () {
   describe("EIP712 Additional Signature Behaviors", function () {
     it("locks dueDate after both parties sign (cannot modify)", async function () {
       // Deploy a fresh instance (independent scenario)
-      const Rent = await ethers.getContractFactory('TemplateRentContract');
-      const fresh = await Rent.deploy(landlord.address, tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
-      await fresh.waitForDeployment();
+  const Factory = await ethers.getContractFactory('ContractFactory');
+  const f = await Factory.deploy();
+  await f.waitForDeployment();
+  const tx2 = await f.createRentContract(tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
+  const rcpt2 = await tx2.wait();
+  const log2 = rcpt2.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
+  const fresh = await ethers.getContractAt('TemplateRentContract', log2.args.contractAddress);
       const dueDate = (await ethers.provider.getBlock('latest')).timestamp + 3600;
       await fresh.connect(landlord).setDueDate(dueDate);
       const rentAmt = await fresh.rentAmount();
@@ -215,9 +224,13 @@ describe("ETH Payment", function () {
     });
 
     it("rejects reusing the same signature (AlreadySigned) and non-party (NotParty)", async function () {
-      const Rent = await ethers.getContractFactory('TemplateRentContract');
-      const fresh = await Rent.deploy(landlord.address, tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
-      await fresh.waitForDeployment();
+  const Factory = await ethers.getContractFactory('ContractFactory');
+  const f = await Factory.deploy();
+  await f.waitForDeployment();
+  const tx3 = await f.createRentContract(tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
+  const rcpt3 = await tx3.wait();
+  const log3 = rcpt3.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
+  const fresh = await ethers.getContractAt('TemplateRentContract', log3.args.contractAddress);
       const dueDate = (await ethers.provider.getBlock('latest')).timestamp + 7200;
       await fresh.connect(landlord).setDueDate(dueDate);
       const rentAmt = await fresh.rentAmount();
