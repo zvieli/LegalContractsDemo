@@ -26,7 +26,13 @@
   "ai:deploy": "npx wrangler deploy --config server/wrangler.toml",
   "ai:smoke": "node scripts/worker_http_batch.js --single",
   "ai:batch": "node scripts/worker_http_batch.js",
-  "ai:batch:local": "node scripts/worker_http_batch.js --url http://127.0.0.1:8787"
+  "ai:batch:local": "node scripts/worker_http_batch.js --url http://127.0.0.1:8787",
+  "e2e:functions": "npx hardhat run scripts/e2e_functions.js --network sepolia",
+  "case:open": "npx hardhat run scripts/open_case_request.js --network sepolia",
+  "deploy:minimal": "cross-env DEPLOY_MODE=minimal npx hardhat run --network sepolia scripts/deploy_ndas.js",
+  "deploy:archetypes": "cross-env DEPLOY_MODE=archetypes npx hardhat run --network sepolia scripts/deploy_ndas.js"
+  , "router:check": "npx hardhat run scripts/check_router.js --network sepolia"
+  , "playground:sim": "node scripts/simulate_functions_playground.js"
   },
   "keywords": [],
   "author": "",
@@ -47,7 +53,8 @@
     "hardhat": "^2.26.3",
     "hardhat-gas-reporter": "^2.3.0",
     "solidity-coverage": "^0.8.16",
-    "typechain": "^8.3.2"
+  "typechain": "^8.3.2",
+  "cross-env": "^7.0.3"
   },
   "dependencies": {
     "@chainlink/contracts": "^1.4.0",

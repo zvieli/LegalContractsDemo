@@ -16,11 +16,29 @@ async function main() {
   }
 
   const subId = process.env.CLF_SUBSCRIPTION_ID;
-  const donIdHex = process.env.CLF_DON_ID; // e.g., 0x... from Chainlink docs
+  let rawDon = process.env.CLF_DON_ID; // may be short ascii (fun-sepolia-1) or partial hex
   const gasLimit = process.env.CLF_GAS_LIMIT ? Number(process.env.CLF_GAS_LIMIT) : 300000;
 
-  if (!subId || !donIdHex) {
+  if (!subId || !rawDon) {
     throw new Error("Missing CLF_SUBSCRIPTION_ID or CLF_DON_ID env vars");
+  }
+
+  // Normalize DON id to bytes32
+  let donIdHex;
+  if (rawDon.startsWith('0x')) {
+    const hex = rawDon.slice(2);
+    if (hex.length === 64) {
+      donIdHex = rawDon;
+    } else if (hex.length < 64 && hex.length % 2 === 0) {
+      donIdHex = '0x' + hex.padEnd(64, '0');
+      console.log('Padded DON ID to bytes32:', donIdHex);
+    } else {
+      throw new Error('Invalid hex length for CLF_DON_ID');
+    }
+  } else {
+    // treat as ascii label
+    donIdHex = ethers.encodeBytes32String(rawDon);
+    console.log('Encoded ASCII DON ID to bytes32:', donIdHex);
   }
 
   let source = process.env.CLF_SOURCE;
