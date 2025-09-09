@@ -209,7 +209,7 @@ describe("ETH Payment", function () {
   const Factory = await ethers.getContractFactory('ContractFactory');
   const f = await Factory.deploy();
   await f.waitForDeployment();
-  const tx2 = await f.createRentContract(tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
+  const tx2 = await f.createRentContract(tenant.address, await rentContract.rentAmount(), mockPriceFeed.target, 0);
   const rcpt2 = await tx2.wait();
   const log2 = rcpt2.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
   const fresh = await ethers.getContractAt('TemplateRentContract', log2.args.contractAddress);
@@ -227,7 +227,7 @@ describe("ETH Payment", function () {
   const Factory = await ethers.getContractFactory('ContractFactory');
   const f = await Factory.deploy();
   await f.waitForDeployment();
-  const tx3 = await f.createRentContract(tenant.address, await rentContract.rentAmount(), mockPriceFeed.target);
+  const tx3 = await f.createRentContract(tenant.address, await rentContract.rentAmount(), mockPriceFeed.target, 0);
   const rcpt3 = await tx3.wait();
   const log3 = rcpt3.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
   const fresh = await ethers.getContractAt('TemplateRentContract', log3.args.contractAddress);

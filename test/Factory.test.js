@@ -91,7 +91,8 @@ describe("ContractFactory", function () {
       await factory.connect(landlord).createRentContract(
         tenant.address,
         100,
-        mockPriceFeed.target
+        mockPriceFeed.target,
+        0
       );
 
       const expiryDate = Math.floor(Date.now() / 1000) + 86400;

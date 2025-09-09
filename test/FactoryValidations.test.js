@@ -73,7 +73,8 @@ describe("ContractFactory with Validations", function () {
         factory.connect(landlord).createRentContract(
           tenant.address,
           100,
-          tenant.address
+          tenant.address,
+          0
         )
       ).to.be.revertedWithCustomError(factory, 'PriceFeedNotContract');
     });

@@ -1,0 +1,112 @@
+[
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134466",
+    "contractAddress": "",
+    "reporter": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "offender": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667879/in-the-matter-of-the-parental-rights-to-lcc-h/",
+    "description": "NDA dispute: Parental rights termination, substance abuse, dependency, and court-ordered evaluations."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134465",
+    "contractAddress": "",
+    "reporter": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "offender": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667878/lu-management-investment-inc-v-yuans-hh-property-llc/",
+    "description": "NDA dispute: Arbitration award confirmation, LLC management, property investment, and dissolution."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134464",
+    "contractAddress": "",
+    "reporter": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+    "offender": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667877/state-of-washington-v-awet-hagos-gebremariam/",
+    "description": "NDA dispute: Conviction for indecent liberties, evidence admission, and community custody conditions."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134463",
+    "contractAddress": "",
+    "reporter": "0x976EA74026E726554dB657fA54763abd0C3a0aa9",
+    "offender": "0x14dC79964da2C08b23698B3D3cc7Ca32193d9955",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667876/state-of-washington-v-john-d-anderson/",
+    "description": "NDA dispute: Assault and rape conviction, deliberate cruelty, and sufficiency of evidence."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134462",
+    "contractAddress": "",
+    "reporter": "0x5fBdb2315678afecb367f032d93F642f64180aa3",
+    "offender": "0xE7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667875/state-of-washington-v-michael-stephen-yeh/",
+    "description": "NDA dispute: Sentencing appeal, credit for confinement, and statutory interpretation."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134461",
+    "contractAddress": "",
+    "reporter": "0x9A676e781A523b5d0C0e43731313A708CB607508",
+    "offender": "0x7c8521182949eD1a4bC8b7A492f6edD6F0dA1dC1",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667874/woodinville-water-district-v-king-county/",
+    "description": "NDA dispute: Water service availability, administrative remedies, and standing."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134460",
+    "contractAddress": "",
+    "reporter": "0xA0ee7A142d267C1f36714e4a8F75612f20a79720",
+    "offender": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667873/people-v-jose-c/",
+    "description": "NDA dispute: Appellate review, procedural issues, and unpublished decision."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134459",
+    "contractAddress": "",
+    "reporter": "0xB0B1955bBfA4587C703e8C5F05d7A2E8E6A0F1A7",
+    "offender": "0x2c2eB2e8eA2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667872/people-v-mamadou-b/",
+    "description": "NDA dispute: Criminal appeal, procedural posture, and unpublished opinion."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134458",
+    "contractAddress": "",
+    "reporter": "0xC0ffee254729296a45a3885639AC7E10F9d54979",
+    "offender": "0x5Aeda56215b167893e80B4fE645BA6d5Bab767DE",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667871/fordham-dormitory-tower-llc-v-tress/",
+    "description": "NDA dispute: Civil litigation, property management, and appellate review."
+  },
+  {
+    "contractType": "nda",
+    "caseId": "NDA-11134457",
+    "contractAddress": "",
+    "reporter": "0xF0B1955bBfA4587C703e8C5F05d7A2E8E6A0F1A7",
+    "offender": "0x2c2eB2e8eA2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e",
+    "requestedPenaltyWei": 0,
+    "evidenceHash": null,
+    "evidenceUrl": "https://www.courtlistener.com/opinion/10667870/state-v-almentero/",
+    "description": "NDA dispute: Jury instructions, felony murder, and fundamental error analysis."
+  }
+]

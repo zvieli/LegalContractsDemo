@@ -16,10 +16,10 @@ describe("TemplateRentContract Arbitration & Disputes", function() {
     const factory = await Factory.deploy();
     await factory.waitForDeployment();
     const tx = await factory.connect(landlord).createRentContract(
-          tenant.address,
-          ethers.parseEther("0.5"),
-          mockPriceFeed.target,
-          0
+      tenant.address,
+      ethers.parseEther("0.5"),
+      mockPriceFeed.target,
+      0
     );
     const receipt = await tx.wait();
     const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');

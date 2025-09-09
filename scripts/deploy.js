@@ -137,7 +137,7 @@ async function main() {
 
   // create a sample rent contract via factory to demonstrate flow
   try {
-  const tx = await contractFactory.createRentContract(tenant.address, ethers.parseUnits("1", 18), mockPriceAddress);
+  const tx = await contractFactory.createRentContract(tenant.address, ethers.parseUnits("1", 18), mockPriceAddress, 0);
     const receipt = await tx.wait();
     // ContractFactory emits RentContractCreated(contractAddress, landlord, tenant)
     let rentAddress = null;

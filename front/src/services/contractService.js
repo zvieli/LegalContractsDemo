@@ -74,7 +74,8 @@ export class ContractService {
       const tx = await factoryContract.createRentContract(
         params.tenant,
         rentAmountWei,
-        params.priceFeed
+        params.priceFeed,
+        0
       );
 
       const receipt = await tx.wait();

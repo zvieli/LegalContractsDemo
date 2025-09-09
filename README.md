@@ -10,6 +10,7 @@ Oracle-driven legal contracts (NDA & Rent) with Chainlink Functions and an exter
 
 This repo demonstrates how to encode dispute resolution into smart contracts and escalate complex cases to an off-chain AI via Chainlink Functions, then enforce the decision on-chain.
 
+
 What you get:
 - NDATemplate contract with deposits, breach reporting, voting, and arbitrator hooks
 - Two arbitrators: a simple owner-controlled one, and an oracle-driven one
@@ -20,7 +21,9 @@ What you get:
 ## Architecture
 
 - Contracts:
-	- `NDATemplate.sol` — NDA between A and B; holds deposits; exposes `reportBreach`, `resolveByArbitrator`, and `enforcePenalty`.
+		- `NDATemplate.sol` — NDA between A and B; holds deposits; exposes `reportBreach`, `resolveByArbitrator`, and `enforcePenalty`.
+		- `TemplateRentContract.sol` — Rent contract between landlord and tenant; supports dispute reporting, arbitration, and deposit management.
+			> **Note:** All rent contract deployments are enforced via the Factory. Direct deployment is disabled.
 	- `Arbitrator.sol` — owner-based arbitrator (baseline).
 	- `OracleArbitrator.sol` — generic oracle-driven arbitrator (transport-agnostic).
 	- `OracleArbitratorFunctions.sol` — Chainlink Functions client variant.
@@ -38,16 +41,17 @@ Flow (prod):
 
 Flow (local/test): If Functions isn’t configured, the contract produces a deterministic requestId and you can simulate fulfillment using `testFulfill` without external services.
 
-### Detailed Resolution Flow Diagram
+
+### NDA Contract Deployment & Arbitration Flow Diagram
 
 ```
  (Deployment Phase)
  ┌──────────────┐        creates        ┌────────────────────┐
  │ Deployer /   │ ───────────────────▶  │ ContractFactory    │
- │ Frontend     │  (optional)          │ (creates templates)│
- └─────┬────────┘                       └─────────┬──────────┘
-	 │ direct deploy (without Factory)          │ createNDA()
-	 ▼                                          ▼
+ │ Frontend     │                      │ (creates templates)│
+ └──────────────┘                       └─────────┬──────────┘
+					      │ createNDA()
+					      ▼
  ┌──────────────────────────────────────────────────────────┐
  │                     NDATemplate                          │
  │  - deposits(A,B)                                         │
@@ -55,6 +59,10 @@ Flow (local/test): If Functions isn’t configured, the contract produces a dete
  │  - stores case state                                     │
  │  - receives resolution (approve, penalty, classification)│
  └──────────┬───────────────────────────────┬───────────────┘
+	   │
+	   │ reportBreach(offender, requested, evidenceHash)
+	   ▼
+  ```
 		│                               │
 		│ chooses one arbitrator impl   │
 		│                               │
@@ -90,6 +98,45 @@ Flow (local/test): If Functions isn’t configured, the contract produces a dete
 											    ▼
 									   Funds distribution + case closed
 ```
+
+> **Note:** All NDA contract deployments are enforced via the Factory. Direct deployment is disabled.
+```
+> **Note:** All contract deployments are enforced via the Factory. Direct deployment is disabled.
+### Rent Contract Deployment & Arbitration Flow Diagram
+
+```
+ (Deployment Phase)
+ ┌──────────────┐        creates        ┌────────────────────┐
+ │ Deployer /   │ ───────────────────▶  │ ContractFactory    │
+ │ Frontend     │                      │ (creates templates)│
+ └──────────────┘                       └─────────┬──────────┘
+					      │ createRent()
+					      ▼
+ ┌──────────────────────────────────────────────────────────┐
+ │                TemplateRentContract                      │
+ │  - deposits(tenant)                                      │
+ │  - payRent, reportDispute, arbitration                   │
+ │  - stores case state                                     │
+ │  - receives resolution (approve, penalty, classification)│
+ └──────────┬───────────────────────────────┬───────────────┘
+	   │
+	   │ reportDispute(dtype, amount, evidenceHash)
+	   ▼
+   ┌─────────────────────────────┐
+   │ Arbitrator / OracleArbitrator│
+   │ (manual or oracle/Chainlink) │
+   └─────────────┬───────────────┘
+		 │ resolveDispute()
+		 ▼
+	┌─────────────────────────────┐
+	│ Resolution: approve/penalty │
+	└─────────────┬───────────────┘
+		 │
+		 ▼
+	Funds distribution + case closed
+
+> **Note:** All rent contract deployments are enforced via the Factory. Direct deployment is disabled.
+
 
 
 ## Quickstart
