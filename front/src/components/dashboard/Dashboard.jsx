@@ -5,7 +5,7 @@ import { ContractService } from '../../services/contractService';
 import { useRentPaymentEvents } from '../../hooks/useContractEvents';
 import ContractModal from '../ContractModal/ContractModal';
 import { ethers } from 'ethers';
-import { requestAIDecision } from '../../services/aiService';
+// AI service removed for now; use a deterministic local stub for UI testing
 import './Dashboard.css';
 
 function Dashboard() {
@@ -35,7 +35,16 @@ function Dashboard() {
       const reporter = account;
       const offender = contracts.find(c => c.parties && c.parties[1] && c.parties[1] !== account)?.parties[1] || account;
       const requestedPenaltyWei = ethers.parseEther('1');
-      const res = await requestAIDecision({ reporter, offender, requestedPenaltyWei, evidenceText: 'Demo evidence text' });
+      // Deterministic stub: return a fixed decision so UI can show behavior without AI
+      const res = {
+        caseId: 'local-stub-1',
+        approve: true,
+        penaltyWei: requestedPenaltyWei.toString(),
+        beneficiary: offender,
+        guilty: offender,
+        status: 'resolved',
+        rationale: 'Deterministic stub decision (AI disabled)'
+      };
       setAiResult(res);
       addNotification({ type: 'success', title: 'AI Decision', message: `approve=${res.approve} penaltyWei=${res.penaltyWei}`, persistent: false });
     } catch (e) {

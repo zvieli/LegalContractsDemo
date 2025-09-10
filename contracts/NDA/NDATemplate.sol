@@ -3,8 +3,9 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 // factory enforcement removed (size optimization) - use off-chain policy & deployer pattern
-contract NDATemplate is EIP712 {
+contract NDATemplate is EIP712, ReentrancyGuard {
     using ECDSA for bytes32;
 
     string public constant CONTRACT_NAME = "NDATemplate";
@@ -25,9 +26,15 @@ contract NDATemplate is EIP712 {
     bool public active = true;
 
     mapping(address => uint256) public deposits;
+    // Pull-payment ledger: credit recipients here and let them withdraw to avoid stuck transfers
+    mapping(address => uint256) public withdrawable;
     uint256 public immutable minDeposit;
 
     address public immutable arbitrator;
+    // Anti-spam & dispute economics
+    uint256 public disputeFee; // fee required to file a dispute (wei)
+    uint256 public minReportInterval; // min seconds between reports from same reporter
+    uint256 public maxOpenReportsPerReporter; // cap open reports per reporter
 
     bytes32 private constant NDA_TYPEHASH =
         keccak256("NDA(address contractAddress,uint256 expiryDate,uint16 penaltyBps,bytes32 customClausesHash)");
@@ -37,11 +44,12 @@ contract NDATemplate is EIP712 {
     event DepositMade(address indexed party, uint256 amount);
     event DepositWithdrawn(address indexed party, uint256 amount);
     event BreachReported(uint256 indexed caseId, address indexed reporter, address indexed offender, uint256 requestedPenalty, bytes32 evidenceHash);
-    event BreachVoted(uint256 indexed caseId, address indexed voter, bool approve);
     event BreachResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address offender, address beneficiary);
     event ContractDeactivated(address indexed by, string reason);
     event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
+    event PaymentWithdrawn(address indexed to, uint256 amount);
     event BreachRationale(uint256 indexed caseId, string classification, string rationale);
+    event EvidenceRevealed(uint256 indexed caseId, string uri);
     // debug removed
 
     struct BreachCase {
@@ -51,9 +59,6 @@ contract NDATemplate is EIP712 {
         bytes32 evidenceHash;
         bool resolved;
         bool approved;
-        uint256 approveVotes;
-        uint256 rejectVotes;
-        mapping(address => bool) voted;
     }
 
     struct CaseMeta {
@@ -63,6 +68,23 @@ contract NDATemplate is EIP712 {
 
     BreachCase[] private _cases;
     mapping(uint256 => CaseMeta) private _caseMeta; // caseId => meta
+    mapping(uint256 => string) private _evidenceURI; // optional revealed evidence storage (URI or CID)
+    mapping(uint256 => uint256) private _caseFee; // fee attached to caseId
+    mapping(uint256 => uint256) private _revealDeadline; // timestamp until which reveal allowed
+    mapping(uint256 => uint256) private _resolvedAt; // timestamp when case was resolved
+    struct PendingEnforcement {
+        uint256 appliedPenalty;
+        address beneficiary;
+        uint256 fee;
+        address feeRecipient;
+        bool exists;
+    }
+    mapping(uint256 => PendingEnforcement) private _pendingEnforcement;
+    mapping(address => uint256) public lastReportAt;
+    mapping(address => uint256) public openReportsCount;
+    mapping(address => uint256) public offenderBreachCount; // cumulative approved breaches per offender
+    uint256 public revealWindowSeconds; // default 0 = no reveal deadline enforced
+    uint256 public appealWindowSeconds; // default 0 = no appeal window enforced
 
     constructor(
         address _partyA,
@@ -92,6 +114,11 @@ contract NDATemplate is EIP712 {
         customClausesHash = _customClausesHash;
         arbitrator = _arbitrator;
         minDeposit = _minDeposit;
+
+    // default anti-spam params
+    disputeFee = 0;
+    minReportInterval = 0;
+    maxOpenReportsPerReporter = 10;
 
         isParty[_partyA] = true;
         isParty[_partyB] = true;
@@ -181,24 +208,42 @@ contract NDATemplate is EIP712 {
         return true;
 }
 
-    function withdrawDeposit(uint256 amount) external {
+    function withdrawDeposit(uint256 amount) external nonReentrant {
         require(canWithdraw(), "Cannot withdraw yet");
         require(deposits[msg.sender] >= amount && amount > 0, "Insufficient deposit");
         deposits[msg.sender] -= amount;
-        (bool ok, ) = payable(msg.sender).call{value: amount}("");
-        require(ok, "Transfer failed");
+        // credit withdrawable ledger and let the party pull the funds
+        withdrawable[msg.sender] += amount;
         emit DepositWithdrawn(msg.sender, amount);
+    }
+
+    /// @notice Withdraw any pending pull-payments credited to caller
+    function withdrawPayments() external nonReentrant {
+        uint256 amount = withdrawable[msg.sender];
+        require(amount > 0, "No funds to withdraw");
+        withdrawable[msg.sender] = 0;
+        (bool ok, ) = payable(msg.sender).call{value: amount}("");
+        require(ok, "Withdraw failed");
+        emit PaymentWithdrawn(msg.sender, amount);
     }
 
     function reportBreach(
         address offender,
         uint256 requestedPenalty,
         bytes32 evidenceHash
-    ) external onlyParty onlyActive returns (uint256 caseId) {
+    ) external payable onlyParty onlyActive returns (uint256 caseId) {
         require(isParty[offender], "Offender not a party");
         require(offender != msg.sender, "Cannot accuse self");
         require(requestedPenalty > 0, "Requested penalty must be > 0");
         require(deposits[offender] >= minDeposit, "Offender has no minimum deposit");
+        // Anti-spam: fee and per-reporter interval
+        if (disputeFee > 0) {
+            require(msg.value >= disputeFee, "Insufficient dispute fee");
+        }
+        if (minReportInterval > 0) {
+            require(block.timestamp - lastReportAt[msg.sender] >= minReportInterval, "Reporting too frequently");
+        }
+        require(openReportsCount[msg.sender] < maxOpenReportsPerReporter, "Too many open reports");
 
         caseId = _cases.length;
         _cases.push();
@@ -207,6 +252,19 @@ contract NDATemplate is EIP712 {
         bc.offender = offender;
         bc.requestedPenalty = requestedPenalty;
         bc.evidenceHash = evidenceHash;
+        // record fee and reporter bookkeeping
+        if (disputeFee > 0) {
+            _caseFee[caseId] = msg.value;
+        }
+        lastReportAt[msg.sender] = block.timestamp;
+        openReportsCount[msg.sender] += 1;
+
+        // set a reveal deadline for this case if configured
+        if (revealWindowSeconds > 0) {
+            _revealDeadline[caseId] = block.timestamp + revealWindowSeconds;
+        } else {
+            _revealDeadline[caseId] = 0;
+        }
 
         emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidenceHash);
     }
@@ -222,42 +280,18 @@ contract NDATemplate is EIP712 {
         bytes32 evidenceHash,
         bool resolved,
         bool approved,
-        uint256 approveVotes,
-        uint256 rejectVotes
+    uint256 approveVotes,
+    uint256 rejectVotes
     ) {
         require(caseId < _cases.length, "Invalid case ID");
         BreachCase storage bc = _cases[caseId];
-        return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidenceHash, bc.resolved, bc.approved, bc.approveVotes, bc.rejectVotes);
+    // approveVotes and rejectVotes are deprecated (voting removed); return zeros for compatibility
+    return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidenceHash, bc.resolved, bc.approved, 0, 0);
     }
 
-    function voteOnBreach(uint256 caseId, bool approve) external onlyParty onlyActive {
-        require(arbitrator == address(0), "Arbitrator set; voting disabled");
-        require(caseId < _cases.length, "Invalid case ID");
-        
-        BreachCase storage bc = _cases[caseId];
-        require(!bc.resolved, "Case resolved");
-        require(msg.sender != bc.offender, "Offender cannot vote");
-        require(!bc.voted[msg.sender], "Already voted");
-        
-        bc.voted[msg.sender] = true;
+    // Voting removed for two-party NDAs. Disputes must be resolved by an arbitrator or external oracle.
 
-        if (approve) {
-            bc.approveVotes += 1;
-        } else {
-            bc.rejectVotes += 1;
-        }
-
-        emit BreachVoted(caseId, msg.sender, approve);
-
-        uint256 voters = _parties.length - 1;
-        if (bc.approveVotes > voters / 2) {
-            _applyResolution(caseId, true, bc.reporter);
-        } else if (bc.rejectVotes > voters / 2) {
-            _applyResolution(caseId, false, bc.reporter);
-        }
-    }
-
-    function resolveByArbitrator(uint256 caseId, bool approve, address beneficiary) external onlyActive {
+    function resolveByArbitrator(uint256 caseId, bool approve, address beneficiary) external onlyActive nonReentrant {
     require(arbitrator != address(0), "No arbitrator");
     require(msg.sender == arbitrator, "Only arbitrator");
     require(arbitrator.code.length > 0, "Arbitrator must be a contract");
@@ -271,7 +305,7 @@ contract NDATemplate is EIP712 {
     }
 
     /// @notice Final resolution specifying an applied penalty directly (used by oracle path to avoid double deduction)
-    function resolveByArbitratorFinal(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary, string calldata classification, string calldata rationale) external onlyActive {
+    function resolveByArbitratorFinal(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary, string calldata classification, string calldata rationale) external onlyActive nonReentrant {
         require(arbitrator != address(0), "No arbitrator");
         require(msg.sender == arbitrator, "Only arbitrator");
         require(arbitrator.code.length > 0, "Arbitrator must be a contract");
@@ -283,7 +317,7 @@ contract NDATemplate is EIP712 {
         BreachCase storage bc = _cases[caseId];
         require(!bc.resolved, "Case resolved");
 
-        bc.resolved = true;
+    bc.resolved = true;
         bc.approved = approve;
         uint256 applied = 0;
         if (approve && appliedPenalty > 0) {
@@ -292,14 +326,55 @@ contract NDATemplate is EIP712 {
             }
             if (appliedPenalty > 0) {
                 deposits[bc.offender] -= appliedPenalty;
-                (bool ok, ) = payable(beneficiary).call{value: appliedPenalty}("");
-                require(ok, "Payout failed");
+                // credit beneficiary for pull-based withdrawal
+                withdrawable[beneficiary] += appliedPenalty;
                 applied = appliedPenalty;
             }
         }
-        _caseMeta[caseId] = CaseMeta({ classification: classification, rationale: rationale });
+    _caseMeta[caseId] = CaseMeta({ classification: classification, rationale: rationale });
+    // record resolved timestamp for appeal window
+    _resolvedAt[caseId] = block.timestamp;
+        // bookkeeping: decrement open reports for reporter
+        openReportsCount[bc.reporter] = openReportsCount[bc.reporter] > 0 ? openReportsCount[bc.reporter] - 1 : 0;
+        // handle dispute fee: refund to reporter on success, else transfer to beneficiary
+        if (_caseFee[caseId] > 0) {
+            uint256 f = _caseFee[caseId];
+            _caseFee[caseId] = 0;
+            if (approve) {
+                // credit reporter for refund
+                withdrawable[bc.reporter] += f;
+            } else {
+                // credit beneficiary for fee
+                withdrawable[beneficiary] += f;
+            }
+        }
+        if (approve) {
+            offenderBreachCount[bc.offender] += 1;
+        }
         emit BreachResolved(caseId, approve, applied, bc.offender, beneficiary);
         emit BreachRationale(caseId, classification, rationale);
+    }
+
+    /// @notice Reveal evidence URI (e.g., IPFS CID) after committing evidenceHash on report
+    function revealEvidence(uint256 caseId, string calldata uri) external onlyParty onlyActive {
+        require(caseId < _cases.length, "Invalid case ID");
+        BreachCase storage bc = _cases[caseId];
+        require(msg.sender == bc.reporter || msg.sender == bc.offender, "Not a party to case");
+
+    // enforce reveal window if configured
+        if (revealWindowSeconds > 0) {
+            require(_revealDeadline[caseId] != 0, "No reveal window set");
+            require(block.timestamp <= _revealDeadline[caseId], "Reveal window closed");
+        }
+
+        // verify the revealed URI matches the committed evidence hash
+        bytes32 computed = keccak256(bytes(uri));
+        require(computed == bc.evidenceHash, "Evidence hash mismatch");
+
+    // prevent double-reveal
+    require(bytes(_evidenceURI[caseId]).length == 0, "Already revealed");
+    _evidenceURI[caseId] = uri;
+        emit EvidenceRevealed(caseId, uri);
     }
 
     function getCaseMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
@@ -308,7 +383,47 @@ contract NDATemplate is EIP712 {
         return (m.classification, m.rationale);
     }
 
-    function enforcePenalty(address guiltyParty, uint256 penaltyAmount, address beneficiary) external {
+    function getEvidenceURI(uint256 caseId) external view returns (string memory) {
+        require(caseId < _cases.length, "Invalid case ID");
+        return _evidenceURI[caseId];
+    }
+
+    function getOffenderBreachCount(address offender) external view returns (uint256) {
+        return offenderBreachCount[offender];
+    }
+
+    // Admin functions to tune anti-spam parameters
+    function setDisputeFee(uint256 fee) external onlyAdmin {
+        disputeFee = fee;
+    }
+
+    function setRevealWindowSeconds(uint256 secondsWindow) external onlyAdmin {
+        revealWindowSeconds = secondsWindow;
+    }
+
+    function setAppealWindowSeconds(uint256 secondsWindow) external onlyAdmin {
+        appealWindowSeconds = secondsWindow;
+    }
+
+    function getRevealDeadline(uint256 caseId) external view returns (uint256) {
+        require(caseId < _cases.length, "Invalid case ID");
+        return _revealDeadline[caseId];
+    }
+
+    function getResolvedAt(uint256 caseId) external view returns (uint256) {
+        require(caseId < _cases.length, "Invalid case ID");
+        return _resolvedAt[caseId];
+    }
+
+    function setMinReportInterval(uint256 secondsInterval) external onlyAdmin {
+        minReportInterval = secondsInterval;
+    }
+
+    function setMaxOpenReportsPerReporter(uint256 maxOpen) external onlyAdmin {
+        maxOpenReportsPerReporter = maxOpen;
+    }
+
+    function enforcePenalty(address guiltyParty, uint256 penaltyAmount, address beneficiary) external nonReentrant {
     require(msg.sender == arbitrator, "Only arbitrator");
         require(arbitrator != address(0), "No arbitrator");
         require(penaltyAmount <= deposits[guiltyParty], "Insufficient deposit");
@@ -316,17 +431,51 @@ contract NDATemplate is EIP712 {
         require(beneficiary != address(0), "Invalid beneficiary");
         
         deposits[guiltyParty] -= penaltyAmount;
-        
-        (bool success, ) = payable(beneficiary).call{value: penaltyAmount}("");
-        require(success, "Penalty transfer failed");
-        
-        emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
+    // credit beneficiary for pull-based withdrawal instead of direct transfer
+    withdrawable[beneficiary] += penaltyAmount;
+    emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
+    }
+
+    /// @notice Finalize any deferred enforcement after appeal window
+    function finalizeEnforcement(uint256 caseId) external onlyActive nonReentrant {
+        require(caseId < _cases.length, "Invalid case ID");
+        require(_pendingEnforcement[caseId].exists, "No pending enforcement");
+        require(_resolvedAt[caseId] != 0, "Case not resolved");
+        require(appealWindowSeconds > 0, "No appeal window configured");
+        require(block.timestamp >= _resolvedAt[caseId] + appealWindowSeconds, "Appeal window not elapsed");
+
+        PendingEnforcement storage pe = _pendingEnforcement[caseId];
+        BreachCase storage bc = _cases[caseId];
+
+        if (pe.appliedPenalty > 0) {
+            require(pe.appliedPenalty <= deposits[bc.offender], "Insufficient deposit for pending penalty");
+            deposits[bc.offender] -= pe.appliedPenalty;
+            // credit beneficiary for pull-based withdrawal
+            withdrawable[pe.beneficiary] += pe.appliedPenalty;
+            emit PenaltyEnforced(bc.offender, pe.appliedPenalty, pe.beneficiary);
+            offenderBreachCount[bc.offender] += 1;
+        }
+
+        if (pe.fee > 0 && pe.feeRecipient != address(0)) {
+            // credit feeRecipient for pull-based withdrawal
+            withdrawable[pe.feeRecipient] += pe.fee;
+        }
+
+        delete _pendingEnforcement[caseId];
+    }
+
+    function getPendingEnforcement(uint256 caseId) external view returns (uint256 appliedPenalty, address beneficiary, uint256 fee, address feeRecipient, bool exists) {
+        PendingEnforcement storage pe = _pendingEnforcement[caseId];
+        return (pe.appliedPenalty, pe.beneficiary, pe.fee, pe.feeRecipient, pe.exists);
     }
 
     function _applyResolution(uint256 caseId, bool approve, address beneficiary) internal {
         BreachCase storage bc = _cases[caseId];
         bc.resolved = true;
         bc.approved = approve;
+
+    // record resolved timestamp for appeal window
+    _resolvedAt[caseId] = block.timestamp;
 
         uint256 applied = 0;
         if (approve) {
@@ -335,11 +484,49 @@ contract NDATemplate is EIP712 {
                 applied = deposits[bc.offender];
             }
             if (applied > 0) {
-                deposits[bc.offender] -= applied;
-                (bool ok, ) = payable(beneficiary).call{value: applied}("");
-                require(ok, "Payout failed");
+                if (appealWindowSeconds > 0) {
+                    // defer enforcement until appeal window elapses
+                    _pendingEnforcement[caseId] = PendingEnforcement({ appliedPenalty: applied, beneficiary: beneficiary, fee: 0, feeRecipient: address(0), exists: true });
+                } else {
+                    deposits[bc.offender] -= applied;
+                    // credit beneficiary for pull-based withdrawal
+                    withdrawable[beneficiary] += applied;
+                }
             }
         }
+
+        // bookkeeping: decrement open reports and settle dispute fee
+        openReportsCount[bc.reporter] = openReportsCount[bc.reporter] > 0 ? openReportsCount[bc.reporter] - 1 : 0;
+        if (_caseFee[caseId] > 0) {
+            uint256 f = _caseFee[caseId];
+            _caseFee[caseId] = 0;
+            if (approve) {
+                if (appealWindowSeconds > 0) {
+                    // associate fee refund with pending enforcement so it is sent along
+                    if (_pendingEnforcement[caseId].exists) {
+                        _pendingEnforcement[caseId].fee = f;
+                        _pendingEnforcement[caseId].feeRecipient = bc.reporter;
+                    } else {
+                        // no pending enforcement, credit reporter immediately
+                        withdrawable[bc.reporter] += f;
+                    }
+                } else {
+                    withdrawable[bc.reporter] += f;
+                }
+            } else {
+                if (appealWindowSeconds > 0) {
+                    if (_pendingEnforcement[caseId].exists) {
+                        _pendingEnforcement[caseId].fee = f;
+                        _pendingEnforcement[caseId].feeRecipient = beneficiary;
+                    } else {
+                        withdrawable[beneficiary] += f;
+                    }
+                } else {
+                    withdrawable[beneficiary] += f;
+                }
+            }
+        }
+        if (approve) offenderBreachCount[bc.offender] += 1;
 
         emit BreachResolved(caseId, approve, applied, bc.offender, beneficiary);
     }

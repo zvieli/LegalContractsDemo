@@ -729,7 +729,10 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
     const nda = await this.getNDAContract(contractAddress);
     const requested = ethers.parseEther(String(requestedPenaltyEth));
     const evidenceHash = evidenceText ? ethers.id(evidenceText) : ethers.ZeroHash;
-    const tx = await nda.reportBreach(offender, requested, evidenceHash);
+  // include on-chain dispute fee if present
+  let disputeFee = 0n;
+  try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
+  const tx = await nda.reportBreach(offender, requested, evidenceHash, { value: disputeFee });
     return await tx.wait();
   } catch (error) {
     console.error('Error reporting breach:', error);
@@ -738,14 +741,8 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
 }
 
 async ndaVoteOnBreach(contractAddress, caseId, approve) {
-  try {
-    const nda = await this.getNDAContract(contractAddress);
-    const tx = await nda.voteOnBreach(Number(caseId), !!approve);
-    return await tx.wait();
-  } catch (error) {
-    console.error('Error voting on breach:', error);
-    throw error;
-  }
+  // Voting removed: NDAs only support arbitrator/oracle resolution. Fail fast to avoid UI confusion.
+  throw new Error('Voting disabled: use arbitrator or oracle resolution');
 }
 
 async ndaResolveByArbitrator(contractAddress, caseId, approve, beneficiary) {

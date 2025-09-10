@@ -282,68 +282,7 @@ it("should allow parties to sign with valid signature", async function () {
     });
   });
 
-  describe("Voting System (No Arbitrator)", function () {
-    let ndaWithoutArbitrator;
-
-    beforeEach(async function () {
-      // Deploy NDA without arbitrator via factory
-      const Factory = await ethers.getContractFactory('ContractFactory');
-      const factory = await Factory.deploy();
-      await factory.waitForDeployment();
-      const tx2 = await factory.connect(partyA).createNDA(
-        partyB.address,
-        Math.floor(Date.now() / 1000) + 86400,
-        1000,
-        ethers.keccak256(ethers.toUtf8Bytes('Test clauses')),
-        ethers.ZeroAddress,
-        ethers.parseEther('0.1')
-      );
-      const r2 = await tx2.wait();
-      const log2 = r2.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
-      ndaWithoutArbitrator = await ethers.getContractAt('NDATemplate', log2.args.contractAddress);
-
-      // Setup deposits and report breach
-      await ndaWithoutArbitrator.connect(partyA).deposit({ value: ethers.parseEther("0.5") });
-      await ndaWithoutArbitrator.connect(partyB).deposit({ value: ethers.parseEther("0.5") });
-      await ndaWithoutArbitrator.connect(partyA).reportBreach(
-        partyB.address,
-        ethers.parseEther("0.1"),
-        ethers.keccak256(ethers.toUtf8Bytes("Evidence"))
-      );
-    });
-
-    it("should allow parties to vote on breach", async function () {
-      await expect(ndaWithoutArbitrator.connect(partyA).voteOnBreach(0, true))
-        .to.emit(ndaWithoutArbitrator, "BreachVoted")
-        .withArgs(0, partyA.address, true);
-
-      const caseInfo = await ndaWithoutArbitrator.getCase(0);
-      expect(caseInfo[6]).to.equal(1); // approveVotes
-    });
-
-    it("should resolve case when majority approves", async function () {
-      // Add third party to test voting
-      await ndaWithoutArbitrator.connect(admin).addParty(partyC.address);
-      await ndaWithoutArbitrator.connect(partyC).deposit({ value: ethers.parseEther("0.5") });
-
-      await ndaWithoutArbitrator.connect(partyA).voteOnBreach(0, true);
-      await ndaWithoutArbitrator.connect(partyC).voteOnBreach(0, true);
-
-      const caseInfo = await ndaWithoutArbitrator.getCase(0);
-      expect(caseInfo[4]).to.be.true; // resolved
-      expect(caseInfo[5]).to.be.true; // approved
-    });
-
-    it("should revert when non-party tries to vote", async function () {
-      await expect(ndaWithoutArbitrator.connect(other).voteOnBreach(0, true))
-        .to.be.revertedWith("Only party");
-    });
-
-    it("should revert when offender tries to vote", async function () {
-      await expect(ndaWithoutArbitrator.connect(partyB).voteOnBreach(0, true))
-        .to.be.revertedWith("Offender cannot vote");
-    });
-  });
+  // Voting removed: disputes must be handled by an arbitrator or external oracle.
 
   describe("Contract Deactivation", function () {
     it("should allow admin to deactivate", async function () {
@@ -493,5 +432,153 @@ it("should allow withdrawal after deactivation and resolution", async function (
       expect(status[2]).to.equal(ethers.parseEther("0.5")); // totalDeposits
       expect(status[3]).to.equal(1); // activeCases
     });
+  });
+});
+
+// Reveal & appeal windows tests (merged into main NDA test file)
+describe("NDATemplate - reveal & appeal windows", function () {
+  let ndaR, factoryR, adminR, partyAR, partyBR, partyCR, otherR, arbitratorR;
+
+  beforeEach(async function () {
+    [adminR, partyAR, partyBR, partyCR, otherR] = await ethers.getSigners();
+
+    const Arbitrator = await ethers.getContractFactory("Arbitrator");
+    arbitratorR = await Arbitrator.deploy();
+    await arbitratorR.waitForDeployment();
+
+    const Factory = await ethers.getContractFactory("ContractFactory");
+    factoryR = await Factory.deploy();
+    await factoryR.waitForDeployment();
+
+    const tx = await factoryR.connect(adminR).createNDA(
+      partyBR.address,
+      Math.floor(Date.now() / 1000) + 86400,
+      1000,
+      ethers.keccak256(ethers.toUtf8Bytes("Test clauses")),
+      ethers.ZeroAddress,
+      ethers.parseEther('0.1')
+    );
+    const r = await tx.wait();
+    const log = r.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+    ndaR = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+  });
+
+  it("sets reveal deadline at report time and verifies hash on reveal", async function () {
+    // admin sets reveal window
+    await ndaR.connect(adminR).setRevealWindowSeconds(3600);
+
+    const uri = "ipfs://QmExampleCid123";
+    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(uri));
+
+    // deposits
+    await ndaR.connect(adminR).deposit({ value: ethers.parseEther('0.5') });
+    await ndaR.connect(partyBR).deposit({ value: ethers.parseEther('0.5') });
+
+    // report
+    await expect(ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), evidenceHash))
+      .to.emit(ndaR, 'BreachReported');
+
+    const dl = await ndaR.getRevealDeadline(0);
+    expect(dl).to.be.gt(0);
+
+    // wrong reveal should revert
+    await expect(ndaR.connect(adminR).revealEvidence(0, "ipfs://wrong"))
+      .to.be.revertedWith('Evidence hash mismatch');
+
+    // proper reveal works
+    await expect(ndaR.connect(adminR).revealEvidence(0, uri))
+      .to.emit(ndaR, 'EvidenceRevealed')
+      .withArgs(0, uri);
+
+    const stored = await ndaR.getEvidenceURI(0);
+    expect(stored).to.equal(uri);
+  });
+
+  it("rejects reveal after reveal window expires", async function () {
+    await ndaR.connect(adminR).setRevealWindowSeconds(10); // short window
+
+    const uri = "ipfs://QmShortWindow";
+    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(uri));
+
+    await ndaR.connect(adminR).deposit({ value: ethers.parseEther('0.5') });
+    await ndaR.connect(partyBR).deposit({ value: ethers.parseEther('0.5') });
+
+    await ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), evidenceHash);
+
+    // advance time beyond window
+    await ethers.provider.send('evm_increaseTime', [20]);
+    await ethers.provider.send('evm_mine');
+
+    await expect(ndaR.connect(adminR).revealEvidence(0, uri)).to.be.revertedWith('Reveal window closed');
+  });
+
+  it("defers enforcement when appeal window set and finalizes after expiry", async function () {
+    // set appeal window so enforcement is deferred
+    await ndaR.connect(adminR).setAppealWindowSeconds(60);
+
+    // deposits
+    await ndaR.connect(adminR).deposit({ value: ethers.parseEther('1') });
+    await ndaR.connect(partyBR).deposit({ value: ethers.parseEther('1') });
+
+    // report
+    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('evidence'));
+    await ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.3'), evidenceHash);
+
+    // resolve via arbitrator: deploy and use an arbitrator to resolve the case
+    const Arbitrator = await ethers.getContractFactory('Arbitrator');
+    const arb = await Arbitrator.deploy();
+    await arb.waitForDeployment();
+    // set the NDA's arbitrator to the deployed arb by creating a new NDA with that arbitrator
+    const Factory = await ethers.getContractFactory('ContractFactory');
+    const tempFactory = await Factory.deploy();
+    await tempFactory.waitForDeployment();
+    const tx = await tempFactory.connect(adminR).createNDA(
+      partyBR.address,
+      Math.floor(Date.now() / 1000) + 86400,
+      1000,
+      ethers.keccak256(ethers.toUtf8Bytes('Test clauses')),
+      arb.target,
+      ethers.parseEther('0.1')
+    );
+    const r = await tx.wait();
+    const log = r.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+    const ndaWithArb = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+
+  // ensure the new NDA uses the same appeal window behavior as the test NDA
+  await ndaWithArb.connect(adminR).setAppealWindowSeconds(60);
+
+    // deposit and report on the NDAWithArb
+    await ndaWithArb.connect(adminR).deposit({ value: ethers.parseEther('1') });
+    await ndaWithArb.connect(partyBR).deposit({ value: ethers.parseEther('1') });
+    await ndaWithArb.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.3'), ethers.keccak256(ethers.toUtf8Bytes('evidence')));
+
+    // create dispute and resolve via arbitrator
+    const evidence = ethers.toUtf8Bytes('arb-evidence');
+    await arb.connect(adminR).createDisputeForCase(ndaWithArb.target, 0, evidence);
+    await arb.connect(adminR).resolveDispute(1, partyBR.address, ethers.parseEther('0.3'), adminR.address);
+
+  // Now the pending enforcement should be present on ndaWithArb (deferred enforcement)
+  const pendingArb = await ndaWithArb.getPendingEnforcement(0);
+  expect(pendingArb.exists).to.be.true;
+  expect(pendingArb.appliedPenalty).to.equal(ethers.parseEther('0.3'));
+
+  // deposits should remain on the NDA with the arbitrator until finalized
+  const before = await ndaWithArb.deposits(partyBR.address);
+  expect(before).to.equal(ethers.parseEther('1'));
+
+    // advance time past appeal window
+    await ethers.provider.send('evm_increaseTime', [61]);
+    await ethers.provider.send('evm_mine');
+
+    // finalize enforcement on the NDA instance we used
+    await expect(ndaWithArb.connect(adminR).finalizeEnforcement(0))
+      .to.emit(ndaWithArb, 'PenaltyEnforced')
+      .withArgs(partyBR.address, ethers.parseEther('0.3'), adminR.address);
+
+    const after = await ndaWithArb.deposits(partyBR.address);
+    expect(after).to.equal(ethers.parseEther('0.7'));
+
+    const pending2 = await ndaWithArb.getPendingEnforcement(0);
+    expect(pending2.exists).to.be.false;
   });
 });

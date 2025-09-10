@@ -2,7 +2,7 @@
 
 # LegalContractsDemo
 
-Oracle-driven legal contracts (NDA & Rent) with Chainlink Functions and an external AI router.
+Oracle-driven legal contracts (NDA & Rent) with Chainlink Functions. NOTE: the optional AI/router layer is currently disabled in this workspace for debugging; see below to restore.
 
 </div>
 
@@ -15,7 +15,7 @@ What you get:
 - NDATemplate contract with deposits, breach reporting, voting, and arbitrator hooks
 - Two arbitrators: a simple owner-controlled one, and an oracle-driven one
 - Chainlink Functions client that forwards case context to a JS script (ai_oracle.js)
-	(Former Cloudflare Worker path removed; now local Node server or any host)
+	(Former Cloudflare Worker path removed; AI server integration currently disabled in this repo state)
 - Hardhat tests and scripts to deploy/configure
 
 ## Architecture
@@ -31,6 +31,7 @@ What you get:
 - Off-chain components:
 	- `chainlink/functions/ai_oracle.js` — inline JS executed by Chainlink DON. It can call your external AI endpoint using DON secrets and returns an ABI-encoded tuple `(approve, penaltyWei, beneficiary, guilty)`.
 	- `server/` — AI HTTP endpoint (Node) returning JSON decision with deterministic fallback.
+	 - `server/` — (removed/disabled) AI HTTP endpoint. To restore AI functionality, re-add `server/src` and set `GEMINI_API_KEY` in `.env`, or restore from the original branch.
 
 Flow (prod):
 1. Party reports breach in `NDATemplate`.

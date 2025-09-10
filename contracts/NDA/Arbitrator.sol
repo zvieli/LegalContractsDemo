@@ -75,15 +75,9 @@ contract Arbitrator {
         dispute.status = DisputeStatus.Resolved;
         dispute.penaltyAwarded = _penaltyAmount;
         
-        // Update both arbitrator and NDA
-        INDATemplate nda = INDATemplate(dispute.ndaContract);
-        
-        if (_penaltyAmount > 0) {
-            nda.enforcePenalty(_guiltyParty, _penaltyAmount, _beneficiary);
-        }
-        
-        // Also mark the case as resolved in NDA
-        nda.resolveByArbitrator(dispute.ndaCaseId, _penaltyAmount > 0, _beneficiary);
+    // Notify the NDA contract of the arbitrator resolution. The NDA will enforce penalties (immediate or deferred).
+    INDATemplate nda = INDATemplate(dispute.ndaContract);
+    nda.resolveByArbitrator(dispute.ndaCaseId, _penaltyAmount > 0, _beneficiary);
         
         emit DisputeResolved(_disputeId, _guiltyParty, _penaltyAmount);
     }
