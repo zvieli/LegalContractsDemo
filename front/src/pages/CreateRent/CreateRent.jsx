@@ -382,7 +382,7 @@ function CreateRent() {
               <option value="0xAb5c49580294Aff77670F839ea425f5b78ab3Ae7">USDC/USD (Mainnet)</option>
               {mockPriceFeedAddress && <option value={mockPriceFeedAddress}>Mock Price Feed (Local)</option>}
             </select>
-            <small>Chainlink price feed for conversion rates</small>
+            <small>Price feed contract used for conversion rates</small>
           </div>
 
           {/* Duration */}

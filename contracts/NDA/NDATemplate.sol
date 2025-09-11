@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 // factory enforcement removed (size optimization) - use off-chain policy & deployer pattern
 contract NDATemplate is EIP712, ReentrancyGuard {
     using ECDSA for bytes32;

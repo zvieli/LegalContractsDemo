@@ -10,15 +10,8 @@ module.exports = {
     settings: {
       optimizer: { enabled: true, runs: 150 }
     },
-    overrides: {
-      "contracts/NDA/OracleArbitratorFunctions.sol": {
-        version: "0.8.20",
-        settings: {
-          optimizer: { enabled: true, runs: 150 },
-          viaIR: true
-        }
-      }
-    }
+    // no per-file overrides
+    overrides: {}
   },
   networks: {
     localhost: {
@@ -40,19 +33,4 @@ module.exports = {
   }
 };
 
-// Custom task to check LINK balance on Sepolia
-task("link-balance", "Print LINK balance for address on Sepolia")
-  .addOptionalParam("address", "Target address (defaults to first signer)")
-  .setAction(async (args, hre) => {
-    const target = args.address || (await hre.ethers.getSigners())[0].address;
-    if (!hre.ethers.isAddress(target)) {
-      throw new Error(`Invalid address: ${target}`);
-    }
-    const LINK = "0x779877A7B0D9E8603169DdbD7836e478b4624789";
-    const abi = ["function balanceOf(address) view returns (uint256)"]; 
-    const link = new hre.ethers.Contract(LINK, abi, hre.ethers.provider);
-    const bal = await link.balanceOf(target);
-    console.log(`Address: ${target}`);
-    console.log(`Raw: ${bal.toString()}`);
-    console.log(`LINK: ${hre.ethers.formatUnits(bal, 18)}`);
-  });
+// Link-balance task removed as part of oracle/chainlink/ai sweep

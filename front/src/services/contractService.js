@@ -346,7 +346,7 @@ export class ContractService {
               '873cf48b':'Only tenant may call this',
               '80cb55e2':'Contract inactive',
               '1fbaba35':'Amount too low',
-              '00bfc921':'Invalid oracle price'
+              '00bfc921':'Invalid price'
             };
             if (map[selector]) {
               const friendly = new Error(map[selector]);
@@ -356,7 +356,7 @@ export class ContractService {
           }
         } else if (error?.data && typeof error.data === 'string' && error.data.startsWith('0x')) {
           const selector = error.data.slice(2,10);
-          const map = { 'ac37e5cb':'Both parties must sign before payment','873cf48b':'Only tenant may call this','80cb55e2':'Contract inactive','1fbaba35':'Amount too low','00bfc921':'Invalid oracle price'};
+          const map = { 'ac37e5cb':'Both parties must sign before payment','873cf48b':'Only tenant may call this','80cb55e2':'Contract inactive','1fbaba35':'Amount too low','00bfc921':'Invalid price'};
           if (map[selector]) {
             const friendly = new Error(map[selector]);
             friendly.reason = map[selector];

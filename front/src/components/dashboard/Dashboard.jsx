@@ -22,38 +22,7 @@ function Dashboard() {
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [filterType, setFilterType] = useState('All');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiResult, setAiResult] = useState(null);
-  const [aiError, setAiError] = useState(null);
-
-  async function simulateAIDecision() {
-    setAiError(null);
-    setAiResult(null);
-    setAiLoading(true);
-    try {
-      // Pick two addresses (or fallbacks) for demo
-      const reporter = account;
-      const offender = contracts.find(c => c.parties && c.parties[1] && c.parties[1] !== account)?.parties[1] || account;
-      const requestedPenaltyWei = ethers.parseEther('1');
-      // Deterministic stub: return a fixed decision so UI can show behavior without AI
-      const res = {
-        caseId: 'local-stub-1',
-        approve: true,
-        penaltyWei: requestedPenaltyWei.toString(),
-        beneficiary: offender,
-        guilty: offender,
-        status: 'resolved',
-        rationale: 'Deterministic stub decision (AI disabled)'
-      };
-      setAiResult(res);
-      addNotification({ type: 'success', title: 'AI Decision', message: `approve=${res.approve} penaltyWei=${res.penaltyWei}`, persistent: false });
-    } catch (e) {
-      setAiError(e.message);
-      addNotification({ type: 'error', title: 'AI Error', message: e.message, persistent: false });
-    } finally {
-      setAiLoading(false);
-    }
-  }
+  // AI features removed: simulation/stubs intentionally removed from UI
 
   // התראות בזמן אמת על תשלומי שכירות
   useRentPaymentEvents(selectedContract, (payer, amount, timestamp) => {
@@ -381,31 +350,7 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* AI Test Panel */}
-      <div className="contracts-section" style={{ marginTop: '2rem' }}>
-        <div className="section-header">
-          <h3>AI Decision Test</h3>
-        </div>
-        <div style={{ background:'#1e1e26', padding:'16px', borderRadius:8, border:'1px solid #2c2c37' }}>
-          <p style={{ marginTop:0, marginBottom:12 }}>Send a direct request to the AI endpoint (bypasses Chainlink) to verify it returns a valid JSON decision.</p>
-          <button className="action-btn primary" disabled={aiLoading} onClick={simulateAIDecision}>
-            {aiLoading ? 'Requesting...' : 'Simulate AI Decision'}
-          </button>
-          {aiError && <div style={{ color:'#ff6666', marginTop:12 }}>Error: {aiError}</div>}
-          {aiResult && (
-            <div style={{ marginTop:12, fontSize:'0.85rem', lineHeight:1.4 }}>
-              <strong>Result:</strong><br/>
-              approve: {String(aiResult.approve)}<br/>
-              penaltyWei: {aiResult.penaltyWei}<br/>
-              beneficiary: {aiResult.beneficiary}<br/>
-              guilty: {aiResult.guilty}
-            </div>
-          )}
-          {!process.env.NODE_ENV || import.meta.env.VITE_AI_ENDPOINT ? null : (
-            <div style={{ marginTop:12, color:'#ffaa33' }}>VITE_AI_ENDPOINT not set.</div>
-          )}
-        </div>
-      </div>
+      {/* AI features removed: no external AI/Chainlink integrations in UI */}
 
       {/* Contract Modal */}
       <ContractModal
