@@ -9,11 +9,16 @@ export class ArbitrationService {
 
   async getArbitratorForNDA(ndaAddress) {
     const nda = createContractInstance('NDATemplate', ndaAddress, this.signer);
-    const arb = await nda.arbitrator();
-    if (!arb || arb === ethers.ZeroAddress) {
-      throw new Error('This NDA has no arbitrator');
+    // NDA templates no longer store a direct `arbitrator`. Instead they
+    // expose the configured `arbitrationService` which manages disputes.
+    const svc = await nda.arbitrationService();
+    if (!svc || svc === ethers.ZeroAddress) {
+      throw new Error('This NDA has no arbitrationService configured');
     }
-    return createContractInstance('Arbitrator', arb, this.signer);
+    // The owner of the ArbitrationService is expected to be the on-chain
+    // Arbitrator factory. We return the service contract instance here so
+    // callers can interact with dispute creation helpers via the service.
+    return createContractInstance('ArbitrationService', svc, this.signer);
   }
 
   async getArbitratorOwner(ndaAddress) {
@@ -21,17 +26,25 @@ export class ArbitrationService {
     try { return await arbitrator.owner(); } catch { return ethers.ZeroAddress; }
   }
 
+  // Convenience: return the owner of the configured ArbitrationService for a NDA
+  async getArbitrationServiceOwnerByNDA(ndaAddress) {
+    const svc = await this.getArbitratorForNDA(ndaAddress);
+    try { return await svc.owner(); } catch { return ethers.ZeroAddress; }
+  }
+
   async createDisputeForCase(ndaAddress, caseId, evidenceText = '') {
     try {
-      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      const svc = await this.getArbitratorForNDA(ndaAddress);
       const evidenceBytes = evidenceText ? ethers.toUtf8Bytes(evidenceText) : new Uint8Array();
-      const tx = await arbitrator.createDisputeForCase(ndaAddress, Number(caseId), evidenceBytes);
+      // ArbitrationService provides a helper to create disputes on the
+      // configured arbitrator/factory and returns the dispute id.
+      const tx = await svc.createDisputeForCase(ndaAddress, Number(caseId), evidenceBytes);
       const receipt = await tx.wait();
       // Try to extract disputeId from event log
       let disputeId = null;
       for (const log of receipt.logs) {
         try {
-          const parsed = arbitrator.interface.parseLog(log);
+          const parsed = svc.interface.parseLog(log);
           if (parsed && parsed.name === 'DisputeCreated') {
             disputeId = Number(parsed.args[0]);
             break;
@@ -47,9 +60,11 @@ export class ArbitrationService {
 
   async resolveDispute(ndaAddress, disputeId, guiltyParty, penaltyEth, beneficiary) {
     try {
-      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      const svc = await this.getArbitratorForNDA(ndaAddress);
       const penaltyWei = ethers.parseEther(String(penaltyEth || '0'));
-      const tx = await arbitrator.resolveDispute(Number(disputeId), guiltyParty, penaltyWei, beneficiary);
+      // Resolve via the ArbitrationService which will instruct the template
+      // to apply the resolution using the correct ABI entrypoint.
+      const tx = await svc.resolveDispute(Number(disputeId), guiltyParty, penaltyWei, beneficiary);
       const receipt = await tx.wait();
       return receipt;
     } catch (error) {

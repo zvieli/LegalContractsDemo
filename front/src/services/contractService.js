@@ -478,21 +478,24 @@ export class ContractService {
     const minDepositWei = ethers.parseEther(params.minDeposit);
     
     // Use zero address if no arbitrator provided
-    const arbitratorAddress = params.arbitrator || ethers.ZeroAddress;
+  // Templates no longer accept a direct `arbitrator` address. Pass only
+  // the minimum deposit to the factory; arbitration is configured via
+  // an on-chain ArbitrationService after deployment.
+  const arbitratorAddress = params.arbitrator || ethers.ZeroAddress; // kept for backward compat in UI
     
     // Hash the custom clauses if provided
     const clausesHash = params.customClauses 
       ? ethers.id(params.customClauses) 
       : ethers.ZeroHash;
 
-    const tx = await factoryContract.createNDA(
-      params.partyB,           // address
-      expiryTimestamp,         // uint256 (timestamp)
-      params.penaltyBps,       // uint16
-      clausesHash,             // bytes32
-      arbitratorAddress,       // address
-      minDepositWei            // uint256 (in wei)
-    );
+      // New factory signature: createNDA(_partyB, _expiryDate, _penaltyBps, _customClausesHash, _minDeposit)
+      const tx = await factoryContract.createNDA(
+        params.partyB,           // address
+        expiryTimestamp,         // uint256 (timestamp)
+        params.penaltyBps,       // uint16
+        clausesHash,             // bytes32
+        minDepositWei            // uint256 (in wei)
+      );
 
     const receipt = await tx.wait();
     
@@ -746,14 +749,11 @@ async ndaVoteOnBreach(contractAddress, caseId, approve) {
 }
 
 async ndaResolveByArbitrator(contractAddress, caseId, approve, beneficiary) {
-  try {
-    const nda = await this.getNDAContract(contractAddress);
-    const tx = await nda.resolveByArbitrator(Number(caseId), !!approve, beneficiary);
-    return await tx.wait();
-  } catch (error) {
-    console.error('Error resolving by arbitrator:', error);
-    throw error;
-  }
+  // Compatibility shim removed: front-end should trigger an off-chain arbitrator
+  // workflow which ultimately causes the platform Arbitrator to call the
+  // on-chain ArbitrationService. There is no public entrypoint on templates
+  // callable by arbitrary wallets. Surface a helpful error here.
+  throw new Error('resolveByArbitrator removed: use platform arbitrator + ArbitrationService flow');
 }
 
 async ndaEnforcePenalty(contractAddress, guilty, penaltyEth, beneficiary) {

@@ -1,4 +1,5 @@
 import './Home.css';
+import MyContracts from '../../components/MyContracts/MyContracts';
 
 function Home() {
   const features = [
@@ -85,30 +86,7 @@ function Home() {
             <p>Preview of your dashboard with your recent contracts</p>
             
             <div className="dashboard-card">
-              <h3>My Contracts</h3>
-              <div className="contract-list">
-                <div className="contract-item">
-                  <div className="contract-info">
-                    <h4>Apartment Rental Contract - Tel Aviv</h4>
-                    <p>Created: 2024-01-15 • Amount: 5,000 USDC/month</p>
-                  </div>
-                  <span className="contract-status active">Active</span>
-                </div>
-                <div className="contract-item">
-                  <div className="contract-info">
-                    <h4>NDA Agreement with Startup Company</h4>
-                    <p>Created: 2024-01-10 • Parties: 2</p>
-                  </div>
-                  <span className="contract-status pending">Pending Signature</span>
-                </div>
-                <div className="contract-item">
-                  <div className="contract-info">
-                    <h4>Employment Contract with Full-stack Developer</h4>
-                    <p>Created: 2024-01-05 • Salary: 8,000 USDC/month</p>
-                  </div>
-                  <span className="contract-status completed">Completed</span>
-                </div>
-              </div>
+              <MyContracts />
             </div>
             
             <p>Connect your wallet to view and manage all your contracts</p>

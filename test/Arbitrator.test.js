@@ -6,6 +6,7 @@ describe("Arbitrator", function () {
   let arbitrator;
   let ndaTemplate;
   let owner, partyA, partyB, other;
+  let arbitrationService;
 
   beforeEach(async function () {
     [owner, partyA, partyB, other] = await ethers.getSigners();
@@ -13,6 +14,13 @@ describe("Arbitrator", function () {
     const Arbitrator = await ethers.getContractFactory("Arbitrator");
     arbitrator = await Arbitrator.deploy();
     await arbitrator.waitForDeployment();
+
+  const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
+  arbitrationService = await ArbitrationService.deploy();
+  await arbitrationService.waitForDeployment();
+  // transfer ownership of the service to the arbitrator so it can call applyResolution
+  await arbitrationService.transferOwnership(arbitrator.target);
+  await arbitrator.setArbitrationService(arbitrationService.target);
 
     const Factory = await ethers.getContractFactory("ContractFactory");
     const factory = await Factory.deploy();
@@ -22,12 +30,13 @@ describe("Arbitrator", function () {
       Math.floor(Date.now() / 1000) + 86400,
       1000,
       ethers.keccak256(ethers.toUtf8Bytes("Test clauses")),
-      arbitrator.target,
       ethers.parseEther("0.1")
     );
-    const receipt = await tx.wait();
-    const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
-    ndaTemplate = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+  const receipt = await tx.wait();
+  const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
+  ndaTemplate = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+  // Configure the deployed NDA to accept service calls
+  await ndaTemplate.connect(partyA).setArbitrationService(arbitrationService.target);
 
     await ndaTemplate.connect(partyA).deposit({ value: ethers.parseEther("0.2") });
     await ndaTemplate.connect(partyB).deposit({ value: ethers.parseEther("0.2") });

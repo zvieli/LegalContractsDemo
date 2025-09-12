@@ -50,8 +50,9 @@ AggregatorV3Interface public immutable priceFeed;
     mapping(address => bool) public cancelApprovals; // who approved (for mutual or record)
 
     // ============ Arbitration & Disputes (extension) ============
-    address public arbitrator;               // optional arbitrator / oracle aggregator
+    // arbitration is handled via an external ArbitrationService to keep template bytecode small
     bool public arbitrationConfigured;       // one-time configuration gate
+    address public arbitrationService;       // service proxy that can call arbitration entrypoints
     uint256 public requiredDeposit;          // required security deposit amount (in wei) set during configuration
     uint256 public depositBalance;           // tenant security deposit locked in contract
 
@@ -401,19 +402,20 @@ function cancelContract() external {
 
     // ================= Arbitration / Deposit / Disputes =================
 
-    modifier onlyArbitrator() {
-        if (msg.sender != arbitrator) revert OnlyArbitrator();
-        _;
-    }
+    // removed onlyArbitrator modifier; use arbitrationService checks in entrypoints
 
-    function configureArbitration(address _arbitrator, uint256 _requiredDeposit) external onlyLandlord onlyActive {
+    function configureArbitration(address _service, uint256 _requiredDeposit) external onlyLandlord onlyActive {
         if (arbitrationConfigured) revert ArbitrationAlreadyConfigured();
-        if (_arbitrator == address(0)) revert ArbitratorInvalid();
-        // allow EOAs or contracts (no code.length check for flexibility with upgradeable/oracle addresses)
-        arbitrator = _arbitrator;
+        if (_service == address(0)) revert ArbitratorInvalid();
+        arbitrationService = _service;
         requiredDeposit = _requiredDeposit;
         arbitrationConfigured = true;
-        emit ArbitrationConfigured(_arbitrator, _requiredDeposit);
+        emit ArbitrationConfigured(_service, _requiredDeposit);
+    }
+
+    /// @notice Set an external arbitration service (callable by landlord).
+    function setArbitrationService(address _service) external onlyLandlord onlyActive {
+        arbitrationService = _service;
     }
 
     function depositSecurity() external payable onlyTenant onlyActive onlyFullySigned {
@@ -478,7 +480,22 @@ function cancelContract() external {
         address beneficiary,
         string calldata classification,
         string calldata rationale
-    ) external onlyArbitrator onlyActive {
+    ) external onlyActive {
+        // Only the configured arbitration service may call this entrypoint
+        require(arbitrationService != address(0), "No arbitration service");
+        require(msg.sender == arbitrationService, "Only arbitration service");
+        _resolveDisputeFinal(caseId, approve, appliedAmount, beneficiary, classification, rationale);
+    }
+
+    // Internal resolver reused by both the external oracle/arbitrator entrypoint and internal paths.
+    function _resolveDisputeFinal(
+        uint256 caseId,
+        bool approve,
+        uint256 appliedAmount,
+        address beneficiary,
+        string memory classification,
+        string memory rationale
+    ) internal {
         if (caseId >= _disputes.length) revert DisputeTypeInvalid();
         if (beneficiary == address(0)) revert FeeTransferFailed(); // reuse error for zero address
         if (bytes(classification).length > 64) revert ClassificationTooLong();
@@ -505,4 +522,6 @@ function cancelContract() external {
         emit DisputeResolved(caseId, approve, applied, beneficiary);
         emit DisputeRationale(caseId, classification, rationale);
     }
+
+    // Compatibility shim `resolveByArbitrator` removed. Use `resolveDisputeFinal` via a configured `arbitrationService`.
 }

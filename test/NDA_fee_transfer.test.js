@@ -3,7 +3,7 @@ const { ethers } = pkg;
 import { expect } from "chai";
 
 describe("NDATemplate - fees, transfers and edge cases", function () {
-  let nda, factory, admin, partyA, partyB, partyC, reverter, arb;
+  let nda, factory, admin, partyA, partyB, partyC, reverter, arb, arbitrationService;
 
   beforeEach(async function () {
     [admin, partyA, partyB, partyC] = await ethers.getSigners();
@@ -12,22 +12,31 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
     factory = await Factory.deploy();
     await factory.waitForDeployment();
 
-  // deploy arbitrator and use it for this NDA
-  const Arbitrator = await ethers.getContractFactory('Arbitrator');
-  arb = await Arbitrator.deploy();
-  await arb.waitForDeployment();
+    // deploy arbitrator and arbitration service and wire them for this NDA
+    const Arbitrator = await ethers.getContractFactory('Arbitrator');
+    arb = await Arbitrator.deploy();
+    await arb.waitForDeployment();
+
+    // deploy ArbitrationService and give ownership to the arbitrator so it can apply resolutions
+    const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
+    arbitrationService = await ArbitrationService.deploy();
+    await arbitrationService.waitForDeployment();
+    await arbitrationService.transferOwnership(arb.target);
+    await arb.setArbitrationService(arbitrationService.target);
 
     const tx = await factory.connect(admin).createNDA(
       partyB.address,
       Math.floor(Date.now() / 1000) + 86400,
       1000,
       ethers.keccak256(ethers.toUtf8Bytes("Test clauses")),
-      arb.target,
       ethers.parseEther('0.1')
     );
     const r = await tx.wait();
     const log = r.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
     nda = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+
+  // configure NDA to accept calls from the ArbitrationService
+  await nda.connect(admin).setArbitrationService(arbitrationService.target);
 
   // set an appeal window so enforcement can be deferred and pending enforcement entries are created
 

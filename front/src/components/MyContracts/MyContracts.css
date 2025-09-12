@@ -1,0 +1,81 @@
+.my-contracts {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 18px;
+}
+.my-contracts.placeholder .placeholder-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+}
+.my-contracts .contract-list {
+  list-style: none;
+  margin: 12px 0 0 0;
+  padding: 0;
+}
+.my-contracts .contract-item {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  display: flex;
+  flex-direction: column;
+}
+.my-contracts .contract-info h4 {
+  margin: 0 0 8px 0;
+  font-size: 15px;
+  word-break: break-word;
+}
+.my-contracts .contract-info p {
+  margin: 4px 0;
+  color: #555;
+  font-size: 13px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.my-contracts .contract-info p strong,
+.my-contracts .contract-info p b {
+  color: #222;
+}
+.my-contracts .contract-info .muted {
+  color: #888;
+  font-size: 12px;
+}
+/* ensure addresses don't overflow the card horizontally */
+.my-contracts .contract-info p.address,
+.my-contracts .placeholder-card p {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* empty state when connected but no contracts */
+.my-contracts .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.my-contracts .empty-actions .btn-primary {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background-color: #2d9cdb;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+.my-contracts .sample-faded {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+.my-contracts .sample-faded .contract-item {
+  padding: 10px;
+  min-width: 200px;
+  opacity: 0.55;
+}
+.my-contracts .contract-item.faded .contract-info h4 {
+  font-size: 13px;
+}

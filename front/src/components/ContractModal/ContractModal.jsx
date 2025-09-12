@@ -24,6 +24,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
   const [ndaEvents, setNdaEvents] = useState([]);
   const [ndaCanSign, setNdaCanSign] = useState(true);
   const [ndaAlreadySigned, setNdaAlreadySigned] = useState(false);
+  const [arbOwner, setArbOwner] = useState(null);
   const [arbCaseId, setArbCaseId] = useState('');
   const [arbApprove, setArbApprove] = useState(true);
   const [arbBeneficiary, setArbBeneficiary] = useState('');
@@ -74,7 +75,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
         details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
       }
       setContractDetails(details);
-      // Set NDA sign gating flags
+  // Set NDA sign gating flags
       try {
         if (details?.type === 'NDA' && account) {
           const me = account.toLowerCase();
@@ -87,6 +88,18 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
           setNdaCanSign(true);
           setNdaAlreadySigned(false);
         }
+        // If NDA, fetch arbitration service owner for accurate arbitrator gating
+        try {
+          if (details?.type === 'NDA') {
+            const svc = new ArbitrationService(signer, chainId);
+            try {
+              const ownerAddr = await svc.getArbitrationServiceOwnerByNDA(contractAddress);
+              setArbOwner(ownerAddr || null);
+            } catch (_) { setArbOwner(null); }
+          } else {
+            setArbOwner(null);
+          }
+        } catch (_) { setArbOwner(null); }
         // Rent signing gating
         try {
           if (details?.type === 'Rental' && account) {
@@ -419,15 +432,10 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
     } finally { setActionLoading(false); }
   };
   const handleNdaResolveByArbitrator = async () => {
-    try {
-      setActionLoading(true);
-      const service = new ContractService(signer, chainId);
-      await service.ndaResolveByArbitrator(contractAddress, arbCaseId, arbApprove, arbBeneficiary || ethers.ZeroAddress);
-      alert('Case resolved by arbitrator');
-      await loadContractData();
-    } catch (e) {
-      alert(`Resolve failed: ${e?.reason || e?.message}`);
-    } finally { setActionLoading(false); }
+    // UI helper: resolving a case requires the platform arbitrator to call the
+    // on-chain ArbitrationService which will, in turn, call the template's
+    // service entrypoints. Standard users cannot call `resolveByArbitrator`.
+    alert('Resolve action must be performed by the platform arbitrator via ArbitrationService');
   };
 
   const handleCreateDispute = async () => {
@@ -441,13 +449,15 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
     } finally { setActionLoading(false); }
   };
 
+  // Templates no longer expose a direct `arbitrator` address. For UI purposes
+  // treat presence of `arbitrationService` as the indicator that disputes are
+  // handled off-chain by a platform arbitrator via the service.
   const isArbitrator = useMemo(() => {
     try {
-      const arb = contractDetails?.arbitrator;
-      if (!arb || arb === ethers.ZeroAddress || !account) return false;
-      return arb.toLowerCase() === account.toLowerCase();
+      if (!arbOwner || !account) return false;
+      return arbOwner.toLowerCase() === account.toLowerCase();
     } catch { return false; }
-  }, [contractDetails, account]);
+  }, [arbOwner, account]);
   const handleSetPolicy = async () => {
     try {
       setActionLoading(true);
@@ -964,17 +974,17 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                       </div>
                       <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
                         <input className="text-input" placeholder="Case ID" id="nda-caseid" />
-                        <button className="btn-action" disabled={actionLoading || (contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, true)}>Vote Approve</button>
-                        <button className="btn-action" disabled={actionLoading || (contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, false)}>Vote Reject</button>
+                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, true)}>Vote Approve</button>
+                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, false)}>Vote Reject</button>
                       </div>
-                      {contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress && (
-                        <small className="muted">Voting disabled (an arbitrator is set for this NDA).</small>
+                      {contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress && (
+                        <small className="muted">Voting disabled (an on-chain ArbitrationService is configured for this NDA).</small>
                       )}
                       <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Create Dispute (Arbitrator)</label>
                         <input className="text-input" type="number" placeholder="Case ID" value={createDisputeCaseId} onChange={e => setCreateDisputeCaseId(e.target.value)} />
                         <input className="text-input" placeholder="Evidence text (optional)" value={createDisputeEvidence} onChange={e => setCreateDisputeEvidence(e.target.value)} />
-                        <button className="btn-action" disabled={actionLoading || !(contractDetails?.arbitrator && contractDetails.arbitrator !== ethers.ZeroAddress)} onClick={handleCreateDispute}>Create Dispute</button>
+                        <button className="btn-action" disabled={actionLoading || !(contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress)} onClick={handleCreateDispute}>Create Dispute</button>
                       </div>
                       <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Resolve by Arbitrator</label>
@@ -985,7 +995,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                           <button className="btn-action" disabled={actionLoading || !isArbitrator} onClick={handleNdaResolveByArbitrator}>Resolve</button>
                         </div>
                         {!isArbitrator && (
-                          <small className="muted">Only the arbitrator ({contractDetails?.arbitrator}) can resolve.</small>
+                          <small className="muted">Only the platform arbitrator (via configured ArbitrationService) can resolve disputes on this template.</small>
                         )}
                       </div>
                     </div>

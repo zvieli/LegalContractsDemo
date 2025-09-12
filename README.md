@@ -24,17 +24,30 @@ What you get:
 ## Architecture
 
 - Contracts:
-	- `NDATemplate.sol` — NDA between two parties; holds deposits; exposes `reportBreach`, `resolveByArbitrator`, and enforcement/finalization logic.
+	- `NDATemplate.sol` — NDA between two parties; holds deposits; exposes `reportBreach` and service-only resolution entrypoints. Resolutions are applied via an `ArbitrationService` rather than a direct `resolveByArbitrator` call.
 	- `TemplateRentContract.sol` — Rent contract between landlord and tenant; supports dispute reporting, arbitration, and deposit management.
 	- `Arbitrator.sol` — owner‑controlled arbitrator used as a simple reference implementation in tests.
 
 Off‑chain components:
 - This repository no longer includes AI or Chainlink/Functions components. Any required off‑chain decision logic must be implemented and integrated separately.
 
+### ArbitrationService (wiring & notes)
+
+- Purpose: central, owner-controlled service that applies arbitrator resolutions to template contracts using low-level ABI attempts. This keeps template bytecode small and avoids coupling templates to a specific arbitrator ABI.
+- Typical wiring steps:
+	1. Deploy `ArbitrationService`.
+	2. Deploy `Arbitrator` (your platform's arbitrator factory or reference implementation).
+	3. Transfer the service ownership to the arbitrator: `arbitrationService.transferOwnership(arbitratorAddress)` so the arbitrator can call `applyResolutionToTarget`.
+	4. For each template, call `template.setArbitrationService(arbitrationServiceAddress)` from the template admin so the template accepts resolution calls only from the service.
+
+- ABI compatibility: `ArbitrationService.applyResolutionToTarget` attempts common entrypoints (e.g., `serviceResolve(...)` for NDA templates and `resolveDisputeFinal(...)` for rent templates) using low-level `call`. If none match the target, the service reverts with `No compatible resolution entrypoint on target`.
+
+- Breaking change note: The older compatibility shim `resolveByArbitrator` and direct template-level `arbitrator` storage were removed from templates (NDA & Rent). Update any UI/integrations to follow the ArbitrationService → Arbitrator flow.
+
 Flow (prod / local):
 1. Party reports a breach in `NDATemplate`.
 2. A dispute is created and the configured arbitrator is notified (owner‑controlled in this repo).
-3. The arbitrator resolves the dispute by calling `resolveByArbitrator(...)` on the NDA.
+3. The arbitrator resolves the dispute by instructing the `ArbitrationService` to apply the resolution to the NDA; templates only accept the configured service as an authorized caller.
 4. `NDATemplate` applies the resolution: enforcement may be deferred by an appeal window or applied immediately; fund distribution uses a pull‑payment ledger.
 
 ### NDA Contract Deployment & Arbitration Flow Diagram
@@ -80,6 +93,40 @@ Prereqs:
 Install deps:
 ```
 npm install
+## Deployment notes (automated wiring)
+----------------------------------
+
+The `scripts/deploy.js` script now deploys `ContractFactory`, mocks, and `ArbitrationService`, and performs a best-effort wiring step: after `ArbitrationService` is deployed the script calls `arbitrationService.setFactory(factoryAddress)` so the deployed `ContractFactory` is registered as the trusted factory in the service. This makes the factory-authorized arbitration flow work out-of-the-box for local deploys used by the smoke test and frontend.
+
+If you want to change this behavior (for example to transfer ownership of the service to an `Arbitrator` contract instead), update `scripts/deploy.js` accordingly or perform the transfer manually on-chain.
+
+How to run the common verification steps locally
+------------------------------------------------
+
+1. Start a local Hardhat node:
+
+```
+npx hardhat node
+```
+
+2. Deploy and copy ABIs to the frontend:
+
+```
+npx hardhat run scripts/deploy.js --network localhost
+```
+
+3. Run the smoke test to exercise Rent and NDA flows:
+
+```
+npx hardhat run scripts/smokeTest.js --network localhost
+```
+
+4. Quick frontend check (verifies generated JSON and ABI files):
+
+```
+node scripts/checkFrontendContracts.js
+```
+
 ```
 
 Compile:

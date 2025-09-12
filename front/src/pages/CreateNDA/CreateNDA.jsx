@@ -53,7 +53,6 @@ function CreateNDA() {
         expiryDate: formData.expiryDate,
         penaltyBps: penaltyBps,
         customClauses: formData.customClauses,
-        arbitrator: undefined, // optional for now
         minDeposit: minDeposit,
       });
 

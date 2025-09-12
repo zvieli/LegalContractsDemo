@@ -30,7 +30,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     mapping(address => uint256) public withdrawable;
     uint256 public immutable minDeposit;
 
-    address public immutable arbitrator;
+    address public arbitrationService;
     // Anti-spam & dispute economics
     uint256 public disputeFee; // fee required to file a dispute (wei)
     uint256 public minReportInterval; // min seconds between reports from same reporter
@@ -92,7 +92,6 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         uint256 _expiryDate,
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
-        address _arbitrator,
         uint256 _minDeposit,
         address _admin
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
@@ -100,20 +99,16 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         require(_partyA != address(0) && _partyB != address(0), "Invalid parties");
         require(_expiryDate > block.timestamp, "Expiry must be in future");
         require(_penaltyBps <= 10_000, "penaltyBps > 100%");
-        
-        if (_arbitrator != address(0)) {
-            require(_arbitrator.code.length > 0, "Arbitrator must be a contract");
-        }
 
         partyA = _partyA;
         partyB = _partyB;
-    admin = _admin;
+        admin = _admin;
 
         expiryDate = _expiryDate;
         penaltyBps = _penaltyBps;
         customClausesHash = _customClausesHash;
-        arbitrator = _arbitrator;
-        minDeposit = _minDeposit;
+    minDeposit = _minDeposit;
+    // Real runtime resolution should prefer `arbitrationService` (see serviceResolve/serviceEnforce).
 
     // default anti-spam params
     disputeFee = 0;
@@ -291,68 +286,39 @@ contract NDATemplate is EIP712, ReentrancyGuard {
 
     // Voting removed for two-party NDAs. Disputes must be resolved by an arbitrator or external oracle.
 
-    function resolveByArbitrator(uint256 caseId, bool approve, address beneficiary) external onlyActive nonReentrant {
-    require(arbitrator != address(0), "No arbitrator");
-    require(msg.sender == arbitrator, "Only arbitrator");
-    require(arbitrator.code.length > 0, "Arbitrator must be a contract");
+    /// @notice Minimal service-only entrypoint for external arbitration service to resolve a breach.
+    function serviceResolve(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary) external onlyActive nonReentrant {
+        require(arbitrationService != address(0), "No arbitration service");
+        require(msg.sender == arbitrationService, "Only arbitration service");
         require(caseId < _cases.length, "Invalid case ID");
         require(beneficiary != address(0), "Invalid beneficiary");
-        
+
         BreachCase storage bc = _cases[caseId];
         require(!bc.resolved, "Case resolved");
-        
-        _applyResolution(caseId, approve, beneficiary);
+
+        // Delegate to the internal resolution flow which respects appeal windows
+        // and handles fee bookkeeping consistently.
+        _applyResolution(caseId, approve, appliedPenalty, beneficiary);
     }
 
-    /// @notice Final resolution specifying an applied penalty directly (used by oracle path to avoid double deduction)
-    function resolveByArbitratorFinal(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary, string calldata classification, string calldata rationale) external onlyActive nonReentrant {
-        require(arbitrator != address(0), "No arbitrator");
-        require(msg.sender == arbitrator, "Only arbitrator");
-        require(arbitrator.code.length > 0, "Arbitrator must be a contract");
-        require(caseId < _cases.length, "Invalid case ID");
+    // Compatibility shim `resolveByArbitrator` removed. Use `serviceResolve` via a configured `arbitrationService`.
+
+    /// @notice Configure an external arbitration service address that can call resolution entrypoints.
+    function setArbitrationService(address _service) external onlyAdmin onlyActive {
+        arbitrationService = _service;
+    }
+
+    /// @notice Minimal service-only enforcement entrypoint to transfer penalty without additional checks.
+    function serviceEnforce(address guiltyParty, uint256 penaltyAmount, address beneficiary) external nonReentrant {
+        require(arbitrationService != address(0), "No arbitration service");
+        require(msg.sender == arbitrationService, "Only arbitration service");
+        require(penaltyAmount <= deposits[guiltyParty], "Insufficient deposit");
+        require(penaltyAmount > 0, "Penalty must be > 0");
         require(beneficiary != address(0), "Invalid beneficiary");
-        require(bytes(classification).length <= 64, "classification too long");
-        require(bytes(rationale).length <= 512, "rationale too long");
 
-        BreachCase storage bc = _cases[caseId];
-        require(!bc.resolved, "Case resolved");
-
-    bc.resolved = true;
-        bc.approved = approve;
-        uint256 applied = 0;
-        if (approve && appliedPenalty > 0) {
-            if (appliedPenalty > deposits[bc.offender]) {
-                appliedPenalty = deposits[bc.offender];
-            }
-            if (appliedPenalty > 0) {
-                deposits[bc.offender] -= appliedPenalty;
-                // credit beneficiary for pull-based withdrawal
-                withdrawable[beneficiary] += appliedPenalty;
-                applied = appliedPenalty;
-            }
-        }
-    _caseMeta[caseId] = CaseMeta({ classification: classification, rationale: rationale });
-    // record resolved timestamp for appeal window
-    _resolvedAt[caseId] = block.timestamp;
-        // bookkeeping: decrement open reports for reporter
-        openReportsCount[bc.reporter] = openReportsCount[bc.reporter] > 0 ? openReportsCount[bc.reporter] - 1 : 0;
-        // handle dispute fee: refund to reporter on success, else transfer to beneficiary
-        if (_caseFee[caseId] > 0) {
-            uint256 f = _caseFee[caseId];
-            _caseFee[caseId] = 0;
-            if (approve) {
-                // credit reporter for refund
-                withdrawable[bc.reporter] += f;
-            } else {
-                // credit beneficiary for fee
-                withdrawable[beneficiary] += f;
-            }
-        }
-        if (approve) {
-            offenderBreachCount[bc.offender] += 1;
-        }
-        emit BreachResolved(caseId, approve, applied, bc.offender, beneficiary);
-        emit BreachRationale(caseId, classification, rationale);
+        deposits[guiltyParty] -= penaltyAmount;
+        withdrawable[beneficiary] += penaltyAmount;
+        emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
     }
 
     /// @notice Reveal evidence URI (e.g., IPFS CID) after committing evidenceHash on report
@@ -423,18 +389,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         maxOpenReportsPerReporter = maxOpen;
     }
 
-    function enforcePenalty(address guiltyParty, uint256 penaltyAmount, address beneficiary) external nonReentrant {
-    require(msg.sender == arbitrator, "Only arbitrator");
-        require(arbitrator != address(0), "No arbitrator");
-        require(penaltyAmount <= deposits[guiltyParty], "Insufficient deposit");
-        require(penaltyAmount > 0, "Penalty must be > 0");
-        require(beneficiary != address(0), "Invalid beneficiary");
-        
-        deposits[guiltyParty] -= penaltyAmount;
-    // credit beneficiary for pull-based withdrawal instead of direct transfer
-    withdrawable[beneficiary] += penaltyAmount;
-    emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
-    }
+    // enforcePenalty removed — enforcement must go through the configured `arbitrationService` via `serviceEnforce`
 
     /// @notice Finalize any deferred enforcement after appeal window
     function finalizeEnforcement(uint256 caseId) external onlyActive nonReentrant {
@@ -469,17 +424,18 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         return (pe.appliedPenalty, pe.beneficiary, pe.fee, pe.feeRecipient, pe.exists);
     }
 
-    function _applyResolution(uint256 caseId, bool approve, address beneficiary) internal {
+    function _applyResolution(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary) internal {
         BreachCase storage bc = _cases[caseId];
         bc.resolved = true;
         bc.approved = approve;
 
-    // record resolved timestamp for appeal window
-    _resolvedAt[caseId] = block.timestamp;
+        // record resolved timestamp for appeal window
+        _resolvedAt[caseId] = block.timestamp;
 
         uint256 applied = 0;
         if (approve) {
-            applied = bc.requestedPenalty;
+            // Use the provided appliedPenalty (arbitrator may award different amount)
+            applied = appliedPenalty > 0 ? appliedPenalty : bc.requestedPenalty;
             if (applied > deposits[bc.offender]) {
                 applied = deposits[bc.offender];
             }
@@ -532,11 +488,10 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     }
 
     function deactivate(string calldata reason) external {
-        bool isArbitrator = arbitrator != address(0) && msg.sender == arbitrator;
         bool isAdmin = msg.sender == admin;
         bool isExpired = block.timestamp >= expiryDate;
-        
-        require(isArbitrator || isAdmin || isExpired, "Not authorized");
+
+        require(isAdmin || isExpired, "Not authorized");
         require(active, "Already inactive");
         
         active = false;

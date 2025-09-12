@@ -94,7 +94,6 @@ describe("ContractFactory with Validations", function () {
           expiryDate,
           penaltyBps,
           clausesHash,
-          ZERO_ADDRESS,
           minDeposit
         )
       ).to.be.revertedWithCustomError(factory, 'ZeroPartyB');
@@ -107,7 +106,6 @@ describe("ContractFactory with Validations", function () {
           expiryDate,
           penaltyBps,
           clausesHash,
-          ZERO_ADDRESS,
           minDeposit
         )
       ).to.be.revertedWithCustomError(factory, 'SameParties');
@@ -120,7 +118,6 @@ describe("ContractFactory with Validations", function () {
           pastDate,
           penaltyBps,
           clausesHash,
-          ZERO_ADDRESS,
           minDeposit
         )
       ).to.be.revertedWithCustomError(factory, 'ExpiryNotFuture');
@@ -133,7 +130,6 @@ describe("ContractFactory with Validations", function () {
           expiryDate,
           10001,
           clausesHash,
-          ZERO_ADDRESS,
           minDeposit
         )
       ).to.be.revertedWithCustomError(factory, 'PenaltyTooHigh');
@@ -146,23 +142,9 @@ describe("ContractFactory with Validations", function () {
           expiryDate,
           penaltyBps,
           clausesHash,
-          ZERO_ADDRESS,
           0
         )
       ).to.be.revertedWithCustomError(factory, 'MinDepositZero');
-    });
-
-    it("should revert with EOA as arbitrator", async function () {
-      await expect(
-        factory.connect(partyA).createNDA(
-          partyB.address,
-          expiryDate,
-          penaltyBps,
-          clausesHash,
-          partyB.address,
-          minDeposit
-        )
-      ).to.be.revertedWithCustomError(factory, 'ArbitratorNotContract');
     });
   });
 

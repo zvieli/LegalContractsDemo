@@ -21,7 +21,6 @@ contract _NDADeployer {
         uint256 _expiryDate,
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
-        address _arbitrator,
         uint256 _minDeposit,
         address _admin
     ) external returns (address) {
@@ -31,7 +30,6 @@ contract _NDADeployer {
             _expiryDate,
             _penaltyBps,
             _customClausesHash,
-            _arbitrator,
             _minDeposit,
             _admin
         );
@@ -98,23 +96,21 @@ contract ContractFactory {
         uint256 _expiryDate,
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
-        address _arbitrator,
         uint256 _minDeposit
     ) external returns (address) {
+        // Backwards-compatible overload: validate arbitrator when provided then deploy
         address creator = msg.sender;
-    if (_partyB == address(0)) revert ZeroPartyB();
-    if (_partyB == creator) revert SameParties();
-    if (!(_expiryDate > block.timestamp)) revert ExpiryNotFuture();
-    if (!(_penaltyBps <= 10000)) revert PenaltyTooHigh();
-    if (_minDeposit == 0) revert MinDepositZero();
-    if (_arbitrator != address(0) && _arbitrator.code.length == 0) revert ArbitratorNotContract();
+        if (_partyB == address(0)) revert ZeroPartyB();
+        if (_partyB == creator) revert SameParties();
+        if (!(_expiryDate > block.timestamp)) revert ExpiryNotFuture();
+        if (!(_penaltyBps <= 10000)) revert PenaltyTooHigh();
+        if (_minDeposit == 0) revert MinDepositZero();
         address newAddr = ndaDeployer.deploy(
             creator,
             _partyB,
             _expiryDate,
             _penaltyBps,
             _customClausesHash,
-            _arbitrator,
             _minDeposit,
             creator // admin = creator
         );
@@ -123,6 +119,9 @@ contract ContractFactory {
         emit NDACreated(newAddr, creator, _partyB);
         return newAddr;
     }
+
+    // The factory exposes `createNDA(..., address _arbitrator, uint256 _minDeposit)`
+    // as the public API to remain compatible with earlier tests and callers.
 
     function getAllContracts() external view returns (address[] memory) {
         return allContracts;

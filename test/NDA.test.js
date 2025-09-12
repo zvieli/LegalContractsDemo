@@ -34,6 +34,7 @@ describe("NDATemplate", function () {
   let ndaTemplate;
   let arbitrator;
   let partyA, partyB, partyC, admin, other, arbitratorOwner;
+  let arbitrationService;
 
   beforeEach(async function () {
     [admin, partyA, partyB, partyC, other, arbitratorOwner] = await ethers.getSigners();
@@ -42,6 +43,13 @@ describe("NDATemplate", function () {
     const Arbitrator = await ethers.getContractFactory("Arbitrator");
     arbitrator = await Arbitrator.connect(arbitratorOwner).deploy();
     await arbitrator.waitForDeployment();
+
+    // Deploy ArbitrationService and give ownership to the arbitrator so it can apply resolutions
+    const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
+  arbitrationService = await ArbitrationService.deploy();
+    await arbitrationService.waitForDeployment();
+    await arbitrationService.transferOwnership(arbitrator.target);
+    await arbitrator.setArbitrationService(arbitrationService.target);
 
     // Deploy via factory (enforced)
     const Factory = await ethers.getContractFactory("ContractFactory");
@@ -52,13 +60,14 @@ describe("NDATemplate", function () {
       Math.floor(Date.now() / 1000) + 86400,
       1000,
       ethers.keccak256(ethers.toUtf8Bytes("Test confidentiality clauses")),
-      arbitrator.target,
       ethers.parseEther("0.1")
     );
     const receipt = await tx.wait();
     const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
     ndaTemplate = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
     admin = partyA; // factory sets admin = deployer (partyA here)
+  // configure the NDA to accept calls from the ArbitrationService
+  await ndaTemplate.connect(admin).setArbitrationService(arbitrationService.target);
   });
 
   describe("Deployment", function () {
@@ -67,9 +76,7 @@ describe("NDATemplate", function () {
       expect(await ndaTemplate.partyB()).to.equal(partyB.address);
     });
 
-    it("should set the correct arbitrator", async function () {
-      expect(await ndaTemplate.arbitrator()).to.equal(arbitrator.target);
-    });
+    // removed: templates no longer store a direct `arbitrator` address; use ArbitrationService instead
 
     it("should set the correct admin", async function () {
       expect(await ndaTemplate.admin()).to.equal(admin.address);
@@ -307,7 +314,6 @@ it("should allow parties to sign with valid signature", async function () {
         futureDate,
         1000,
         ethers.keccak256(ethers.toUtf8Bytes('Test')),
-        arbitrator.target,
         ethers.parseEther('0.1')
       );
       const r3 = await tx3.wait();
@@ -358,17 +364,9 @@ it("should allow withdrawal after deactivation and resolution", async function (
     partyA.address
   );
 
-  // check if the case was resolved by arbitrator; if not, attempt direct resolution
+  // After Arbitrator resolves (via ArbitrationService) the case should be resolved on the template
   const caseInfo = await ndaTemplate.getCase(0);
-
-  if (!caseInfo.resolved) {
-    // If not resolved by arbitrator, try to resolve directly
-    await ndaTemplate.connect(arbitratorOwner).resolveByArbitrator(
-      0,
-      true,
-      partyA.address
-    );
-  }
+  expect(caseInfo.resolved).to.be.true;
 
   // Verify the case is resolved
   const finalCaseInfo = await ndaTemplate.getCase(0);
@@ -395,7 +393,6 @@ it("should allow withdrawal after deactivation and resolution", async function (
         Math.floor(Date.now() / 1000) + 86400,
         1000,
         ethers.keccak256(ethers.toUtf8Bytes('Test')),
-        arbitrator.target,
         ethers.parseEther('0.1')
       );
       const r4 = await tx4.wait();
@@ -455,7 +452,6 @@ describe("NDATemplate - reveal & appeal windows", function () {
       Math.floor(Date.now() / 1000) + 86400,
       1000,
       ethers.keccak256(ethers.toUtf8Bytes("Test clauses")),
-      ethers.ZeroAddress,
       ethers.parseEther('0.1')
     );
     const r = await tx.wait();
@@ -537,12 +533,19 @@ describe("NDATemplate - reveal & appeal windows", function () {
       Math.floor(Date.now() / 1000) + 86400,
       1000,
       ethers.keccak256(ethers.toUtf8Bytes('Test clauses')),
-      arb.target,
       ethers.parseEther('0.1')
     );
     const r = await tx.wait();
     const log = r.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
     const ndaWithArb = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+
+    // deploy an ArbitrationService and transfer ownership to the arbitrator so it can apply resolutions
+    const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
+    const svc = await ArbitrationService.deploy();
+    await svc.waitForDeployment();
+    await svc.transferOwnership(arb.target);
+    await arb.setArbitrationService(svc.target);
+    await ndaWithArb.connect(adminR).setArbitrationService(svc.target);
 
   // ensure the new NDA uses the same appeal window behavior as the test NDA
   await ndaWithArb.connect(adminR).setAppealWindowSeconds(60);

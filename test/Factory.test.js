@@ -56,7 +56,6 @@ describe("ContractFactory", function () {
         expiryDate,
         penaltyBps,
         clausesHash,
-        arbitrator.target,
         minDeposit
       );
       const receipt = await tx.wait();
@@ -73,7 +72,6 @@ describe("ContractFactory", function () {
         expiryDate,
         penaltyBps,
         clausesHash,
-        ethers.ZeroAddress,
         minDeposit
       );
       const receipt = await tx.wait();
@@ -101,7 +99,6 @@ describe("ContractFactory", function () {
         expiryDate,
         500,
         ethers.keccak256(ethers.toUtf8Bytes("Clauses")),
-        ethers.ZeroAddress,
         ethers.parseEther("0.1")
       );
     });
