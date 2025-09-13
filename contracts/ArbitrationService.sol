@@ -61,6 +61,17 @@ contract ArbitrationService {
         revert("No compatible resolution entrypoint on target");
     }
 
+    /// @notice Allows owner or configured factory to forward a cancellation finalization
+    /// to a target template that exposes `finalizeCancellation()` and accepts ETH.
+    /// This is payable and will forward `msg.value` to the target.
+    function finalizeTargetCancellation(address targetContract) external payable {
+        require(msg.sender == owner || (factory != address(0) && msg.sender == factory), "Only owner or factory");
+        require(targetContract != address(0), "bad target");
+
+        (bool ok, ) = targetContract.call{value: msg.value}(abi.encodeWithSignature("finalizeCancellation()"));
+        require(ok, "finalize failed");
+    }
+
     /// @notice Transfer ownership of the service.
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "zero");

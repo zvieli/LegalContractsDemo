@@ -25,6 +25,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
   const [ndaCanSign, setNdaCanSign] = useState(true);
   const [ndaAlreadySigned, setNdaAlreadySigned] = useState(false);
   const [arbOwner, setArbOwner] = useState(null);
+  const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   const [arbCaseId, setArbCaseId] = useState('');
   const [arbApprove, setArbApprove] = useState(true);
   const [arbBeneficiary, setArbBeneficiary] = useState('');
@@ -226,6 +227,13 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
       } else {
         setCancellationEvents([]);
       }
+
+      // Check whether connected wallet is authorized to perform arbitration actions
+      try {
+        const svc = new ContractService(signer, chainId);
+        const ok = await svc.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
+        setIsAuthorizedArbitrator(!!ok);
+      } catch (_) { setIsAuthorizedArbitrator(false); }
       
     } catch (error) {
       console.error('Error loading contract data:', error);
@@ -354,6 +362,33 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
       console.error('Error terminating contract:', error);
       const reason = error?.reason || error?.error?.message || error?.data?.message || error?.message;
       alert(`❌ Termination failed: ${reason}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleFinalizeCancellation = async () => {
+    if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return;
+    try {
+      setActionLoading(true);
+      const service = new ContractService(signer, chainId);
+      // find arbitration service address from contract details (if set) or ask user
+      const arbAddress = contractDetails?.arbitrationService || null;
+      let arbAddr = arbAddress;
+      if (!arbAddr) {
+        arbAddr = prompt('Enter ArbitrationService address:');
+        if (!arbAddr) return;
+      }
+      // collect fee if required
+      const fee = feeToSend ? feeToSend : '0';
+      const feeWei = fee ? ethers.parseEther(String(fee)) : 0n;
+      const receipt = await service.finalizeCancellationViaService(arbAddr, contractAddress, feeWei);
+      alert(`✅ Cancellation finalized
+Transaction: ${receipt.transactionHash || receipt.hash}`);
+      await loadContractData();
+    } catch (e) {
+      console.error('Finalize failed:', e);
+      alert(`Failed to finalize: ${e?.reason || e?.message || e}`);
     } finally {
       setActionLoading(false);
     }
@@ -500,17 +535,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
     } finally { setActionLoading(false); }
   };
 
-  const handleFinalizeCancel = async () => {
-    try {
-      setActionLoading(true);
-      const service = new ContractService(signer, chainId);
-      await service.finalizeCancellation(contractAddress, { feeValueEth: feeToSend });
-      alert('Cancellation finalized');
-      onClose();
-    } catch (e) {
-      alert(`Failed: ${e?.reason || e?.message}`);
-    } finally { setActionLoading(false); }
-  };
+
 
   const handleCopyAddress = async () => {
     try {
@@ -796,14 +821,7 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                         >
                           {rentSigning ? 'Signing...' : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
                         </button>
-                        <button 
-                          onClick={handleTerminate}
-                          disabled={actionLoading || (!isTenant && !isLandlord) || (contractDetails && !contractDetails.isActive)}
-                          className="btn-action danger"
-                        >
-                          <i className="fas fa-times-circle"></i>
-                          Terminate Contract
-                        </button>
+                        {/* Terminate Contract removed: use cancellation workflow via Cancellation Policy and ArbitrationService */}
                       </div>
                       {!rentCanSign && !rentAlreadySigned && (
                         <small className="muted">Connect as landlord or tenant to sign.</small>
@@ -919,7 +937,10 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                           <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
                             <input className="text-input" style={{width:'160px'}} type="number" placeholder={feeDueEth ? `Fee required: ${feeDueEth}` : 'Fee (ETH, optional)'} value={feeToSend} onChange={e => setFeeToSend(e.target.value)} />
                             <button className="btn-action" disabled={!feeDueEth} onClick={() => setFeeToSend(feeDueEth || '')}>Autofill Fee</button>
-                            <button className="btn-action" disabled={actionLoading || !canFinalize} onClick={handleFinalizeCancel}>Finalize</button>
+                                <button className="btn-action" disabled={actionLoading || !canFinalize || !isAuthorizedArbitrator} onClick={handleFinalizeCancellation}>Finalize (via Arbitration Service)</button>
+                                {!isAuthorizedArbitrator && (
+                                  <small className="muted" style={{marginLeft:'8px'}}>Only the contract creator or platform arbitrator may finalize via the ArbitrationService.</small>
+                                )}
                           </div>
                         </div>
                       );
@@ -972,10 +993,10 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                           handleNdaReport(offender, penalty, ev);
                         }}>Submit Report</button>
                       </div>
-                      <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
+                        <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
                         <input className="text-input" placeholder="Case ID" id="nda-caseid" />
-                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, true)}>Vote Approve</button>
-                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, false)}>Vote Reject</button>
+                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails?.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, true)}>Vote Approve</button>
+                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails?.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, false)}>Vote Reject</button>
                       </div>
                       {contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress && (
                         <small className="muted">Voting disabled (an on-chain ArbitrationService is configured for this NDA).</small>
@@ -986,16 +1007,16 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
                         <input className="text-input" placeholder="Evidence text (optional)" value={createDisputeEvidence} onChange={e => setCreateDisputeEvidence(e.target.value)} />
                         <button className="btn-action" disabled={actionLoading || !(contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress)} onClick={handleCreateDispute}>Create Dispute</button>
                       </div>
-                      <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
+                        <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Resolve by Arbitrator</label>
                         <input className="text-input" type="number" placeholder="Case ID" value={arbCaseId} onChange={e => setArbCaseId(e.target.value)} />
                         <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
                           <label><input type="checkbox" checked={arbApprove} onChange={e => setArbApprove(e.target.checked)} /> Approve</label>
                           <input className="text-input" placeholder="Beneficiary (0x...) optional" value={arbBeneficiary} onChange={e => setArbBeneficiary(e.target.value)} />
-                          <button className="btn-action" disabled={actionLoading || !isArbitrator} onClick={handleNdaResolveByArbitrator}>Resolve</button>
+                          <button className="btn-action" disabled={actionLoading || !(isArbitrator || isAuthorizedArbitrator)} onClick={handleNdaResolveByArbitrator}>Resolve</button>
                         </div>
-                        {!isArbitrator && (
-                          <small className="muted">Only the platform arbitrator (via configured ArbitrationService) can resolve disputes on this template.</small>
+                        {!(isArbitrator || isAuthorizedArbitrator) && (
+                          <small className="muted">Only the contract creator or platform arbitrator (via configured ArbitrationService) can resolve disputes on this template.</small>
                         )}
                       </div>
                     </div>

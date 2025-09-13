@@ -34,12 +34,10 @@ export class ContractService {
     }
     const contract = createContractInstance('ContractFactory', factoryAddress, this.signer);
     // Lightweight sanity check to catch wrong/stale addresses on localhost
-    try {
-  const code = await this.getCodeSafe(factoryAddress);
-      if (!code || code === '0x') {
-        throw new Error(`No contract code at ${factoryAddress}. Is the node running and deployed?`);
-      }
-    } catch (_) {}
+    const code = await this.getCodeSafe(factoryAddress);
+    if (!code || code === '0x') {
+      throw new Error(`No contract code at ${factoryAddress}. Is the node running and deployed and is your wallet connected to the same network?`);
+    }
     return contract;
   }
 
@@ -58,6 +56,36 @@ export class ContractService {
 
       const factoryContract = await this.getFactoryContract();
 
+      // Ensure the connected signer/provider is on the expected chain. A
+      // mismatched network is the most common cause of an ambiguous
+      // 'Internal JSON-RPC error' when calling eth_sendTransaction from the
+      // browser (MetaMask will try to sign/send to an address that doesn't
+      // exist on the current network). We must not swallow this error.
+      let net;
+      try {
+        net = await this.signer.provider.getNetwork();
+      } catch (err) {
+        console.warn('Could not determine provider network:', err);
+        throw new Error('Could not determine connected wallet network. Ensure your wallet is connected and try again.');
+      }
+      if (Number(net.chainId) !== Number(this.chainId)) {
+        throw new Error(`Connected wallet network mismatch: provider chainId=${net.chainId} but expected=${this.chainId}. Please switch your wallet to the correct network.`);
+      }
+
+      // Quick balance preflight: prevent send attempts when the signer has no ETH
+      // which can lead to confusing provider errors. This is a best-effort check.
+      try {
+        const bal = await this.signer.getBalance();
+        // require at least a tiny balance (0.0001 ETH) to cover gas on most nets
+        const min = ethers.parseEther('0.0001');
+        if (bal < min) {
+          throw new Error('Connected wallet has insufficient ETH balance to create a contract. Fund the wallet and try again.');
+        }
+      } catch (balErr) {
+        // If getBalance fails, don't block the user, but present a helpful warning
+        console.warn('Could not determine signer balance:', balErr);
+      }
+
       const rentAmountWei = ethers.parseEther(params.rentAmount);
 
       // Preflight checks: ensure price feed exists on-chain (common localhost pitfall)
@@ -71,12 +99,65 @@ export class ContractService {
         throw pfErr;
       }
 
-      const tx = await factoryContract.createRentContract(
-        params.tenant,
-        rentAmountWei,
-        params.priceFeed,
-        0
-      );
+      // Extra diagnostics to help debug provider errors (network/account/address mismatches)
+      try {
+        const signerAddr = await this.signer.getAddress().catch(() => null);
+        const factoryAddr = factoryContract.target || factoryContract.address || null;
+        console.debug('Preparing factory.createRentContract', { factoryAddr, signerAddr, expectedChainId: this.chainId });
+
+        // If an injected wallet is present, surface its selected account and chainId
+        try {
+          if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
+            const ethAccounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+            const ethChainId = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
+            console.debug('Injected wallet state before send', { ethAccounts, ethChainId });
+            const selected = (ethAccounts && ethAccounts[0]) || null;
+            if (selected && signerAddr && selected.toLowerCase() !== signerAddr.toLowerCase()) {
+              throw new Error(`Wallet selected account (${selected}) does not match the connected signer (${signerAddr}). Please select the correct account in your wallet and try again.`);
+            }
+            // Also check the injected chainId vs the expected chain
+            if (ethChainId) {
+              try {
+                const hexExpected = `0x${Number(this.chainId).toString(16)}`;
+                if (ethChainId !== hexExpected) {
+                  throw new Error(`Wallet network mismatch: wallet chainId=${ethChainId} but expected=${hexExpected}. Please switch your wallet to the correct network and try again.`);
+                }
+              } catch (cErr) {
+                // bubble up the chain mismatch as a friendly error
+                throw cErr;
+              }
+            }
+          }
+        } catch (walletStateErr) {
+          // Re-throw with helpful context so UI surfaces actionable advice
+          console.error('Wallet preflight check failed:', walletStateErr);
+          throw walletStateErr;
+        }
+      } catch (_) {}
+
+      let tx;
+      try {
+        tx = await factoryContract.createRentContract(
+          params.tenant,
+          rentAmountWei,
+          params.priceFeed,
+          0
+        );
+      } catch (sendErr) {
+        // Try to surface the underlying RPC payload and give actionable guidance
+        try {
+          console.error('Factory createRentContract failed:', sendErr);
+          // Some providers surface the raw RPC payload under sendErr.payload
+          if (sendErr?.payload) {
+            console.error('Underlying RPC payload:', sendErr.payload);
+          }
+          if (sendErr?.error) {
+            console.error('Provider error object:', sendErr.error);
+          }
+        } catch (_) {}
+        // Friendly message for common causes
+        throw new Error('Failed to send transaction to the factory. Verify your wallet is connected to the expected network (localhost if using Hardhat), the selected account is unlocked/has ETH, and the frontend deployment addresses match the network. See console for raw RPC payload.');
+      }
 
       const receipt = await tx.wait();
 
@@ -213,6 +294,14 @@ export class ContractService {
 
   async getUserContracts(userAddress) {
     try {
+      // If a platform admin/factory address is configured, do not expose
+      // contracts created by that admin as "user contracts" in the dashboard.
+      // This prevents the factory/deployer account from appearing to 'own'
+      // platform-created contracts in the regular user dashboard.
+      const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+      if (platformAdmin && userAddress && userAddress.toLowerCase() === platformAdmin.toLowerCase()) {
+        return []; // hide platform-created contracts from the dashboard view
+      }
       const factoryContract = await this.getFactoryContract();
       const contracts = await factoryContract.getContractsByCreator(userAddress);
       // Filter out any addresses that aren't contracts (defensive against wrong factory/addressing)
@@ -383,6 +472,79 @@ export class ContractService {
     } catch (error) {
       console.error('Error approving token:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Finalize a pending cancellation by calling the ArbitrationService.finalizeTargetCancellation
+   * arbitrationServiceAddress: address of ArbitrationService
+   * contractAddress: target TemplateRentContract
+   * feeWei: BigInt or string value to forward as msg.value
+   */
+  async finalizeCancellationViaService(arbitrationServiceAddress, contractAddress, feeWei = 0n) {
+    try {
+      if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
+      const abiName = 'ArbitrationService';
+      const svc = createContractInstance(abiName, arbitrationServiceAddress, this.signer);
+      // feeWei may be BigInt or string; normalize
+      const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
+      const tx = await svc.finalizeTargetCancellation(contractAddress, { value });
+      const receipt = await tx.wait();
+      return receipt;
+    } catch (error) {
+      console.error('Error finalizing via arbitration service:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Determine whether the connected signer/address is authorized to perform
+   * arbitration actions for the given contract. We allow:
+   *  - the original creator/deployer of the contract (as recorded in ContractFactory.contractsByCreator)
+   *  - the owner of the configured ArbitrationService for the contract (if set)
+   * Returns boolean.
+   */
+  async isAuthorizedArbitratorForContract(contractAddress) {
+    try {
+      const me = (await this.signer.getAddress()).toLowerCase();
+      // 1) Check creator mapping on factory
+      try {
+        const factory = await this.getFactoryContract();
+        const creator = await factory.getCreatorOf(contractAddress).catch(() => ethers.ZeroAddress);
+        if (creator && creator !== ethers.ZeroAddress && creator.toLowerCase() === me) return true;
+      } catch (_) {
+        // ignore factory lookup errors
+      }
+
+      // 2) If contract exposes `arbitrationService`, check its owner
+      try {
+        // Try as Rent first
+        try {
+          const rent = await this.getRentContract(contractAddress);
+          const svc = await rent.arbitrationService();
+          if (svc && svc !== ethers.ZeroAddress) {
+            const svcInst = createContractInstance('ArbitrationService', svc, this.signer);
+            const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
+            if (owner && owner.toLowerCase() === me) return true;
+          }
+        } catch (_) {}
+
+        // Try as NDA
+        try {
+          const nda = await this.getNDAContract(contractAddress);
+          const svc = await nda.arbitrationService();
+          if (svc && svc !== ethers.ZeroAddress) {
+            const svcInst = createContractInstance('ArbitrationService', svc, this.signer);
+            const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
+            if (owner && owner.toLowerCase() === me) return true;
+          }
+        } catch (_) {}
+      } catch (_) {}
+
+      return false;
+    } catch (error) {
+      console.error('Error checking arbitrator authorization:', error);
+      return false;
     }
   }
 

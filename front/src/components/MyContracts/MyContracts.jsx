@@ -56,38 +56,19 @@ export default function MyContracts() {
   }, [isConnected, signer, chainId, account]);
 
   // If user isn't connected, show the previous placeholder UX (static preview)
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+
+  // If user isn't connected, show placeholder. If user is admin, don't show fabricated samples.
   if (!isConnected) {
     return (
       <div className="my-contracts placeholder">
         <h3>My Contracts</h3>
         <div className="placeholder-card">
-          <div className="contract-list">
-            <div className="contract-item">
-              <div className="contract-info">
-                <h4>Apartment Rental Contract - Tel Aviv</h4>
-                <p>Created: 2024-01-15 • Amount: 5,000 USDC/month</p>
-              </div>
-              <span className="contract-status active">Active</span>
-            </div>
-
-            <div className="contract-item">
-              <div className="contract-info">
-                <h4>NDA Agreement with Startup Company</h4>
-                <p>Created: 2024-01-10 • Parties: 2</p>
-              </div>
-              <span className="contract-status pending">Pending Signature</span>
-            </div>
-
-            <div className="contract-item">
-              <div className="contract-info">
-                <h4>Employment Contract with Full-stack Developer</h4>
-                <p>Created: 2024-01-05 • Salary: 8,000 USDC/month</p>
-              </div>
-              <span className="contract-status completed">Completed</span>
-            </div>
+          <div style={{ padding: 20 }}>
+            <p className="connect-hint">Connect your wallet to view and manage all your contracts</p>
           </div>
         </div>
-        <p className="connect-hint">Connect your wallet to view and manage all your contracts</p>
       </div>
     );
   }
@@ -99,32 +80,11 @@ export default function MyContracts() {
       {!loading && contracts.length === 0 && (
         <div className="empty-state">
           <p>No contracts found</p>
-          <div className="empty-actions">
-            <button className="btn-primary" onClick={() => { window.location.href = '/create'; }}>Create Contract</button>
-          </div>
-          <div className="sample-faded">
-            <div className="contract-item faded">
-              <div className="contract-info">
-                <h4>Apartment Rental Contract - Tel Aviv</h4>
-                <p>Created: 2024-01-15 • Amount: 5,000 USDC/month</p>
-              </div>
-              <span className="contract-status active">Active</span>
+          {!isAdmin && (
+            <div className="empty-actions">
+              <button className="btn-primary" onClick={() => { window.location.href = '/create'; }}>Create Contract</button>
             </div>
-            <div className="contract-item faded">
-              <div className="contract-info">
-                <h4>NDA Agreement with Startup Company</h4>
-                <p>Created: 2024-01-10 • Parties: 2</p>
-              </div>
-              <span className="contract-status pending">Pending Signature</span>
-            </div>
-            <div className="contract-item faded">
-              <div className="contract-info">
-                <h4>Employment Contract with Full-stack Developer</h4>
-                <p>Created: 2024-01-05 • Salary: 8,000 USDC/month</p>
-              </div>
-              <span className="contract-status completed">Completed</span>
-            </div>
-          </div>
+          )}
         </div>
       )}
       <ul className="contract-list">

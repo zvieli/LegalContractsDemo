@@ -23,21 +23,30 @@ async function main() {
 
   console.log("✅ ContractFactory deployed to:", factoryAddress);
 
-  // === 1.5 Deploy mocks: MockERC20 and MockPriceFeed ===
-  console.log("📦 Deploying mock tokens and price feed...");
-  const MockERC20 = await ethers.getContractFactory("MockERC20");
-  const mockToken = await MockERC20.deploy("Mock Token", "MCK", ethers.parseUnits("1000000", 18));
-  await mockToken.waitForDeployment();
-  const mockTokenAddress = await mockToken.getAddress();
+  // === 1.5 Optionally deploy mocks: MockERC20 and MockPriceFeed ===
+  // By default we skip deploying mocks so local deployments can start minimal/empty.
+  // Set DEPLOY_MOCKS=true in env to enable mock deployment.
+  let mockTokenAddress = null;
+  let mockPriceAddress = null;
+  const deployMocks = String(process.env.DEPLOY_MOCKS || '').toLowerCase() === 'true';
+  if (deployMocks) {
+    console.log("📦 Deploying mock tokens and price feed...");
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const mockToken = await MockERC20.deploy("Mock Token", "MCK", ethers.parseUnits("1000000", 18));
+    await mockToken.waitForDeployment();
+    mockTokenAddress = await mockToken.getAddress();
 
-  const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
-  // initial price 2000
-  const mockPrice = await MockPriceFeed.deploy(2000);
-  await mockPrice.waitForDeployment();
-  const mockPriceAddress = await mockPrice.getAddress();
+    const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
+    // initial price 2000
+    const mockPrice = await MockPriceFeed.deploy(2000);
+    await mockPrice.waitForDeployment();
+    mockPriceAddress = await mockPrice.getAddress();
 
-  console.log("✅ MockERC20 deployed to:", mockTokenAddress);
-  console.log("✅ MockPriceFeed deployed to:", mockPriceAddress);
+    console.log("✅ MockERC20 deployed to:", mockTokenAddress);
+    console.log("✅ MockPriceFeed deployed to:", mockPriceAddress);
+  } else {
+    console.log('ℹ️  Skipping mock deployments (set DEPLOY_MOCKS=true to enable)');
+  }
 
   // === 2. Save deployment.json ===
   const deploymentData = {
@@ -74,39 +83,45 @@ async function main() {
     throw err;
   }
 
-  // === 2.5 Deploy ArbitrationService and configure factory ===
-  console.log("📦 Deploying ArbitrationService...");
+  // === 2.5 Optionally deploy ArbitrationService and configure factory ===
+  // By default we skip deploying ArbitrationService. Set DEPLOY_ARBITRATION=true to enable.
   let arbitrationServiceAddress = null;
-  try {
-    const ArbitrationService = await ethers.getContractFactory("ArbitrationService");
-    const arbitrationService = await ArbitrationService.deploy();
-    await arbitrationService.waitForDeployment();
-    arbitrationServiceAddress = await arbitrationService.getAddress();
-    console.log("✅ ArbitrationService deployed to:", arbitrationServiceAddress);
-
-    // Configure the ArbitrationService to trust the ContractFactory so the
-    // factory can call `applyResolutionToTarget` when driving dispute resolutions.
+  const deployArbitration = String(process.env.DEPLOY_ARBITRATION || '').toLowerCase() === 'true';
+  if (deployArbitration) {
+    console.log("📦 Deploying ArbitrationService...");
     try {
-      const tx = await arbitrationService.setFactory(factoryAddress);
-      await tx.wait();
-      console.log("🔧 ArbitrationService.factory set to ContractFactory:", factoryAddress);
-    } catch (err) {
-      console.warn("⚠️  Could not set ArbitrationService.factory:", err.message || err);
-    }
+      const ArbitrationService = await ethers.getContractFactory("ArbitrationService");
+      const arbitrationService = await ArbitrationService.deploy();
+      await arbitrationService.waitForDeployment();
+      arbitrationServiceAddress = await arbitrationService.getAddress();
+      console.log("✅ ArbitrationService deployed to:", arbitrationServiceAddress);
 
-    // Update the previously-written ContractFactory.json to include the service
-    try {
-      const deploymentFileContents = fs.readFileSync(deploymentFile, 'utf8');
-      const parsed = JSON.parse(deploymentFileContents);
-      parsed.contracts = parsed.contracts || {};
-      parsed.contracts.ArbitrationService = arbitrationServiceAddress;
-      fs.writeFileSync(deploymentFile, JSON.stringify(parsed, null, 2));
-      console.log("💾 Updated ContractFactory.json with ArbitrationService address");
+      // Configure the ArbitrationService to trust the ContractFactory so the
+      // factory can call `applyResolutionToTarget` when driving dispute resolutions.
+      try {
+        const tx = await arbitrationService.setFactory(factoryAddress);
+        await tx.wait();
+        console.log("🔧 ArbitrationService.factory set to ContractFactory:", factoryAddress);
+      } catch (err) {
+        console.warn("⚠️  Could not set ArbitrationService.factory:", err.message || err);
+      }
+
+      // Update the previously-written ContractFactory.json to include the service
+      try {
+        const deploymentFileContents = fs.readFileSync(deploymentFile, 'utf8');
+        const parsed = JSON.parse(deploymentFileContents);
+        parsed.contracts = parsed.contracts || {};
+        parsed.contracts.ArbitrationService = arbitrationServiceAddress;
+        fs.writeFileSync(deploymentFile, JSON.stringify(parsed, null, 2));
+        console.log("💾 Updated ContractFactory.json with ArbitrationService address");
+      } catch (err) {
+        console.warn("⚠️  Could not update ContractFactory.json with ArbitrationService address:", err.message || err);
+      }
     } catch (err) {
-      console.warn("⚠️  Could not update ContractFactory.json with ArbitrationService address:", err.message || err);
+      console.warn('⚠️  ArbitrationService deploy failed:', err.message || err);
     }
-  } catch (err) {
-    console.warn('⚠️  ArbitrationService deploy failed:', err.message || err);
+  } else {
+    console.log('ℹ️  Skipping ArbitrationService deployment (set DEPLOY_ARBITRATION=true to enable)');
   }
 
   // OracleArbitratorFunctions deployment removed in sweep
@@ -190,33 +205,15 @@ async function main() {
     console.warn('⚠️  ABI source directory not found:', abiSourceDir);
   }
 
-  // === 4. Write MockContracts.json with deployed mock addresses and factory + sample created contract ===
+  // === 4. Write MockContracts.json with deployed mock addresses and factory (no sample/demo contract) ===
   console.log("💾 Writing MockContracts.json for frontend...");
 
-  // create a sample rent contract via factory to demonstrate flow
   try {
-  const tx = await contractFactory.createRentContract(tenant.address, ethers.parseUnits("1", 18), mockPriceAddress, 0);
-    const receipt = await tx.wait();
-    // ContractFactory emits RentContractCreated(contractAddress, landlord, tenant)
-    let rentAddress = null;
-    for (const ev of receipt.logs) {
-      try {
-        const parsed = contractFactory.interface.parseLog(ev);
-        if (parsed && parsed.name === "RentContractCreated") {
-          rentAddress = parsed.args[0];
-          break;
-        }
-      } catch (e) {
-        // ignore non-parsable logs
-      }
-    }
-
     const mockContracts = {
       contracts: {
         MockPriceFeed: mockPriceAddress,
         MockERC20: mockTokenAddress,
-        ContractFactory: factoryAddress,
-        SampleRent: rentAddress || null
+        ContractFactory: factoryAddress
       },
     };
 
@@ -224,7 +221,7 @@ async function main() {
     fs.writeFileSync(mockContractsPath, JSON.stringify(mockContracts, null, 2));
     console.log("✅ MockContracts.json written to frontend:", mockContractsPath);
   } catch (err) {
-    console.error("⚠️  Could not create sample rent contract via factory:", err.message);
+    console.error("⚠️  Could not write MockContracts.json to frontend:", err.message);
   }
 
   console.log(`🎉 Copied ${copiedCount} ABI files to ${frontendContractsDir}`);

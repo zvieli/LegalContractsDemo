@@ -8,28 +8,10 @@ function Arbitration() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // TODO: Load real disputes from blockchain
-    setTimeout(() => {
-      setDisputes([
-        {
-          id: 1,
-          contractAddress: '0x1234...5678',
-          parties: ['0xYourAddress', '0xCounterparty'],
-          reason: 'Late payment',
-          status: 'Pending',
-          created: '2024-01-15'
-        },
-        {
-          id: 2, 
-          contractAddress: '0xabcd...efgh',
-          parties: ['0xYourAddress', '0xClient'],
-          reason: 'Confidentiality breach',
-          status: 'Resolved',
-          created: '2024-01-10'
-        }
-      ]);
-      setLoading(false);
-    }, 1000);
+    // Load arbitration disputes from on-chain/off-chain source when implemented.
+    // For now show a clean empty state if nothing is present.
+    setDisputes([]);
+    setLoading(false);
   }, []);
 
   if (!isConnected) {

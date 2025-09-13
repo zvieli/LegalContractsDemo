@@ -40,6 +40,8 @@ contract _NDADeployer {
 contract ContractFactory {
     address[] public allContracts;
     mapping(address => address[]) public contractsByCreator;
+    // Map a contract address to its creator (deployer) for quick lookup
+    mapping(address => address) public contractCreator;
     _RentDeployer private immutable rentDeployer;
     _NDADeployer private immutable ndaDeployer;
     PropertyRegistry public immutable propertyRegistry; // optional registry (may be zero address if not used)
@@ -82,6 +84,7 @@ contract ContractFactory {
     address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _priceFeed, _propertyId);
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
+        contractCreator[newAddr] = creator;
         emit RentContractCreated(newAddr, creator, _tenant);
         return newAddr;
     }
@@ -116,6 +119,7 @@ contract ContractFactory {
         );
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
+        contractCreator[newAddr] = creator;
         emit NDACreated(newAddr, creator, _partyB);
         return newAddr;
     }
@@ -170,5 +174,10 @@ contract ContractFactory {
 
     function getContractsByCreator(address creator) external view returns (address[] memory) {
         return contractsByCreator[creator];
+    }
+
+    /// @notice Return the creator/deployer of a specific contract (zero address if unknown)
+    function getCreatorOf(address contractAddr) external view returns (address) {
+        return contractCreator[contractAddr];
     }
 }

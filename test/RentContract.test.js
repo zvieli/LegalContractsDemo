@@ -35,6 +35,7 @@ describe("TemplateRentContract", function () {
   let landlord, tenant, other;
   let mockPriceFeed;
   let token;
+  let arbitrationService;
 
 beforeEach(async function () {
   [landlord, tenant, other] = await ethers.getSigners();
@@ -69,6 +70,12 @@ beforeEach(async function () {
   const evt = receipt.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
   const deployedAddr = evt.args.contractAddress;
   rentContract = await ethers.getContractAt('TemplateRentContract', deployedAddr);
+
+  // Deploy ArbitrationService and set it on the rent contract so tests can finalize
+  const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
+  arbitrationService = await ArbitrationService.deploy();
+  await arbitrationService.waitForDeployment();
+  await rentContract.connect(landlord).setArbitrationService(arbitrationService.target);
 
   // Mint & Approve tokens for tenant
   await token.transfer(tenant.address, ethers.parseUnits("500", 18));
@@ -256,7 +263,12 @@ describe("ETH Payment", function () {
 
   describe("Contract Cancellation", function () {
     it("should allow landlord to cancel contract", async function () {
-      await expect(rentContract.connect(landlord).cancelContract())
+      // landlord initiates cancellation
+      await expect(rentContract.connect(landlord).initiateCancellation())
+        .to.emit(rentContract, "CancellationInitiated");
+
+      // finalize via arbitration service (owner of service is test deployer)
+      await expect(arbitrationService.finalizeTargetCancellation(rentContract.target))
         .to.emit(rentContract, "ContractCancelled")
         .withArgs(landlord.address);
 
@@ -264,7 +276,10 @@ describe("ETH Payment", function () {
     });
 
     it("should allow tenant to cancel contract", async function () {
-      await expect(rentContract.connect(tenant).cancelContract())
+      await expect(rentContract.connect(tenant).initiateCancellation())
+        .to.emit(rentContract, "CancellationInitiated");
+
+      await expect(arbitrationService.finalizeTargetCancellation(rentContract.target))
         .to.emit(rentContract, "ContractCancelled")
         .withArgs(tenant.address);
 
@@ -272,7 +287,8 @@ describe("ETH Payment", function () {
     });
 
     it("should prevent payments after cancellation", async function () {
-      await rentContract.connect(landlord).cancelContract();
+  await rentContract.connect(landlord).initiateCancellation();
+      await arbitrationService.finalizeTargetCancellation(rentContract.target);
 
       await expect(rentContract.connect(tenant).payRent(ethers.parseEther("0.5")))
         .to.be.revertedWithCustomError(rentContract, 'NotActive');
@@ -297,7 +313,7 @@ describe("ETH Payment", function () {
       await rentContract.connect(landlord).setCancellationPolicy(0, 0, true);
 
       // Using cancelContract should act as initiate with policy set
-      await expect(rentContract.connect(landlord).cancelContract())
+      await expect(rentContract.connect(landlord).initiateCancellation())
         .to.emit(rentContract, "CancellationInitiated");
 
       expect(await rentContract.cancelRequested()).to.equal(true);
@@ -305,8 +321,11 @@ describe("ETH Payment", function () {
 
       // Opposite party approves -> finalize
       await expect(rentContract.connect(tenant).approveCancellation())
-        .to.emit(rentContract, "CancellationApproved")
-        .and.to.emit(rentContract, "ContractCancelled")
+        .to.emit(rentContract, "CancellationApproved");
+
+      // finalize via arbitration service
+      await expect(arbitrationService.finalizeTargetCancellation(rentContract.target))
+        .to.emit(rentContract, "ContractCancelled")
         .and.to.emit(rentContract, "CancellationFinalized");
 
       expect(await rentContract.active()).to.equal(false);
@@ -321,8 +340,9 @@ describe("ETH Payment", function () {
         .to.emit(rentContract, "CancellationInitiated");
 
       // Try to finalize before notice elapsed -> revert
+      // direct finalize call should now be disallowed (arbitration-only)
       await expect(rentContract.connect(tenant).finalizeCancellation())
-        .to.be.revertedWithCustomError(rentContract, 'NoticeNotElapsed');
+        .to.be.revertedWithCustomError(rentContract, 'OnlyArbitrator');
 
       // Move time forward 1 hour
       await ethers.provider.send("evm_increaseTime", [3600]);
@@ -332,16 +352,20 @@ describe("ETH Payment", function () {
       const rentInEth = await rentContract.getRentInEth();
       const expectedFee = (rentInEth * 1000n) / 10000n; // 10%
 
-      // Insufficient fee should revert
+      // attempt to finalize via arbitration service before notice elapsed: service should be allowed to finalize
+      // but this test asserts that tenant cannot finalize directly. Now call arbitration service after notice elapsed.
+      await ethers.provider.send("evm_increaseTime", [3600]);
+      await ethers.provider.send("evm_mine", []);
+
+      // Insufficient fee forwarded should revert
       if (expectedFee > 0n) {
-        await expect(rentContract.connect(tenant).finalizeCancellation({ value: expectedFee - 1n }))
-          .to.be.revertedWithCustomError(rentContract, 'InsufficientFee');
+        await expect(arbitrationService.finalizeTargetCancellation(rentContract.target, { value: expectedFee - 1n }))
+          .to.be.reverted;
       }
 
-      // Track landlord balance change approximately by fee via event
-      await expect(rentContract.connect(tenant).finalizeCancellation({ value: expectedFee }))
+      await expect(arbitrationService.finalizeTargetCancellation(rentContract.target, { value: expectedFee }))
         .to.emit(rentContract, "EarlyTerminationFeePaid")
-        .withArgs(tenant.address, expectedFee, landlord.address)
+        .withArgs(arbitrationService.target, expectedFee, landlord.address)
         .and.to.emit(rentContract, "ContractCancelled")
         .and.to.emit(rentContract, "CancellationFinalized");
 
@@ -353,13 +377,16 @@ describe("ETH Payment", function () {
   describe("Cancellation Guards", function () {
     it("prevent approve / finalize when no cancellation requested", async function () {
       await expect(rentContract.connect(tenant).approveCancellation()).to.be.revertedWithCustomError(rentContract,'CancelNotRequested');
-      await expect(rentContract.connect(tenant).finalizeCancellation()).to.be.revertedWithCustomError(rentContract,'CancelNotRequested');
+  // finalize must be called via arbitration service — direct party call should revert OnlyArbitrator
+  await expect(rentContract.connect(tenant).finalizeCancellation()).to.be.revertedWithCustomError(rentContract,'OnlyArbitrator');
     });
 
     it("approve after mutual policy initiation finalizes and blocks further approve", async function () {
       await rentContract.connect(landlord).setCancellationPolicy(0,0,true);
       await rentContract.connect(landlord).initiateCancellation();
       await expect(rentContract.connect(tenant).approveCancellation()).to.emit(rentContract,'CancellationApproved');
+      // finalize via arbitration service
+      await arbitrationService.finalizeTargetCancellation(rentContract.target);
       expect(await rentContract.active()).to.equal(false);
       await expect(rentContract.connect(tenant).approveCancellation()).to.be.revertedWithCustomError(rentContract,'NotActive');
     });

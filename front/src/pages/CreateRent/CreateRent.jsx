@@ -119,6 +119,18 @@ function CreateRent() {
         }
       }
 
+      // Extra preflight: ensure the wallet provider is on the expected chain
+      try {
+        const providerNetwork = await signer.provider.getNetwork();
+        if (Number(providerNetwork.chainId) !== expectedChainId) {
+          alert(`Please switch your wallet network to the selected network (expected chainId ${expectedChainId}, got ${providerNetwork.chainId}).`);
+          setLoading(false);
+          return;
+        }
+      } catch (netErr) {
+        console.warn('Could not detect provider network before creating contract:', netErr);
+      }
+
       const contractService = new ContractService(signer, expectedChainId); // ✅ Use expectedChainId
 
       // If localhost is selected, force the Mock Price Feed if available

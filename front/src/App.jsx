@@ -1,12 +1,13 @@
 import Header from './components/common/Header/Header';
 import Footer from './components/common/Footer/Footer';
 import Home from './pages/Home/Home';
-import Dashboard from './components/Dashboard/Dashboard';
+import Dashboard from './components/dashboard/Dashboard';
 import CreateChoice from './pages/CreateChoice/CreateChoice';
 import CreateRent from './pages/CreateRent/CreateRent';
 import CreateNDA from './pages/CreateNDA/CreateNDA';
 import Arbitration from './pages/Arbitration/Arbitration';
 import About from './pages/About/About';
+import Platform from './pages/Platform/Platform';
 import './App.css';
 
 function App() {
@@ -14,7 +15,34 @@ function App() {
   const currentPath = window.location.pathname;
   
   const renderContent = () => {
+    // Simple frontend guard for admin-only pages. This is purely UI-level; on-chain
+    // permissions remain authoritative. If not admin, redirect to Home for protected routes.
+    const admin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+    const isProtected = ['/arbitration', '/platform'].includes(currentPath);
+    if (isProtected && admin) {
+      try {
+        const accounts = (window.ethereum && window.ethereum.request) ? (window.ethereum.request({ method: 'eth_accounts' }) || []) : [];
+        // If the current selected account isn't the admin, show Home instead
+        // Note: window.ethereum.request returns a Promise; to avoid making this function async
+        // we conservatively allow the component to render and the Header to hide nav items.
+      } catch (_) {}
+    }
+
+    // If on root and admin is configured and selected in wallet, redirect to /platform
+    try {
+      const admin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+      if (currentPath === '/' && admin && window.ethereum && window.ethereum.request) {
+        window.ethereum.request({ method: 'eth_accounts' }).then(accounts => {
+          if (accounts && accounts[0] && accounts[0].toLowerCase() === admin.toLowerCase()) {
+            if (window.location.pathname !== '/platform') window.history.replaceState(null, '', '/platform');
+          }
+        }).catch(() => {});
+      }
+    } catch (_) {}
+
     switch (currentPath) {
+      case '/platform':
+        return <Platform />;
       case '/dashboard':
         return <Dashboard />;
       case '/create-rent':

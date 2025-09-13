@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ContractService } from '../../services/contractService';
+import { getContractABI } from '../../utils/contracts';
 import { useRentPaymentEvents } from '../../hooks/useContractEvents';
 import ContractModal from '../ContractModal/ContractModal';
 import { ethers } from 'ethers';
+import mockContracts from '../../utils/contracts/MockContracts.json';
 // AI service removed for now; use a deterministic local stub for UI testing
 import './Dashboard.css';
 
@@ -40,6 +42,9 @@ function Dashboard() {
       setupEventListeners();
     }
   }, [isConnected, account, signer, chainId]);
+
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
 
   // האזנה לאירועי יצירת חוזים
   const setupEventListeners = async () => {
@@ -77,78 +82,155 @@ function Dashboard() {
     try {
       setLoading(true);
       const contractService = new ContractService(signer, chainId);
-  // 1) Contracts I created
-  const created = await contractService.getUserContracts(account);
-  // 2) Contracts where I participate (as landlord/tenant/party)
-  const participating = await contractService.getContractsByParticipant(account);
-  // Union & dedupe
-  const userContracts = Array.from(new Set([...(created || []), ...(participating || [])]));
+      // If connected account is platform admin, show platform-wide counts (read-only)
+      const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+      const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
 
-      if (userContracts && userContracts.length > 0) {
-        const contractDetails = await Promise.all(
-          userContracts.map(async (contractAddress) => {
-            try {
-              // קודם ננסה כחוזה שכירות
-              try {
-                const details = await contractService.getRentContractDetails(contractAddress, { silent: true });
-                return { ...details, type: 'Rental' };
-              } catch {
-                // אם נכשל – ננסה כ־NDA
-                const details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
-                return { ...details, type: 'NDA' };
-              }
-            } catch (error) {
-              console.error('Error loading contract details:', error);
-              return {
-                address: contractAddress,
-                type: 'Unknown',
-                status: 'Error',
-                parties: [],
-                created: 'N/A',
-                amount: 'N/A',
-                isActive: false
-              };
-            }
-          })
-        );
-
-        setContracts(contractDetails);
-
-        // חישוב סטטיסטיקות
-        const activeContracts = contractDetails.filter(c => c.status === 'Active').length;
-        const pendingContracts = contractDetails.filter(c => c.status === 'Pending').length;
-        // סכימה מדויקת ב-wei כדי להימנע משגיאות צפות (0.21000000000000002)
-        const totalWei = contractDetails.reduce((acc, contract) => {
+      if (isAdmin) {
+        try {
+          const factory = await contractService.getFactoryContract();
+          // For admin/platform-wide read-only stats use the local JSON-RPC provider
+          // to avoid differences between injected wallets and the local node.
+          const localRpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+          const factoryAddr = factory.target || factory.address || null;
+          const localFactory = factoryAddr ? new ethers.Contract(factoryAddr, getContractABI('ContractFactory'), localRpc) : null;
+          // Debug: print provider/wallet network state and on-provider code at factory address
           try {
-            const amt = String(contract.amount || '0');
-            return acc + ethers.parseEther(amt);
-          } catch {
-            return acc;
+            const provider = contractService.signer.provider;
+            const provNet = await provider.getNetwork().catch(() => null);
+            const provChainId = provNet ? provNet.chainId : null;
+            const factoryAddr = factory.target || factory.address || null;
+            let onProviderCode = null;
+            try {
+              if (factoryAddr) onProviderCode = await provider.getCode(factoryAddr).catch(() => null);
+            } catch (_) {}
+            let injectedChain = null; let injectedAccounts = null;
+            try {
+              if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
+                injectedAccounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => null);
+                injectedChain = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
+              }
+            } catch (_) {}
+            console.debug('Admin preflight:', { expectedChainId: chainId, providerChainId: provChainId, injectedChain, injectedAccounts, factoryAddr, onProviderCodeLength: onProviderCode ? onProviderCode.length/2 : null });
+          } catch (pfErr) {
+            console.warn('Admin preflight debug failed', pfErr);
           }
-        }, 0n);
-        const totalEthStr = ethers.formatEther(totalWei);
-        const totalValue = (() => {
-          const [intPart, fracPartRaw = ''] = totalEthStr.split('.');
-          const fracTrimmed = fracPartRaw.replace(/0+$/, '');
-          const fracLimited = fracTrimmed.slice(0, 6); // מציג עד 6 ספרות אחרי הנקודה
-          return fracLimited ? `${intPart}.${fracLimited}` : intPart;
-        })();
+          const total = Number(localFactory ? await localFactory.getAllContractsCount() : 0);
+          // Fetch a manageable page of contracts to compute active/pending/value
+          const pageSize = Math.min(total, 50);
+          let page = pageSize > 0 && localFactory ? await localFactory.getAllContractsPaged(0, pageSize) : [];
+          // Normalize and dedupe the returned page (remove falsy entries, lowercase, unique)
+          try {
+            const normalized = (page || []).map(a => a && String(a).toLowerCase()).filter(Boolean);
+            const unique = Array.from(new Set(normalized));
+            page = unique;
+          } catch (e) {
+            console.warn('Normalization of contract page failed, using raw page', e);
+          }
 
-        setStats({
-          totalContracts: contractDetails.length,
-          activeContracts,
-          pendingContracts,
-          totalValue
-        });
+          console.debug('Admin branch: raw page addresses', page);
+          const contractDetails = await Promise.all(page.map(async (addr) => {
+            try {
+              const rent = await contractService.getRentContractDetails(addr, { silent: true }).catch(() => null);
+              if (rent) return { ...rent, type: 'Rental' };
+              const nda = await contractService.getNDAContractDetails(addr, { silent: true }).catch(() => null);
+              if (nda) return { ...nda, type: 'NDA' };
+              return { address: addr, type: 'Unknown', status: 'Unknown', parties: [] };
+            } catch (err) {
+              return { address: addr, type: 'Unknown', status: 'Error', parties: [] };
+            }
+          }));
+
+          // Compute stats from the sampled page (total uses full count)
+          const activeContracts = contractDetails.filter(c => c.status === 'Active').length;
+          const pendingContracts = contractDetails.filter(c => c.status === 'Pending').length;
+          // sum amounts
+          const totalWei = contractDetails.reduce((acc, contract) => {
+            try {
+              const amt = String(contract.amount || '0');
+              return acc + ethers.parseEther(amt);
+            } catch {
+              return acc;
+            }
+          }, 0n);
+          const totalEthStr = ethers.formatEther(totalWei);
+          const totalValue = (() => {
+            const [intPart, fracPartRaw = ''] = totalEthStr.split('.');
+            const fracTrimmed = fracPartRaw.replace(/0+$/, '');
+            const fracLimited = fracTrimmed.slice(0, 6);
+            return fracLimited ? `${intPart}.${fracLimited}` : intPart;
+          })();
+
+          console.debug('Admin branch: loaded contractDetails count', contractDetails.length, 'addresses:', contractDetails.map(c=>c.address));
+          setContracts(contractDetails);
+          setStats({ totalContracts: total, activeContracts, pendingContracts, totalValue });
+        } catch (err) {
+          console.error('Error loading platform contracts for admin:', err);
+          setContracts([]);
+          setStats({ totalContracts: 0, activeContracts: 0, pendingContracts: 0, totalValue: '0' });
+        }
 
       } else {
-        setContracts([]);
-        setStats({
-          totalContracts: 0,
-          activeContracts: 0,
-          pendingContracts: 0,
-          totalValue: '0'
-        });
+        // 1) Contracts I created
+        const created = await contractService.getUserContracts(account);
+        // 2) Contracts where I participate (as landlord/tenant/party)
+        const participating = await contractService.getContractsByParticipant(account);
+        // Union & dedupe
+        const userContracts = Array.from(new Set([...(created || []), ...(participating || [])]));
+
+        if (userContracts && userContracts.length > 0) {
+          const contractDetails = await Promise.all(
+            userContracts.map(async (contractAddress) => {
+              try {
+                try {
+                  const details = await contractService.getRentContractDetails(contractAddress, { silent: true });
+                  return { ...details, type: 'Rental' };
+                } catch {
+                  const details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
+                  return { ...details, type: 'NDA' };
+                }
+              } catch (error) {
+                console.error('Error loading contract details:', error);
+                return {
+                  address: contractAddress,
+                  type: 'Unknown',
+                  status: 'Error',
+                  parties: [],
+                  created: 'N/A',
+                  amount: 'N/A',
+                  isActive: false
+                };
+              }
+            })
+          );
+
+          setContracts(contractDetails);
+
+          // compute stats
+          const activeContracts = contractDetails.filter(c => c.status === 'Active').length;
+          const pendingContracts = contractDetails.filter(c => c.status === 'Pending').length;
+          const totalWei = contractDetails.reduce((acc, contract) => {
+            try {
+              const amt = String(contract.amount || '0');
+              return acc + ethers.parseEther(amt);
+            } catch {
+              return acc;
+            }
+          }, 0n);
+          const totalEthStr = ethers.formatEther(totalWei);
+          const totalValue = (() => {
+            const [intPart, fracPartRaw = ''] = totalEthStr.split('.');
+            const fracTrimmed = fracPartRaw.replace(/0+$/, '');
+            const fracLimited = fracTrimmed.slice(0, 6);
+            return fracLimited ? `${intPart}.${fracLimited}` : intPart;
+          })();
+
+          setStats({ totalContracts: contractDetails.length, activeContracts, pendingContracts, totalValue });
+
+        } else {
+          setContracts([]);
+          setStats({ totalContracts: 0, activeContracts: 0, pendingContracts: 0, totalValue: '0' });
+        }
       }
 
     } catch (error) {
@@ -255,22 +337,26 @@ function Dashboard() {
       {/* Actions */}
       <div className="dashboard-actions">
         <h3>Create New Contract</h3>
-        <div className="action-buttons">
-          <button 
-            className="action-btn primary"
-            onClick={() => createNewContract('rent')}
-          >
-            <i className="fas fa-home"></i>
-            New Rental Agreement
-          </button>
+          <div className="action-buttons">
+          {!isAdmin && (
+            <>
+              <button 
+                className="action-btn primary"
+                onClick={() => createNewContract('rent')}
+              >
+                <i className="fas fa-home"></i>
+                New Rental Agreement
+              </button>
 
-          <button 
-            className="action-btn secondary"
-            onClick={() => createNewContract('nda')}
-          >
-            <i className="fas fa-file-signature"></i>
-            New NDA Agreement
-          </button>
+              <button 
+                className="action-btn secondary"
+                onClick={() => createNewContract('nda')}
+              >
+                <i className="fas fa-file-signature"></i>
+                New NDA Agreement
+              </button>
+            </>
+          )}
         </div>
       </div>
 

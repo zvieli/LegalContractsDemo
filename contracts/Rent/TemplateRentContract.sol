@@ -167,6 +167,12 @@ AggregatorV3Interface public immutable priceFeed;
         _;
     }
 
+    modifier onlyArbitrationService() {
+        if (arbitrationService == address(0)) revert ArbitrationNotConfigured();
+        if (msg.sender != arbitrationService) revert OnlyArbitrator();
+        _;
+    }
+
     function payRent(uint256 amount) external onlyTenant onlyActive onlyFullySigned {
         if (amount < rentAmount) revert AmountTooLow();
         rentPaid = true;
@@ -257,37 +263,8 @@ function getRentInEth() public view returns (uint256) {
         emit DueDateUpdated(timestamp);
     }
 
-    // contracts/Rent/TemplateRentContract.sol - תיקון ה-cancelContract
-function cancelContract() external {
-    if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
-    if (!active) revert AlreadyInactive();
-    // Backward-compat immediate cancellation only when policy allows (no notice, no fee, no mutual)
-    if (!requireMutualCancel && noticePeriod == 0 && earlyTerminationFeeBps == 0) {
-        active = false;
-        emit ContractCancelled(msg.sender);
-        return;
-    }
-    // Otherwise, treat as initiate request if not already requested
-    if (!cancelRequested) {
-        cancelRequested = true;
-        cancelInitiator = msg.sender;
-        cancelEffectiveAt = block.timestamp + noticePeriod;
-        cancelApprovals[msg.sender] = true;
-        emit CancellationInitiated(msg.sender, cancelEffectiveAt);
-        // If mutual is not required and no notice, finalize immediately
-        if (!requireMutualCancel && noticePeriod == 0) {
-            _finalizeCancellationNoFeePath();
-        }
-        return;
-    }
-    // If already requested and mutual is required, an opposite-party call acts as approval and finalizes
-    if (requireMutualCancel && msg.sender != cancelInitiator && !cancelApprovals[msg.sender]) {
-        cancelApprovals[msg.sender] = true;
-        emit CancellationApproved(msg.sender);
-        _finalizeCancellationNoFeePath();
-        return;
-    }
-}
+    // Direct `cancelContract` removed. Use `initiateCancellation` / `approveCancellation` +
+    // finalization via the configured `ArbitrationService`.
 
         /// @notice Hash (EIP712 typed data) for the contract's core terms that are being signed.
         function hashMessage() public view returns (bytes32) {
@@ -338,54 +315,45 @@ function cancelContract() external {
     }
 
     function initiateCancellation() external onlyActive {
-    if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
-    if (cancelRequested) revert CancelAlreadyRequested();
+        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+        if (cancelRequested) revert CancelAlreadyRequested();
         cancelRequested = true;
         cancelInitiator = msg.sender;
         cancelEffectiveAt = block.timestamp + noticePeriod;
         cancelApprovals[msg.sender] = true;
         emit CancellationInitiated(msg.sender, cancelEffectiveAt);
-        if (!requireMutualCancel && noticePeriod == 0) {
-            _finalizeCancellationNoFeePath();
-        }
     }
 
     function approveCancellation() external onlyActive {
-    if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
-    if (!cancelRequested) revert CancelNotRequested();
-    if (msg.sender == cancelInitiator) revert NotInitiator();
-    if (cancelApprovals[msg.sender]) revert AlreadyApproved();
-        cancelApprovals[msg.sender] = true;
-        emit CancellationApproved(msg.sender);
-        if (requireMutualCancel) {
-            _finalizeCancellationNoFeePath();
-        } else if (noticePeriod == 0) {
-            _finalizeCancellationNoFeePath();
-        }
-    }
-
-    function finalizeCancellation() external payable onlyActive {
         if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
         if (!cancelRequested) revert CancelNotRequested();
-        if (requireMutualCancel) {
-            if (!(cancelApprovals[landlord] && cancelApprovals[tenant])) revert BothMustApprove();
-            _finalizeCancellationNoFeePath();
-            return;
-        }
-        if (block.timestamp < cancelEffectiveAt) revert NoticeNotElapsed();
-        // Unilateral path: optional early termination fee
+        if (msg.sender == cancelInitiator) revert NotInitiator();
+        if (cancelApprovals[msg.sender]) revert AlreadyApproved();
+        cancelApprovals[msg.sender] = true;
+        emit CancellationApproved(msg.sender);
+    }
+
+    /// @notice Finalize cancellation — must be called by the configured arbitration service.
+    /// The arbitration service may finalize regardless of notice or mutual settings.
+    function finalizeCancellation() external payable onlyActive onlyArbitrationService {
+        if (!cancelRequested) revert CancelNotRequested();
+
+        // Handle optional early termination fee — arbitrator provides payment in msg.value if needed
         uint256 fee = 0;
         if (earlyTerminationFeeBps > 0) {
             uint256 requiredEth = getRentInEth();
             fee = (requiredEth * uint256(earlyTerminationFeeBps)) / 10_000;
             if (msg.value < fee) revert InsufficientFee();
-            address counterparty = msg.sender == landlord ? tenant : landlord;
+            // pay counterparty (the other party than cancelInitiator)
+            address counterparty = cancelInitiator == landlord ? tenant : landlord;
             if (fee > 0) {
                 (bool sent, ) = payable(counterparty).call{value: fee}("");
                 if (!sent) revert FeeTransferFailed();
                 emit EarlyTerminationFeePaid(msg.sender, fee, counterparty);
             }
         }
+
+        // finalize
         _finalizeCancellationStateOnly();
     }
 
@@ -394,9 +362,16 @@ function cancelContract() external {
     }
 
     function _finalizeCancellationStateOnly() internal {
-    if (!active) revert AlreadyInactive();
+        if (!active) revert AlreadyInactive();
         active = false;
-        emit ContractCancelled(msg.sender);
+        // clear cancellation state
+        cancelRequested = false;
+        cancelApprovals[landlord] = false;
+        cancelApprovals[tenant] = false;
+        address initiator = cancelInitiator;
+        cancelInitiator = address(0);
+        cancelEffectiveAt = 0;
+        emit ContractCancelled(initiator == address(0) ? msg.sender : initiator);
         emit CancellationFinalized(msg.sender);
     }
 
@@ -480,10 +455,7 @@ function cancelContract() external {
         address beneficiary,
         string calldata classification,
         string calldata rationale
-    ) external onlyActive {
-        // Only the configured arbitration service may call this entrypoint
-        require(arbitrationService != address(0), "No arbitration service");
-        require(msg.sender == arbitrationService, "Only arbitration service");
+    ) external onlyActive onlyArbitrationService {
         _resolveDisputeFinal(caseId, approve, appliedAmount, beneficiary, classification, rationale);
     }
 
