@@ -24,7 +24,18 @@ export function EthersProvider({ children }) {
           });
           
           if (accounts.length > 0) {
-            await connectWallet();
+            // If the user is already connected in the wallet, set up signer/account without prompting
+            try {
+              const web3Signer = await web3Provider.getSigner(accounts[0]);
+              setSigner(web3Signer);
+              setAccount(accounts[0]);
+              const net = await web3Provider.getNetwork();
+              setChainId(Number(net.chainId));
+              setIsConnected(true);
+            } catch (e) {
+              // fallback to connectWallet if signer cannot be acquired
+              await connectWallet();
+            }
           }
         } catch (error) {
           console.error('Error initializing provider:', error);
@@ -51,17 +62,62 @@ export function EthersProvider({ children }) {
 
   const handleAccountsChanged = (accounts) => {
     if (accounts.length === 0) {
+      // Wallet disconnected in MetaMask UI
       disconnectWallet();
     } else {
-  const addr = accounts[0];
-  setAccount(addr);
-  updateSigner(addr);
+      const addr = accounts[0];
+      // Update account and signer immediately to refresh UI across components
+      setAccount(addr);
+      setIsConnected(true);
+      // Update signer using the currently cached provider or a fresh one
+      (async () => {
+        try {
+          let usedProvider = provider;
+          if (!usedProvider && typeof window !== 'undefined' && window.ethereum) {
+            usedProvider = new ethers.BrowserProvider(window.ethereum);
+            setProvider(usedProvider);
+          }
+          if (usedProvider) {
+            const web3Signer = await usedProvider.getSigner(addr);
+            setSigner(web3Signer);
+            // update chainId too
+            const net = await usedProvider.getNetwork();
+            setChainId(Number(net.chainId));
+          }
+        } catch (err) {
+          console.error('Error updating signer on accountsChanged:', err);
+        }
+      })();
     }
   };
 
   const handleChainChanged = (chainId) => {
-    setChainId(parseInt(chainId, 16));
-    window.location.reload();
+    const parsed = parseInt(chainId, 16);
+    setChainId(parsed);
+    // Update provider/signer to new chain if possible, and let consumers react.
+    (async () => {
+      try {
+        if (typeof window !== 'undefined' && window.ethereum) {
+          const web3Provider = new ethers.BrowserProvider(window.ethereum);
+          setProvider(web3Provider);
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+          if (accounts && accounts[0]) {
+            const web3Signer = await web3Provider.getSigner(accounts[0]);
+            setSigner(web3Signer);
+            setAccount(accounts[0]);
+            setIsConnected(true);
+          } else {
+            setSigner(null);
+            setAccount(null);
+            setIsConnected(false);
+          }
+        }
+      } catch (e) {
+        console.error('Error handling chainChanged:', e);
+        // fallback to hard reload if state is inconsistent
+        window.location.reload();
+      }
+    })();
   };
 
   const connectWallet = async () => {
@@ -126,6 +182,31 @@ export function EthersProvider({ children }) {
     }
   };
 
+  // Expose a small `refresh` function so other components can trigger a re-sync of provider/signer
+  const refresh = async () => {
+    try {
+      if (typeof window !== 'undefined' && window.ethereum) {
+        const web3Provider = new ethers.BrowserProvider(window.ethereum);
+        setProvider(web3Provider);
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+        if (accounts && accounts[0]) {
+          const web3Signer = await web3Provider.getSigner(accounts[0]);
+          setSigner(web3Signer);
+          setAccount(accounts[0]);
+          const net = await web3Provider.getNetwork();
+          setChainId(Number(net.chainId));
+          setIsConnected(true);
+        } else {
+          setSigner(null);
+          setAccount(null);
+          setIsConnected(false);
+        }
+      }
+    } catch (e) {
+      console.error('Error refreshing provider/signer:', e);
+    }
+  };
+
   const value = {
     provider,
     signer,
@@ -136,6 +217,7 @@ export function EthersProvider({ children }) {
     isConnecting, // הוספתי את זה ל-context
     connectWallet,
     disconnectWallet
+    ,refresh
   };
 
   return (

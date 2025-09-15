@@ -1,6 +1,11 @@
 import './About.css';
+import '../../styles/notAllowed.css';
+import { useEthers } from '../../contexts/EthersContext';
 
 function About() {
+  const { account } = useEthers();
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   return (
     <div className="about-page">
       <div className="page-header">
@@ -72,18 +77,30 @@ function About() {
         <div className="about-section">
           <h2>Get Started</h2>
           <div className="cta-buttons">
-            <button 
-              className="btn-primary"
-              onClick={() => window.location.href = '/create-rent'}
-            >
-              Create Your First Contract
-            </button>
-            <button 
-              className="btn-secondary"
-              onClick={() => window.location.href = '/dashboard'}
-            >
-              View Dashboard
-            </button>
+            {!isAdmin ? (
+              <>
+                <button 
+                  className="btn-primary"
+                  onClick={() => window.location.href = '/create'}
+                >
+                  Create Your First Contract
+                </button>
+                <button 
+                  className="btn-secondary"
+                  onClick={() => window.location.href = '/dashboard'}
+                >
+                  View Dashboard
+                </button>
+              </>
+            ) : (
+              // Platform admin: hide creation CTA but keep access to dashboard
+              <button 
+                className="btn-secondary"
+                onClick={() => window.location.href = '/dashboard'}
+              >
+                View Dashboard
+              </button>
+            )}
           </div>
         </div>
       </div>

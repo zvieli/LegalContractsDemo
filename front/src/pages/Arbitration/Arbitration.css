@@ -23,3 +23,120 @@
   border-radius: 8px;
   box-shadow: var(--shadow);
 }
+
+/* Page header */
+.page-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+.page-header h1 {
+  font-size: 2.1rem;
+  margin: 0 0 0.25rem 0;
+}
+.page-header p {
+  color: #6b7280;
+  margin: 0;
+}
+
+/* Stat cards */
+.stat-card {
+  display: flex;
+  align-items: center;
+  background: #fff;
+  padding: 1.25rem;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(16,24,40,0.06);
+}
+.stat-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(180deg,#e6f0ff,#d7e9ff);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin-right: 1rem;
+  color: #1e3a8a;
+  font-size: 20px;
+}
+.stat-content h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+.stat-content p { margin: 0; color:#6b7280; }
+
+/* Disputes section */
+.disputes-section { margin-top: 1rem; }
+.disputes-section .section-top { display:flex; align-items:center; justify-content:space-between; }
+
+.dispute-card {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 1rem;
+  align-items: start;
+}
+.dispute-header {
+  grid-column: 1 / -1;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom: 0.5rem;
+}
+.dispute-id { font-weight:600; color:#0f172a; }
+.status-badge {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  text-transform:capitalize;
+}
+.status-badge.pending { background:#fff7ed; color:#92400e; border:1px solid #fcd34d; }
+.status-badge.resolved { background:#ecfdf5; color:#065f46; border:1px solid #10b981; }
+.status-badge.unknown { background:#eef2ff; color:#1e3a8a; border:1px solid #c7d2fe; }
+
+.dispute-details p { margin: 6px 0; color:#111827; }
+
+.dispute-actions {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  justify-self:end;
+}
+.dispute-actions .btn-sm { min-width:140px; }
+
+/* Refresh button alignment */
+.disputes-section > div > div button { margin-left: 8px; }
+
+/* Empty/loading states */
+.loading-state, .empty-state { text-align:center; padding:2rem; color:#6b7280; }
+.empty-state i { font-size:36px; color:#3b82f6; margin-bottom:8px; display:block; }
+
+@media (max-width: 800px) {
+  .dispute-card { grid-template-columns: 1fr; }
+  .dispute-actions { flex-direction:row; justify-content:flex-start; }
+}
+
+/* Arbitration prompt modal */
+.arb-prompt-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2,6,23,0.6);
+  z-index: 1200;
+  padding: 24px;
+}
+.arb-prompt-inner {
+  background: var(--bg, #0b1220);
+  color: #e6eef8;
+  max-width: 640px;
+  width: 100%;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(2,6,23,0.6);
+}
+.arb-prompt-inner h3 { margin:0 0 8px 0; }
+.arb-prompt-inner p { margin:0 0 12px 0; color: #cbd5e1; }
+.arb-prompt-inner input { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.06); color: #e6eef8; }
+.arb-prompt-inner .btn-primary { background: #60a5fa; color: #07203b; padding: 8px 14px; border-radius:6px; border:none; }
+.arb-prompt-inner .btn-secondary { background: transparent; color: #cbd5e1; padding: 8px 14px; border-radius:6px; border:1px solid rgba(255,255,255,0.06); }

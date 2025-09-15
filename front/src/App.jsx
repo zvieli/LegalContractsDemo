@@ -7,7 +7,6 @@ import CreateRent from './pages/CreateRent/CreateRent';
 import CreateNDA from './pages/CreateNDA/CreateNDA';
 import Arbitration from './pages/Arbitration/Arbitration';
 import About from './pages/About/About';
-import Platform from './pages/Platform/Platform';
 import './App.css';
 
 function App() {
@@ -18,7 +17,7 @@ function App() {
     // Simple frontend guard for admin-only pages. This is purely UI-level; on-chain
     // permissions remain authoritative. If not admin, redirect to Home for protected routes.
     const admin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-    const isProtected = ['/arbitration', '/platform'].includes(currentPath);
+    const isProtected = ['/arbitration'].includes(currentPath);
     if (isProtected && admin) {
       try {
         const accounts = (window.ethereum && window.ethereum.request) ? (window.ethereum.request({ method: 'eth_accounts' }) || []) : [];
@@ -28,21 +27,10 @@ function App() {
       } catch (_) {}
     }
 
-    // If on root and admin is configured and selected in wallet, redirect to /platform
-    try {
-      const admin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-      if (currentPath === '/' && admin && window.ethereum && window.ethereum.request) {
-        window.ethereum.request({ method: 'eth_accounts' }).then(accounts => {
-          if (accounts && accounts[0] && accounts[0].toLowerCase() === admin.toLowerCase()) {
-            if (window.location.pathname !== '/platform') window.history.replaceState(null, '', '/platform');
-          }
-        }).catch(() => {});
-      }
-    } catch (_) {}
+    // No platform redirect — platform page is removed per user request
 
     switch (currentPath) {
-      case '/platform':
-        return <Platform />;
+      
       case '/dashboard':
         return <Dashboard />;
       case '/create-rent':

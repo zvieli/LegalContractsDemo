@@ -4,6 +4,7 @@ import { ContractService } from '../../services/contractService';
 import { ethers } from 'ethers';
 import mockContracts from '../../utils/contracts/MockContracts.json';
 import './CreateRent.css';
+import '../../styles/notAllowed.css';
 
 function CreateRent() {
   // Mock Price Feed (loaded via static import so bundler includes it)
@@ -11,6 +12,8 @@ function CreateRent() {
   console.log('mockPriceFeedAddress:', mockPriceFeedAddress);
 
   const { account, signer, isConnected, chainId } = useEthers();
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     tenantAddress: '',
@@ -266,6 +269,19 @@ function CreateRent() {
           <i className="fas fa-wallet"></i>
           <h2>Connect Your Wallet</h2>
           <p>Please connect your wallet to create a rental contract</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If connected account is the configured platform admin, disallow creation via UI
+  if (isAdmin) {
+    return (
+      <div className="create-rent-page">
+        <div className="not-allowed">
+          <i className="fas fa-ban"></i>
+          <h2>Action Not Allowed</h2>
+          <p>The connected account is registered as the platform admin and cannot create Rental contracts through this UI.</p>
         </div>
       </div>
     );

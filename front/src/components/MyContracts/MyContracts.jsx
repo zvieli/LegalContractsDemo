@@ -1,13 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
+import { ethers } from 'ethers';
+import { getContractABI } from '../../utils/contracts';
 import './MyContracts.css';
+import ContractModal from '../ContractModal/ContractModal';
 
 export default function MyContracts() {
   const { signer, chainId, account, isConnected } = useEthers();
   const [contracts, setContracts] = useState([]); // raw addresses
   const [details, setDetails] = useState({}); // address -> detail object
   const [loading, setLoading] = useState(false);
+  const [selectedContract, setSelectedContract] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalReadOnly, setModalReadOnly] = useState(false);
 
   useEffect(() => {
     if (!isConnected) return;
@@ -19,7 +25,28 @@ export default function MyContracts() {
         setLoading(true);
         const addr = account;
         const factory = await svc.getFactoryContract();
-        const list = await factory.getContractsByCreatorPaged(addr, 0, 50);
+
+        // If platform admin, fetch a page of ALL contracts using a local JSON-RPC provider
+        const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+        const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+        let list = [];
+        if (isAdmin) {
+          try {
+            const factoryAddr = factory.target || factory.address || null;
+            const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+            if (factoryAddr) {
+              const localFactory = new ethers.Contract(factoryAddr, getContractABI('ContractFactory'), rpc);
+              const total = Number(await localFactory.getAllContractsCount().catch(() => 0));
+              const pageSize = Math.min(total, 50);
+              list = pageSize > 0 ? await localFactory.getAllContractsPaged(0, pageSize).catch(() => []) : [];
+            }
+          } catch (e) {
+            console.warn('Admin branch failed to read all contracts via RPC:', e);
+            list = [];
+          }
+        } else {
+          list = await factory.getContractsByCreatorPaged(addr, 0, 50);
+        }
         if (!mounted) return;
         setContracts(list || []);
 
@@ -75,15 +102,24 @@ export default function MyContracts() {
 
   return (
     <div className="my-contracts">
-      <h3>My Contracts</h3>
+  <h3>{isAdmin ? 'Platform Contracts (Admin View)' : 'My Contracts'}</h3>
       {loading && <p>Loading...</p>}
       {!loading && contracts.length === 0 && (
         <div className="empty-state">
-          <p>No contracts found</p>
-          {!isAdmin && (
-            <div className="empty-actions">
-              <button className="btn-primary" onClick={() => { window.location.href = '/create'; }}>Create Contract</button>
-            </div>
+          {isAdmin ? (
+            <>
+              <p>No contracts currently flagged for this admin view.</p>
+              <div className="empty-actions">
+                <button className="btn-primary" onClick={() => { window.location.href = '/dashboard'; }}>View All Contracts</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>No contracts found</p>
+              <div className="empty-actions">
+                <button className="btn-primary" onClick={() => { window.location.href = '/create'; }}>Create Contract</button>
+              </div>
+            </>
           )}
         </div>
       )}
@@ -109,6 +145,16 @@ export default function MyContracts() {
                   <p>Amount: {d.amount} ETH</p>
                   <p>Status: {d.status}</p>
                 </div>
+                <div className="contract-actions">
+                  <button className="btn-sm outline" onClick={() => { setSelectedContract(d.address); setModalReadOnly(true); setIsModalOpen(true); }}>
+                    <i className="fas fa-eye"></i> View
+                  </button>
+                  {!isAdmin && (
+                    <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
+                      <i className="fas fa-edit"></i> Manage
+                    </button>
+                  )}
+                </div>
               </li>
             );
           }
@@ -125,6 +171,16 @@ export default function MyContracts() {
                   <p>Min deposit: {d.minDeposit} ETH</p>
                   <p>Fully signed: {d.fullySigned ? 'Yes' : 'No'}</p>
                 </div>
+                <div className="contract-actions">
+                  <button className="btn-sm outline" onClick={() => { setSelectedContract(d.address); setModalReadOnly(true); setIsModalOpen(true); }}>
+                    <i className="fas fa-eye"></i> View
+                  </button>
+                  {!isAdmin && (
+                    <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
+                      <i className="fas fa-edit"></i> Manage
+                    </button>
+                  )}
+                </div>
               </li>
             );
           }
@@ -135,10 +191,21 @@ export default function MyContracts() {
               <div className="contract-info">
                 <h4>{d.type} • {d.address}</h4>
               </div>
+              <div className="contract-actions">
+                <button className="btn-sm outline" onClick={() => { setSelectedContract(d.address); setModalReadOnly(true); setIsModalOpen(true); }}>
+                  <i className="fas fa-eye"></i> View
+                </button>
+                {!isAdmin && (
+                  <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
+                    <i className="fas fa-edit"></i> Manage
+                  </button>
+                )}
+              </div>
             </li>
           );
         })}
       </ul>
+      <ContractModal contractAddress={selectedContract} isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setSelectedContract(null); }} readOnly={modalReadOnly} />
     </div>
   );
 }

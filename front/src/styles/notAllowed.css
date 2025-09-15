@@ -1,0 +1,43 @@
+/* Shared styles for the 'Action Not Allowed' / blocked UI */
+.not-allowed {
+  max-width: 760px;
+  margin: 48px auto;
+  padding: 32px 28px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(15, 23, 42, 0.04);
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.not-allowed i.fas.fa-ban {
+  font-size: 36px;
+  color: #ef4444; /* red-500 */
+  margin-top: 4px;
+}
+
+.not-allowed h2 {
+  margin: 0 0 6px 0;
+  font-size: 22px; /* larger, clearer */
+  color: #111827; /* gray-900 */
+}
+
+.not-allowed p {
+  margin: 0;
+  color: #374151; /* gray-700 */
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.not-allowed.small {
+  max-width: 520px;
+  padding: 20px;
+}
+
+.not-allowed .hint {
+  margin-top: 8px;
+  color: #6b7280; /* gray-500 */
+  font-size: 13px;
+}

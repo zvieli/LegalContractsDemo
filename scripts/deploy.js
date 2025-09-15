@@ -28,8 +28,48 @@ async function main() {
   // Set DEPLOY_MOCKS=true in env to enable mock deployment.
   let mockTokenAddress = null;
   let mockPriceAddress = null;
-  const deployMocks = String(process.env.DEPLOY_MOCKS || '').toLowerCase() === 'true';
-  if (deployMocks) {
+  // Allow explicit override via DEPLOY_MOCKS env var. If not set, default to
+  // deploying mocks on local networks to ensure frontend MockContracts.json
+  // contains usable mock addresses for development.
+  const envDeployMocks = process.env.DEPLOY_MOCKS;
+  let deployMocks = String(envDeployMocks ?? '').toLowerCase() === 'true';
+  if (typeof envDeployMocks === 'undefined') {
+    const localNames = ['localhost', 'hardhat'];
+    if (localNames.includes(network.name) || Number(process.env.CHAIN_ID) === 31337) {
+      deployMocks = true;
+      console.log('ℹ️  DEPLOY_MOCKS not set - defaulting to true on local network to populate MockContracts.json');
+    }
+  }
+
+  // Ensure frontend contracts dir exists early so we can inspect existing MockContracts.json
+  const frontendContractsDir = path.join(
+    __dirname,
+    "../front/src/utils/contracts"
+  );
+  if (!fs.existsSync(frontendContractsDir)) {
+    fs.mkdirSync(frontendContractsDir, { recursive: true });
+  }
+
+  // If DEPLOY_MOCKS is not explicitly true, but the frontend MockContracts.json exists
+  // and is missing mock addresses, auto-enable mock deployment so we populate the file.
+  let shouldDeployMocks = deployMocks;
+  try {
+    const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
+    if (!deployMocks && fs.existsSync(mockContractsPath)) {
+      const existing = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {};
+      const mp = existing?.contracts?.MockPriceFeed ?? null;
+      const me = existing?.contracts?.MockERC20 ?? null;
+      if (!mp || !me) {
+        console.log('ℹ️  MockContracts.json missing mock addresses; enabling mock deployment to populate them');
+        shouldDeployMocks = true;
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️  Could not inspect existing MockContracts.json:', e.message || e);
+  }
+
+  if (shouldDeployMocks) {
+    console.log("📦 Deploying mock tokens and price feed...");
     console.log("📦 Deploying mock tokens and price feed...");
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     const mockToken = await MockERC20.deploy("Mock Token", "MCK", ethers.parseUnits("1000000", 18));
@@ -56,14 +96,6 @@ async function main() {
   // פה תוכל להוסיף חוזים נוספים אם תפרוס אותם
     },
   };
-
-  const frontendContractsDir = path.join(
-    __dirname,
-    "../front/src/utils/contracts"
-  );
-  if (!fs.existsSync(frontendContractsDir)) {
-    fs.mkdirSync(frontendContractsDir, { recursive: true });
-  }
 
   const deploymentFile = path.join(frontendContractsDir, "ContractFactory.json");
   fs.writeFileSync(deploymentFile, JSON.stringify(deploymentData, null, 2));
@@ -116,6 +148,22 @@ async function main() {
         console.log("💾 Updated ContractFactory.json with ArbitrationService address");
       } catch (err) {
         console.warn("⚠️  Could not update ContractFactory.json with ArbitrationService address:", err.message || err);
+      }
+      
+      // Also merge the ArbitrationService address into MockContracts.json so the frontend
+      // can automatically pick it up when using the local dev environment.
+      try {
+        const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
+        let existingMock = {};
+        if (fs.existsSync(mockContractsPath)) {
+          try { existingMock = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {}; } catch (e) { existingMock = {}; }
+        }
+        existingMock.contracts = existingMock.contracts || {};
+        existingMock.contracts.ArbitrationService = arbitrationServiceAddress;
+        fs.writeFileSync(mockContractsPath, JSON.stringify(existingMock, null, 2));
+        console.log('💾 Updated MockContracts.json with ArbitrationService address');
+      } catch (err) {
+        console.warn('⚠️  Could not update MockContracts.json with ArbitrationService address:', err.message || err);
       }
     } catch (err) {
       console.warn('⚠️  ArbitrationService deploy failed:', err.message || err);
@@ -209,17 +257,20 @@ async function main() {
   console.log("💾 Writing MockContracts.json for frontend...");
 
   try {
-    const mockContracts = {
-      contracts: {
-        MockPriceFeed: mockPriceAddress,
-        MockERC20: mockTokenAddress,
-        ContractFactory: factoryAddress
-      },
-    };
-
     const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
-    fs.writeFileSync(mockContractsPath, JSON.stringify(mockContracts, null, 2));
-    console.log("✅ MockContracts.json written to frontend:", mockContractsPath);
+    let existing = {};
+    if (fs.existsSync(mockContractsPath)) {
+      try { existing = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {}; } catch (e) { existing = {}; }
+    }
+
+    existing.contracts = existing.contracts || {};
+    // Only set values that are available (null means not deployed)
+    if (mockPriceAddress) existing.contracts.MockPriceFeed = mockPriceAddress;
+    if (mockTokenAddress) existing.contracts.MockERC20 = mockTokenAddress;
+    existing.contracts.ContractFactory = existing.contracts.ContractFactory || factoryAddress;
+
+    fs.writeFileSync(mockContractsPath, JSON.stringify(existing, null, 2));
+    console.log("✅ MockContracts.json written/updated to frontend:", mockContractsPath);
   } catch (err) {
     console.error("⚠️  Could not write MockContracts.json to frontend:", err.message);
   }

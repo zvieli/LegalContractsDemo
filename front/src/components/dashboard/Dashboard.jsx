@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ContractService } from '../../services/contractService';
@@ -23,6 +23,7 @@ function Dashboard() {
   });
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalReadOnly, setModalReadOnly] = useState(false);
   const [filterType, setFilterType] = useState('All');
   // AI features removed: simulation/stubs intentionally removed from UI
 
@@ -72,10 +73,65 @@ function Dashboard() {
         loadUserContracts();
       });
 
+      // Also listen for cancellation-related events on any newly created rent contract
+      factoryContract.on('RentContractCreated', async (contractAddress) => {
+        // Attach listeners for newly created contract so dashboard refreshes
+        try {
+          attachListenersToAddresses([String(contractAddress)]);
+        } catch (e) {
+          console.warn('Failed to attach per-contract cancellation listeners for created contract', e);
+        }
+      });
+
     } catch (error) {
       console.error('Error setting up event listeners:', error);
     }
   };
+
+  // track per-contract listener instances for cleanup
+  const contractListenersRef = useRef({});
+
+  const attachListenersToAddresses = async (addresses = []) => {
+    try {
+      const rentAbi = getContractABI('TemplateRentContract');
+      const provider = signer.provider || new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      for (const addr of addresses) {
+        const a = String(addr).toLowerCase?.() ?? addr;
+        if (!a) continue;
+        if (contractListenersRef.current[a]) continue; // already listening
+        try {
+          const inst = new ethers.Contract(a, rentAbi, provider);
+          const refresh = () => loadUserContracts();
+          inst.on('CancellationInitiated', refresh);
+          inst.on('CancellationApproved', refresh);
+          inst.on('CancellationFinalized', refresh);
+          inst.on('ContractCancelled', refresh);
+          contractListenersRef.current[a] = { inst, refresh };
+        } catch (e) {
+          console.warn('attachListenersToAddresses failed for', a, e);
+        }
+      }
+    } catch (e) {
+      console.warn('attachListenersToAddresses general failure', e);
+    }
+  };
+
+  // cleanup on unmount
+  useEffect(() => {
+    return () => {
+      try {
+        Object.values(contractListenersRef.current).forEach(({ inst, refresh }) => {
+          try {
+            inst.removeAllListeners('CancellationInitiated');
+            inst.removeAllListeners('CancellationApproved');
+            inst.removeAllListeners('CancellationFinalized');
+            inst.removeAllListeners('ContractCancelled');
+          } catch (_) {}
+        });
+        contractListenersRef.current = {};
+      } catch (_) {}
+    };
+  }, []);
 
   // טעינת כל החוזים של המשתמש
   const loadUserContracts = async () => {
@@ -243,11 +299,13 @@ function Dashboard() {
 
   const handleViewContract = (contractAddress) => {
     setSelectedContract(contractAddress);
+    setModalReadOnly(true);
     setIsModalOpen(true);
   };
 
   const handleManageContract = (contractAddress) => {
     setSelectedContract(contractAddress);
+    setModalReadOnly(false);
     setIsModalOpen(true);
   };
 
@@ -423,12 +481,14 @@ function Dashboard() {
                   >
                     <i className="fas fa-eye"></i> View
                   </button>
-                  <button 
-                    className="btn-sm primary"
-                    onClick={() => handleManageContract(contract.address)}
-                  >
-                    <i className="fas fa-edit"></i> Manage
-                  </button>
+                  {!isAdmin && (
+                    <button 
+                      className="btn-sm primary"
+                      onClick={() => handleManageContract(contract.address)}
+                    >
+                      <i className="fas fa-edit"></i> Manage
+                    </button>
+                  )}
                 </div>
               </div>
             ))
@@ -443,6 +503,7 @@ function Dashboard() {
         contractAddress={selectedContract}
         isOpen={isModalOpen}
         onClose={closeModal}
+        readOnly={modalReadOnly}
       />
     </div>
   );

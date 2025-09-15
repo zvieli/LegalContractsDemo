@@ -1,7 +1,11 @@
 import './Home.css';
 import MyContracts from '../../components/MyContracts/MyContracts';
+import { useEthers } from '../../contexts/EthersContext';
 
 function Home() {
+  const { account } = useEthers();
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const features = [
     {
       icon: 'fas fa-lock',
@@ -44,10 +48,12 @@ function Home() {
             <h1>Welcome to LegalContracts</h1>
             <p>Create and manage smart legal contracts on the blockchain - simple, secure, and transparent</p>
             <div className="cta-buttons">
-              <button className="btn btn-primary" onClick={() => { window.location.href = '/create'; }}>
-                <i className="fas fa-plus"></i>
-                Create New Contract
-              </button>
+              {!isAdmin && (
+                <button className="btn btn-primary" onClick={() => { window.location.href = '/create'; }}>
+                  <i className="fas fa-plus"></i>
+                  Create New Contract
+                </button>
+              )}
               <button className="btn btn-secondary" onClick={() => { window.location.href = '/dashboard'; }}>
                 <i className="fas fa-file-alt"></i>
                 Browse Contracts

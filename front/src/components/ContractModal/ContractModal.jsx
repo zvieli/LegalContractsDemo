@@ -6,7 +6,7 @@ import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
 import './ContractModal.css';
 
-function ContractModal({ contractAddress, isOpen, onClose }) {
+function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const { signer, chainId, account, provider } = useEthers();
   const [contractDetails, setContractDetails] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -241,6 +241,38 @@ function ContractModal({ contractAddress, isOpen, onClose }) {
       setLoading(false);
     }
   };
+
+  // Attach live event listeners for the currently-open contract to refresh modal state
+  useEffect(() => {
+    if (!isOpen || !contractAddress || !signer) return;
+    let inst = null;
+    let provider = signer.provider || provider;
+    const setup = async () => {
+      try {
+        const svc = new ContractService(signer, chainId);
+        inst = await svc.getRentContract(contractAddress).catch(() => null);
+        if (!inst) return;
+        const refresh = () => loadContractData();
+        inst.on && inst.on('CancellationInitiated', refresh);
+        inst.on && inst.on('CancellationApproved', refresh);
+        inst.on && inst.on('CancellationFinalized', refresh);
+        inst.on && inst.on('ContractCancelled', refresh);
+      } catch (e) {
+        // ignore
+      }
+    };
+    setup();
+    return () => {
+      try {
+        if (inst && inst.removeAllListeners) {
+          inst.removeAllListeners('CancellationInitiated');
+          inst.removeAllListeners('CancellationApproved');
+          inst.removeAllListeners('CancellationFinalized');
+          inst.removeAllListeners('ContractCancelled');
+        }
+      } catch (_) {}
+    };
+  }, [isOpen, contractAddress, signer]);
 
   // Compute fee due (ETH) from policy and requiredEthWei
   useEffect(() => {
@@ -606,21 +638,23 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             <i className="fas fa-info-circle"></i>
             Details
           </button>
-          {contractDetails?.type === 'Rental' && (
+          {/* Show payments/actions only when NOT readOnly */}
+          {!readOnly && contractDetails?.type === 'Rental' && (
           <button 
             className={activeTab === 'payments' ? 'active' : ''}
             onClick={() => setActiveTab('payments')}
           >
             <i className="fas fa-money-bill-wave"></i>
             Payments
-          </button>) }
+          </button>)}
+          {!readOnly && (
           <button 
             className={activeTab === 'actions' ? 'active' : ''}
             onClick={() => setActiveTab('actions')}
           >
             <i className="fas fa-cog"></i>
             Actions
-          </button>
+          </button>)}
         </div>
 
         {loading ? (
@@ -770,19 +804,19 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       placeholder="Amount in ETH"
                       value={paymentAmount}
                       onChange={(e) => setPaymentAmount(e.target.value)}
-                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
+                        disabled={readOnly || actionLoading || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
                     />
                     {!isTenant && <small className="muted">Switch wallet to the tenant address shown above.</small>}
                     <button 
                       onClick={handlePayRent}
-                      disabled={actionLoading || !paymentAmount || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
+                        disabled={readOnly || actionLoading || !paymentAmount || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
                       className="btn-primary"
                     >
                       {actionLoading ? 'Processing...' : 'Pay Rent'}
                     </button>
                     <button 
                       onClick={() => setPaymentAmount(requiredEth || '')}
-                      disabled={actionLoading || !contractDetails.isActive || !isTenant || !requiredEth || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
+                      disabled={readOnly || actionLoading || !contractDetails.isActive || !isTenant || !requiredEth || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
                       className="btn-secondary"
                     >
                       Use required amount
@@ -816,7 +850,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
                         <button 
                           onClick={handleRentSign}
-                          disabled={rentSigning || !rentCanSign}
+                          disabled={readOnly || rentSigning || !rentCanSign}
                           className="btn-action primary"
                         >
                           {rentSigning ? 'Signing...' : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
@@ -836,7 +870,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                   ) : (
                     <button 
                       onClick={handleNdaDeactivate}
-                      disabled={actionLoading || !contractDetails.isActive}
+                      disabled={readOnly || actionLoading || !contractDetails.isActive}
                       className="btn-action danger"
                     >
                       <i className="fas fa-ban"></i>
@@ -913,7 +947,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             <input type="checkbox" checked={policyDraft.mutual} onChange={e => setPolicyDraft(s => ({...s, mutual: e.target.checked}))} />
                           </div>
                         </div>
-                        <button className="btn-action" disabled={actionLoading} onClick={handleSetPolicy}>Save Policy</button>
+                        <button className="btn-action" disabled={readOnly || actionLoading} onClick={handleSetPolicy}>Save Policy</button>
                       </div>
                     )}
 

@@ -3,6 +3,17 @@ import './CreateChoice.css';
 
 function CreateChoice() {
   const [selected, setSelected] = useState(null);
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  // Note: account is not available in this lightweight page, so we rely on injected global
+  // EthersContext would be more reliable, but to keep changes minimal we read from window.ethereum
+  let isAdmin = false;
+  try {
+    const accounts = (typeof window !== 'undefined' && window.ethereum && window.ethereum.selectedAddress) ? [window.ethereum.selectedAddress] : [];
+    const acct = accounts && accounts.length ? accounts[0] : null;
+    isAdmin = platformAdmin && acct && acct.toLowerCase() === platformAdmin.toLowerCase();
+  } catch (_) {
+    isAdmin = false;
+  }
 
   const contractTypes = [
     {
@@ -43,24 +54,32 @@ function CreateChoice() {
         </div>
 
         <div className="contract-types">
-          {contractTypes.map((type) => (
-            <div 
-              key={type.id}
-              className={`contract-card ${selected === type.id ? 'selected' : ''}`}
-              onClick={() => handleSelect(type)}
-              style={{ '--accent-color': type.color }}
-            >
-              <div className="card-icon">
-                <i className={type.icon}></i>
-              </div>
-              <h3>{type.title}</h3>
-              <p>{type.description}</p>
-              <div className="select-button">
-                <span>Select</span>
-                <i className="fas fa-arrow-right"></i>
-              </div>
+          {isAdmin ? (
+            <div className="not-allowed">
+              <i className="fas fa-ban"></i>
+              <h3>Creation Disabled</h3>
+              <p>The connected account is registered as the platform admin and cannot create user contracts from this UI.</p>
             </div>
-          ))}
+          ) : (
+            contractTypes.map((type) => (
+              <div 
+                key={type.id}
+                className={`contract-card ${selected === type.id ? 'selected' : ''}`}
+                onClick={() => handleSelect(type)}
+                style={{ '--accent-color': type.color }}
+              >
+                <div className="card-icon">
+                  <i className={type.icon}></i>
+                </div>
+                <h3>{type.title}</h3>
+                <p>{type.description}</p>
+                <div className="select-button">
+                  <span>Select</span>
+                  <i className="fas fa-arrow-right"></i>
+                </div>
+              </div>
+            ))
+          )}
         </div>
 
         <div className="back-section">

@@ -294,14 +294,7 @@ export class ContractService {
 
   async getUserContracts(userAddress) {
     try {
-      // If a platform admin/factory address is configured, do not expose
-      // contracts created by that admin as "user contracts" in the dashboard.
-      // This prevents the factory/deployer account from appearing to 'own'
-      // platform-created contracts in the regular user dashboard.
-      const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-      if (platformAdmin && userAddress && userAddress.toLowerCase() === platformAdmin.toLowerCase()) {
-        return []; // hide platform-created contracts from the dashboard view
-      }
+      // No special-casing for a platform admin address; return whatever the factory reports.
       const factoryContract = await this.getFactoryContract();
       const contracts = await factoryContract.getContractsByCreator(userAddress);
       // Filter out any addresses that aren't contracts (defensive against wrong factory/addressing)
@@ -596,8 +589,139 @@ export class ContractService {
   async initiateCancellation(contractAddress) {
     try {
       const rentContract = await this.getRentContract(contractAddress);
-      const tx = await rentContract.initiateCancellation();
-      return await tx.wait();
+
+      // Preflight checks to provide friendlier errors and avoid RPC estimateGas revert
+      try {
+        const [landlord, tenant, isActive, cancelReq] = await Promise.all([
+          rentContract.landlord().catch(() => null),
+          rentContract.tenant().catch(() => null),
+          rentContract.active().catch(() => null),
+          rentContract.cancelRequested().catch(() => null),
+        ]);
+
+        const myAddr = await this.signer.getAddress().catch(() => null);
+        // Ensure caller is a party
+        if (!myAddr) {
+          throw new Error('Could not determine connected wallet address. Connect your wallet and try again.');
+        }
+        const lower = (s) => (s ? String(s).toLowerCase() : null);
+        const me = lower(myAddr);
+        const ld = lower(landlord);
+        const tn = lower(tenant);
+
+        if (isActive === false || String(isActive) === 'false') {
+          throw new Error('Contract is not active. Cancellation not allowed.');
+        }
+
+        if (cancelReq === true || String(cancelReq) === 'true') {
+          throw new Error('Cancellation has already been requested for this contract.');
+        }
+
+        if (me !== ld && me !== tn) {
+          throw new Error('Only the landlord or tenant may initiate cancellation. Switch to the correct account and try again.');
+        }
+      } catch (preErr) {
+        // If we determined a friendly preflight error, throw it
+        if (preErr && preErr.message) {
+          throw preErr;
+        }
+        // otherwise continue to attempt tx and let provider surface errors
+      }
+
+      // Additional preflight: attempt estimateGas to detect reverts early and map common selectors
+      try {
+        if (rentContract && rentContract.estimateGas && typeof rentContract.estimateGas.initiateCancellation === 'function') {
+          try {
+            await rentContract.estimateGas.initiateCancellation();
+          } catch (eg) {
+            // Try to parse revert selectors from the error payload when possible
+            const data = eg?.data || eg?.error?.data || eg?.reason || null;
+            const raw = (typeof data === 'string' && data.startsWith('0x')) ? data : (data && data.data && typeof data.data === 'string' ? data.data : null);
+            if (raw) {
+              const selector = raw.slice(2, 10);
+              const map = {
+                'a9b7d5d7': 'Only the landlord or tenant may initiate cancellation', // NotParty()
+                '00bfc921': 'Invalid price or oracle failure',
+                'c76a4f7e': 'Cancellation already requested' // hypothetical selector mapping
+              };
+              if (map[selector]) throw new Error(map[selector]);
+            }
+            // rethrow original to be handled below
+            throw eg;
+          }
+        }
+      } catch (eg) {
+        // If estimateGas produced a friendly error earlier, surface it
+        if (eg && eg.message) throw eg;
+        // otherwise continue and attempt to send the tx (fallback)
+      }
+
+      // Some injected wallets (MetaMask) take a moment to update the selected
+      // account after the user switches. Attempt to detect and refresh the
+      // signer from the injected provider before sending the transaction.
+      let activeSigner = this.signer;
+      try {
+        if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
+          // Poll a few times for wallet/account update (short delay) to tolerate latency
+          let injectedAccounts = [];
+          const maxAttempts = 5;
+          for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+              injectedAccounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+            } catch (_) {
+              injectedAccounts = [];
+            }
+            if (injectedAccounts && injectedAccounts[0]) break;
+            // small wait
+            await new Promise((r) => setTimeout(r, 200));
+          }
+          const injected = (injectedAccounts && injectedAccounts[0]) ? String(injectedAccounts[0]).toLowerCase() : null;
+          try {
+            const currentSignerAddr = (await this.signer.getAddress().catch(() => null) || '').toLowerCase();
+            if (injected && injected !== currentSignerAddr) {
+              // attempt to refresh signer from the existing provider
+              try {
+                const provider = this.signer.provider || (new ethers.BrowserProvider(window.ethereum));
+                const refreshed = provider.getSigner(injectedAccounts[0]);
+                // validate
+                const refreshedAddr = (await refreshed.getAddress().catch(() => null) || '').toLowerCase();
+                if (refreshedAddr && refreshedAddr === injected) {
+                  activeSigner = refreshed;
+                }
+              } catch (_) {
+                // fall back to existing signer
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+
+      // Use the (possibly refreshed) signer when sending the transaction
+      let tx;
+      try {
+        tx = await rentContract.connect(activeSigner).initiateCancellation();
+        return await tx.wait();
+      } catch (err) {
+        // Map known revert selectors to friendlier messages when possible
+        try {
+          const data = err?.data || err?.error?.data || err?.data?.data || null;
+          const raw = (typeof data === 'string' && data.startsWith('0x')) ? data : (data && data.data && typeof data.data === 'string' ? data.data : null);
+          if (raw) {
+            const selector = raw.slice(2, 10);
+            const map = {
+              // selectors from TemplateRentContract custom errors (best-effort guesses)
+              '2f54bf6e': 'Only tenant may call this',
+              'd3d3d3d3': 'Only landlord may call this',
+              'b7f9c7a1': 'Contract is not active',
+              'c1e3d4b2': 'Cancellation already requested',
+              '86753090': 'Not a party to this contract'
+            };
+            if (map[selector]) throw new Error(map[selector]);
+          }
+        } catch (_) {}
+        // Re-throw original error if no friendly mapping found
+        throw err;
+      }
     } catch (error) {
       console.error('Error initiating cancellation:', error);
       throw error;

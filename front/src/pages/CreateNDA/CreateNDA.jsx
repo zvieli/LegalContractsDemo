@@ -2,9 +2,12 @@ import { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import './CreateNDA.css';
+import '../../styles/notAllowed.css';
 
 function CreateNDA() {
   const { isConnected, signer, chainId, account } = useEthers();
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const [formData, setFormData] = useState({
     partyB: '',
     expiryDate: '',
@@ -76,6 +79,19 @@ function CreateNDA() {
           <i className="fas fa-wallet"></i>
           <h2>Connect Your Wallet</h2>
           <p>Please connect your wallet to create an NDA agreement</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If connected account is the configured platform admin, disallow creation via UI
+  if (isAdmin) {
+    return (
+      <div className="create-nda-page">
+        <div className="not-allowed">
+          <i className="fas fa-ban"></i>
+          <h2>Action Not Allowed</h2>
+          <p>The connected account is registered as the platform admin and cannot create NDA contracts through this UI.</p>
         </div>
       </div>
     );

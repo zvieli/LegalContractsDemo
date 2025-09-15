@@ -1,7 +1,11 @@
 import './Footer.css';
+import { useEthers } from '../../../contexts/EthersContext';
 
 function Footer() {
   const currentYear = new Date().getFullYear();
+  const { account } = useEthers();
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
 
   return (
     <footer className="footer">
@@ -24,7 +28,7 @@ function Footer() {
             <h4>Quick Links</h4>
             <ul>
               <li><a href="/">Home</a></li>
-              <li><a href="/create">Create Contract</a></li>
+              {!isAdmin && <li><a href="/create">Create Contract</a></li>}
               <li><a href="/contracts">My Contracts</a></li>
               <li><a href="/arbitration">Arbitration</a></li>
             </ul>

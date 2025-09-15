@@ -46,7 +46,7 @@ function Header() {
     !isAdminAccount ? { label: 'Create Contract', path: '/create', icon: 'fas fa-plus' } : null,
     { label: 'My Contracts', path: '/dashboard', icon: 'fas fa-file-contract' },
     showArbitration ? { label: 'Arbitration', path: '/arbitration', icon: 'fas fa-scale-balanced' } : null,
-    showPlatform ? { label: 'Platform', path: '/platform', icon: 'fas fa-shield-alt' } : null,
+  // Platform route removed per user request - do not include nav item
     { label: 'About', path: '/about', icon: 'fas fa-info-circle' }
   ].filter(Boolean);
 
