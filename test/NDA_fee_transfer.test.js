@@ -24,6 +24,9 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
     await arbitrationService.transferOwnership(arb.target);
     await arb.setArbitrationService(arbitrationService.target);
 
+    // configure factory so created NDA templates receive arbitrationService immutably
+    await factory.setDefaultArbitrationService(arbitrationService.target, 0);
+
     const tx = await factory.connect(admin).createNDA(
       partyB.address,
       Math.floor(Date.now() / 1000) + 86400,
@@ -35,8 +38,7 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
     const log = r.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
     nda = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
 
-  // configure NDA to accept calls from the ArbitrationService
-  await nda.connect(admin).setArbitrationService(arbitrationService.target);
+  // NDA receives arbitrationService immutably from factory via default; nothing to configure on-template.
 
   // set an appeal window so enforcement can be deferred and pending enforcement entries are created
 

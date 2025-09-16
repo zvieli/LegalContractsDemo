@@ -1,0 +1,27 @@
+.modal-overlay{
+  position:fixed;
+  left:0;right:0;top:0;bottom:0;
+  background:rgba(0,0,0,0.55);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  z-index:9999;
+}
+
+.modal-card{
+  width:720px;
+  max-width:94%;
+  background:#fff;
+  border-radius:8px;
+  padding:18px;
+  box-shadow:0 10px 30px rgba(0,0,0,0.25);
+  color:#111;
+}
+
+.modal-card h3{margin:0 0 8px 0}
+.modal-card label{display:block;font-size:13px;color:#333;margin-bottom:6px}
+.modal-card textarea{width:100%;min-height:120px;border:1px solid #ddd;border-radius:6px;padding:8px;resize:vertical;font-size:14px}
+.modal-card .btn-sm{padding:8px 12px;border-radius:6px;border:1px solid #999;background:#f5f5f5;color:#111;cursor:pointer}
+.modal-card .btn-sm.primary{background:#007bff;color:#fff;border-color:#007bff}
+.modal-card .btn-sm:disabled{opacity:0.6;cursor:not-allowed}
+.modal-card form > div{margin-bottom:10px}

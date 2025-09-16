@@ -117,8 +117,33 @@ async function main() {
 
   // === 2.5 Optionally deploy ArbitrationService and configure factory ===
   // By default we skip deploying ArbitrationService. Set DEPLOY_ARBITRATION=true to enable.
+  // However, for local development we auto-enable deployment when the frontend
+  // doesn't already contain an ArbitrationService address so the UI can prefill it.
   let arbitrationServiceAddress = null;
-  const deployArbitration = String(process.env.DEPLOY_ARBITRATION || '').toLowerCase() === 'true';
+  let deployArbitration = String(process.env.DEPLOY_ARBITRATION || '').toLowerCase() === 'true';
+
+  // If DEPLOY_ARBITRATION not explicitly set, enable on local networks when missing
+  // from the frontend MockContracts.json so the UI can pick it up automatically.
+  if (typeof process.env.DEPLOY_ARBITRATION === 'undefined') {
+    try {
+      const localNames = ['localhost', 'hardhat'];
+      if (localNames.includes(network.name) || Number(process.env.CHAIN_ID) === 31337) {
+        const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
+        let existingMock = {};
+        if (fs.existsSync(mockContractsPath)) {
+          try { existingMock = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {}; } catch (e) { existingMock = {}; }
+        }
+        const hasArb = !!(existingMock && existingMock.contracts && existingMock.contracts.ArbitrationService);
+        if (!hasArb) {
+          deployArbitration = true;
+          console.log('ℹ️  DEPLOY_ARBITRATION not set - defaulting to true on local network to ensure ArbitrationService is available for the frontend');
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️  Could not determine whether to auto-deploy ArbitrationService:', e.message || e);
+    }
+  }
+
   if (deployArbitration) {
     console.log("📦 Deploying ArbitrationService...");
     try {
@@ -131,6 +156,9 @@ async function main() {
       // Configure the ArbitrationService to trust the ContractFactory so the
       // factory can call `applyResolutionToTarget` when driving dispute resolutions.
       try {
+        // NOTE: `setFactory` is owner-only. The deployed ArbitrationService's owner
+        // will be the deployer account used above; we call setFactory from the
+        // same deployer so the call succeeds.
         const tx = await arbitrationService.setFactory(factoryAddress);
         await tx.wait();
         console.log("🔧 ArbitrationService.factory set to ContractFactory:", factoryAddress);
@@ -165,11 +193,45 @@ async function main() {
       } catch (err) {
         console.warn('⚠️  Could not update MockContracts.json with ArbitrationService address:', err.message || err);
       }
+      // Configure factory default arbitration so newly created Rent contracts
+      // receive the arbitrationService address at construction. This avoids
+      // needing to call `setArbitrationService` on each template after deploy.
+      try {
+        const factoryInstance = await ethers.getContractAt('ContractFactory', factoryAddress, deployer);
+        // Set factory default arbitration to the deployed service (owner only)
+        try {
+          const tx = await factoryInstance.setDefaultArbitrationService(arbitrationServiceAddress, 0);
+          await tx.wait();
+          console.log(`🔧 Set ContractFactory.defaultArbitrationService -> ${arbitrationServiceAddress}`);
+        } catch (err) {
+          console.warn('⚠️  Could not set default arbitration on factory (owner permissions?):', err.message || err);
+        }
+      } catch (err) {
+        console.warn('⚠️  Could not connect to ContractFactory to set default arbitration:', err.message || err);
+      }
     } catch (err) {
       console.warn('⚠️  ArbitrationService deploy failed:', err.message || err);
     }
   } else {
     console.log('ℹ️  Skipping ArbitrationService deployment (set DEPLOY_ARBITRATION=true to enable)');
+    // If we're on localhost and the frontend lacks an ArbitrationService entry, write
+    // a placeholder note so the frontend knows to prompt the developer clearly.
+    try {
+      const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
+      let existingMock = {};
+      if (fs.existsSync(mockContractsPath)) {
+        try { existingMock = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {}; } catch (e) { existingMock = {}; }
+      }
+      existingMock.contracts = existingMock.contracts || {};
+      if (!existingMock.contracts.ArbitrationService) {
+        // Use a clear sentinel value so the frontend can detect and prompt the dev
+        existingMock.contracts.ArbitrationService = "MISSING_ARBITRATION_SERVICE";
+        fs.writeFileSync(mockContractsPath, JSON.stringify(existingMock, null, 2));
+        console.log('💾 Wrote placeholder ArbitrationService=MISSING_ARBITRATION_SERVICE to MockContracts.json so frontend knows it is missing');
+      }
+    } catch (e) {
+      console.warn('⚠️  Could not write placeholder ArbitrationService to MockContracts.json:', e.message || e);
+    }
   }
 
   // OracleArbitratorFunctions deployment removed in sweep

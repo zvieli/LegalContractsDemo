@@ -72,6 +72,35 @@ contract ArbitrationService {
         require(ok, "finalize failed");
     }
 
+    /// @notice Allow the landlord of a target rent contract to trigger finalization
+    /// via this ArbitrationService when the target has been configured to use
+    /// this service as its `arbitrationService`. This is payable and will forward
+    /// `msg.value` to the target's `finalizeCancellation()` call.
+    function finalizeByLandlord(address targetContract) external payable {
+        require(targetContract != address(0), "bad target");
+
+        // Read the arbitrationService configured on the target (if present)
+        (bool ok, bytes memory out) = targetContract.staticcall(abi.encodeWithSignature("arbitrationService()"));
+        address configured = address(0);
+        if (ok && out.length >= 32) {
+            configured = abi.decode(out, (address));
+        }
+        require(configured == address(this), "service not configured on target");
+
+        // Verify caller is the landlord of the target
+        (bool got, bytes memory lo) = targetContract.staticcall(abi.encodeWithSignature("landlord()"));
+        address landlordAddr = address(0);
+        if (got && lo.length >= 32) {
+            landlordAddr = abi.decode(lo, (address));
+        }
+        require(landlordAddr != address(0), "bad landlord");
+        require(msg.sender == landlordAddr, "Only landlord");
+
+        // Forward the call to finalizeCancellation on the target, passing msg.value
+        (bool r, ) = targetContract.call{value: msg.value}(abi.encodeWithSignature("finalizeCancellation()"));
+        require(r, "finalize failed");
+    }
+
     /// @notice Transfer ownership of the service.
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "zero");

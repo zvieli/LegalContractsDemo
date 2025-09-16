@@ -3,6 +3,7 @@ import ContractFactoryABI from './contracts/ContractFactoryABI.json';
 import TemplateRentContractABI from './contracts/TemplateRentContractABI.json';
 import NDATemplateABI from './contracts/NDATemplateABI.json';
 import ArbitratorABI from './contracts/ArbitratorABI.json';
+import ArbitrationServiceABI from './contracts/ArbitrationServiceABI.json';
 import { CONTRACT_ADDRESSES } from '../../config/chains';
 import { ethers } from 'ethers';
 
@@ -26,6 +27,11 @@ export const getContractABI = (contractName) => {
         return ArbitratorABI.abi;
       }
       throw new Error('Arbitrator ABI not available');
+    case 'ArbitrationService':
+      if (typeof ArbitrationServiceABI !== 'undefined') {
+        return ArbitrationServiceABI.abi;
+      }
+      throw new Error('ArbitrationService ABI not available');
     default:
       throw new Error(`Unknown contract: ${contractName}`);
   }

@@ -38,7 +38,10 @@ Off‑chain components:
 	1. Deploy `ArbitrationService`.
 	2. Deploy `Arbitrator` (your platform's arbitrator factory or reference implementation).
 	3. Transfer the service ownership to the arbitrator: `arbitrationService.transferOwnership(arbitratorAddress)` so the arbitrator can call `applyResolutionToTarget`.
-	4. For each template, call `template.setArbitrationService(arbitrationServiceAddress)` from the template admin so the template accepts resolution calls only from the service.
+	4. Prefer configuring arbitration at the factory level so templates are created with an immutable `arbitrationService` set at deployment. Example wiring:
+	   - Deploy `ArbitrationService` and, if using an `Arbitrator`, transfer ownership of the service to the arbitrator so it can call `applyResolutionToTarget`.
+	   - Call `ContractFactory.setDefaultArbitrationService(arbitrationServiceAddress, requiredDeposit)` from the factory owner. Then create templates via the factory; they will receive the configured `arbitrationService` and required deposit immutably in their constructor.
+	   - For existing templates (already deployed without an immutable arbitration address), use an appropriate migration or redeploy pattern; templates in this repository are designed to be created via `ContractFactory`.
 
 - ABI compatibility: `ArbitrationService.applyResolutionToTarget` attempts common entrypoints (e.g., `serviceResolve(...)` for NDA templates and `resolveDisputeFinal(...)` for rent templates) using low-level `call`. If none match the target, the service reverts with `No compatible resolution entrypoint on target`.
 

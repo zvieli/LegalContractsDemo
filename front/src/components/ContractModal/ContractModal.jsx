@@ -29,11 +29,26 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [arbCaseId, setArbCaseId] = useState('');
   const [arbApprove, setArbApprove] = useState(true);
   const [arbBeneficiary, setArbBeneficiary] = useState('');
+  const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [disputeForm, setDisputeForm] = useState({ dtype: 4, amountEth: '0', evidence: '' });
+  const [disputeFileName, setDisputeFileName] = useState('');
+  const [disputeFileHash, setDisputeFileHash] = useState('');
+  const [disputeFile, setDisputeFile] = useState(null);
+  
+  // NDA report states (replace ad-hoc DOM reads)
+  const [ndaReportOffender, setNdaReportOffender] = useState('');
+  const [ndaReportPenalty, setNdaReportPenalty] = useState('');
+  const [ndaReportEvidenceText, setNdaReportEvidenceText] = useState('');
+  const [ndaReportFileHash, setNdaReportFileHash] = useState('');
   const [createDisputeCaseId, setCreateDisputeCaseId] = useState('');
   const [createDisputeEvidence, setCreateDisputeEvidence] = useState('');
   const [rentSigning, setRentSigning] = useState(false);
   const [rentAlreadySigned, setRentAlreadySigned] = useState(false);
   const [rentCanSign, setRentCanSign] = useState(true);
+  const [hasAppeal, setHasAppeal] = useState(false);
+  const [arbResolution, setArbResolution] = useState(null);
+  const [showAppealModal, setShowAppealModal] = useState(false);
+  const [appealData, setAppealData] = useState(null);
 
   const formatDuration = (sec) => {
     const s = Number(sec || 0);
@@ -76,6 +91,37 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
       }
       setContractDetails(details);
+      // detect per-contract appeal in localStorage (try multiple key variants) or sessionStorage fallback
+      try {
+        const key1 = `incomingDispute:${contractAddress}`;
+        const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+        let js = localStorage.getItem(key1) || localStorage.getItem(key2) || null;
+        if (!js) {
+          // sessionStorage may contain the incomingDispute routed to arbitration page
+          try {
+            const sess = sessionStorage.getItem('incomingDispute');
+            if (sess) {
+              const o = JSON.parse(sess);
+              if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) {
+                js = sess;
+              }
+            }
+          } catch (_) { js = js; }
+        }
+        setHasAppeal(!!js);
+        // load any local arbitrator resolution for this contract
+        try {
+          const rk = `arbResolution:${String(contractAddress).toLowerCase()}`;
+          const rjs = localStorage.getItem(rk);
+          if (rjs) {
+            setArbResolution(JSON.parse(rjs));
+          } else {
+            setArbResolution(null);
+          }
+        } catch (e) { setArbResolution(null); }
+      } catch (e) {
+        setHasAppeal(false);
+      }
   // Set NDA sign gating flags
       try {
         if (details?.type === 'NDA' && account) {
@@ -404,17 +450,45 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     try {
       setActionLoading(true);
       const service = new ContractService(signer, chainId);
-      // find arbitration service address from contract details (if set) or ask user
+      // Prefer landlord-local finalize path when caller is landlord
       const arbAddress = contractDetails?.arbitrationService || null;
       let arbAddr = arbAddress;
+      // If not configured on contract, attempt frontend global artifacts
       if (!arbAddr) {
-        arbAddr = prompt('Enter ArbitrationService address:');
-        if (!arbAddr) return;
+        try {
+          const cfMod = await import('../../utils/contracts/ContractFactory.json');
+          const cf = cfMod?.default ?? cfMod;
+          arbAddr = cf?.contracts?.ArbitrationService || null;
+        } catch (_) { arbAddr = null; }
+        if (!arbAddr) {
+          try {
+            const mcMod = await import('../../utils/contracts/MockContracts.json');
+            const mc = mcMod?.default ?? mcMod;
+            arbAddr = mc?.contracts?.ArbitrationService || null;
+          } catch (_) { arbAddr = null; }
+        }
       }
+
+      if (!arbAddr || arbAddr === 'MISSING_ARBITRATION_SERVICE' || arbAddr === ethers.ZeroAddress) {
+        alert('No ArbitrationService configured for this contract or frontend. Run the deploy script with DEPLOY_ARBITRATION=true to add one.');
+        setActionLoading(false);
+        return;
+      }
+
       // collect fee if required
       const fee = feeToSend ? feeToSend : '0';
       const feeWei = fee ? ethers.parseEther(String(fee)) : 0n;
-      const receipt = await service.finalizeCancellationViaService(arbAddr, contractAddress, feeWei);
+
+      // If the connected user is the landlord, use the landlord-specific entrypoint
+      const accountAddr = account ? account.toLowerCase() : null;
+      const isCallerLandlord = accountAddr && contractDetails?.landlord && accountAddr === contractDetails.landlord.toLowerCase();
+      let receipt;
+      if (isCallerLandlord) {
+        receipt = await service.finalizeByLandlordViaService(arbAddr, contractAddress, feeWei);
+      } else {
+        // fallback to admin/factory path
+        receipt = await service.finalizeCancellationViaService(arbAddr, contractAddress, feeWei);
+      }
       alert(`✅ Cancellation finalized
 Transaction: ${receipt.transactionHash || receipt.hash}`);
       await loadContractData();
@@ -505,6 +579,112 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     alert('Resolve action must be performed by the platform arbitrator via ArbitrationService');
   };
 
+  const submitDisputeForm = async () => {
+    try {
+      setActionLoading(true);
+      const svc = new ContractService(signer, chainId);
+  const amountWei = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
+  // prefer file hash if present, otherwise use evidence text
+  const evidence = disputeFileHash || disputeForm.evidence || '';
+  // If a file was attached and user provided a web3.storage token, upload it and include CID
+  let cid = null;
+  let cidUrl = null;
+  let localIdbKey = null;
+  try {
+    if (disputeFile) {
+      // Always store file locally in IndexedDB for no-cost evidence sharing in the same browser
+      try {
+        const { idbPut } = await import('../../utils/idb');
+        const key = `dispute-file:${contractAddress}:${Date.now()}`;
+        const buf = await disputeFile.arrayBuffer();
+        await idbPut(key, { name: disputeFile.name || '', bytes: new Uint8Array(buf), createdAt: Date.now() });
+        localIdbKey = key;
+      } catch (e) {
+        console.error('Failed to store file locally:', e);
+      }
+    }
+
+    const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
+    // Persist the full form for the arbitrator UI and navigate to Arbitration page
+    try {
+      const incoming = {
+        contractAddress: contractAddress,
+        dtype: Number(disputeForm.dtype || 0),
+        amountEth: String(disputeForm.amountEth || '0'),
+        evidenceHash: evidence || '',
+        fileName: disputeFileName || '',
+        cid: cid || null,
+        cidUrl: cidUrl || null,
+        localIdbKey: localIdbKey || null,
+        reporter: account || null,
+        caseId: caseId != null ? String(caseId) : null,
+        createdAt: new Date().toISOString()
+      };
+      sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
+        // Persist for global arbitration view
+        sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
+        // Also persist a per-contract appeal so reporters/participants can view it via "Show Appeal"
+        try {
+          const perKey = `incomingDispute:${contractAddress}`;
+          localStorage.setItem(perKey, JSON.stringify(incoming));
+        } catch (e) {
+          console.warn('Failed to persist per-contract incomingDispute', e);
+        }
+    } catch (e) {
+      console.error('Failed to persist dispute for arbitration page:', e);
+    }
+
+    setShowDisputeForm(false);
+    // Redirect to arbitration page only if the connected account is the arbitrator
+    try {
+      const svc2 = new ContractService(signer, chainId);
+      const isAuthorized = await svc2.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
+      if (isAuthorized) {
+        // persist incomingDispute (already saved) and navigate arbitrator view
+        window.location.pathname = '/arbitration';
+      } else {
+        // For ordinary users (e.g. landlord/tenant) show confirmation and return to dashboard
+        alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.');
+        window.location.pathname = '/dashboard';
+      }
+    } catch (redirErr) {
+      console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr);
+      window.location.pathname = '/dashboard';
+    }
+    // still refresh data for modal (in case user navigates back)
+    await loadContractData();
+  } catch (err) {
+    console.error('Submit dispute failed:', err);
+    alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
+  } finally {
+    setActionLoading(false);
+  }
+    } catch (err) {
+    // outer catch (kept for safety) — should be unreachable
+    console.error('Unexpected error in submitDisputeForm:', err);
+    alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
+    setActionLoading(false);
+  }
+  };
+
+  const handleDisputeFileChange = async (evt) => {
+    try {
+      const f = evt.target.files && evt.target.files[0];
+      if (!f) return;
+      setDisputeFileName(f.name || '');
+      setDisputeFile(f);
+      const buf = await f.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const hash = ethers.keccak256(bytes);
+      setDisputeFileHash(hash);
+      // also set evidence field for visibility
+      setDisputeForm(s => ({...s, evidence: hash}));
+    } catch (e) {
+      console.error('Failed to hash file:', e);
+      alert('Failed to process file for evidence.');
+    }
+  };
+
   const handleCreateDispute = async () => {
     try {
       setActionLoading(true);
@@ -584,6 +764,51 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       alert('Address copied to clipboard');
     }
   };
+  const handleShowAppeal = async () => {
+    try {
+      // Try localStorage by exact key, lowercase key, then sessionStorage fallback
+      const key1 = `incomingDispute:${contractAddress}`;
+      const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+      let json = localStorage.getItem(key1) || localStorage.getItem(key2) || null;
+      if (!json) {
+        // fallback to sessionStorage
+        const sess = sessionStorage.getItem('incomingDispute');
+        if (sess) {
+          try {
+            const o = JSON.parse(sess);
+            if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) {
+              json = sess;
+            }
+          } catch (_) { json = null; }
+        }
+      }
+      if (!json) {
+        alert('No appeal found for this contract');
+        return;
+      }
+      const obj = JSON.parse(json);
+      // If the appeal has a localIdbKey, load the file preview from IndexedDB
+      if (obj.localIdbKey) {
+        try {
+          const { idbGet } = await import('../../utils/idb');
+          const fileRec = await idbGet(obj.localIdbKey);
+          if (fileRec && fileRec.bytes) {
+            const blob = new Blob([fileRec.bytes], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            obj._localFileUrl = url;
+            obj._localFileName = fileRec.name || 'attachment';
+          }
+        } catch (e) {
+          console.warn('Failed to load attached file from IDB', e);
+        }
+      }
+      setAppealData(obj);
+      setShowAppealModal(true);
+    } catch (e) {
+      console.error('Show appeal failed', e);
+      alert('Failed to show appeal');
+    }
+  };
 
   const handleExport = () => {
     try {
@@ -618,6 +843,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     }
   };
 
+  // Render part: insert Show Appeal button near the dispute controls
+
   if (!isOpen) return null;
 
   return (
@@ -625,9 +852,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Contract Management</h2>
-          <button className="modal-close" onClick={onClose}>
-            <i className="fas fa-times"></i>
-          </button>
+          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            {hasAppeal && (
+              <button className="btn-sm" onClick={handleShowAppeal} style={{marginRight:6}}>Show Appeal</button>
+            )}
+            <button className="modal-close" onClick={onClose}>
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
         </div>
 
         <div className="modal-tabs">
@@ -639,7 +871,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             Details
           </button>
           {/* Show payments/actions only when NOT readOnly */}
-          {!readOnly && contractDetails?.type === 'Rental' && (
+          {/* Only show Payments tab for active rental contracts */}
+          {!readOnly && contractDetails?.type === 'Rental' && contractDetails?.isActive && (
           <button 
             className={activeTab === 'payments' ? 'active' : ''}
             onClick={() => setActiveTab('payments')}
@@ -736,6 +969,11 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       <span className="label">Can Withdraw</span>
                       <span className="value">{contractDetails.canWithdraw ? 'Yes' : 'No'}</span>
                     </div>
+                  </div>
+                )}
+                {hasAppeal && (
+                  <div style={{marginTop:8}}>
+                    <button className="btn-action" onClick={handleShowAppeal}>Show Appeal</button>
                   </div>
                 )}
                 {contractDetails.type === 'NDA' && contractDetails.parties?.length > 0 && (
@@ -848,14 +1086,17 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                   {contractDetails.type === 'Rental' ? (
                     <div style={{display:'flex', flexDirection:'column', gap:'12px'}}>
                       <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
-                        <button 
-                          onClick={handleRentSign}
-                          disabled={readOnly || rentSigning || !rentCanSign}
-                          className="btn-action primary"
-                        >
-                          {rentSigning ? 'Signing...' : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
-                        </button>
-                        {/* Terminate Contract removed: use cancellation workflow via Cancellation Policy and ArbitrationService */}
+                        {/* Only render Sign button when contract is active; if inactive hide it entirely */}
+                        {contractDetails?.isActive && (
+                          <button 
+                            onClick={handleRentSign}
+                            disabled={readOnly || rentSigning || !rentCanSign}
+                            className="btn-action primary"
+                          >
+                            {rentSigning ? 'Signing...' : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
+                          </button>
+                        )}
+                        {/* Terminate Contract removed: use cancellation workflow via CancellationService */}
                       </div>
                       {!rentCanSign && !rentAlreadySigned && (
                         <small className="muted">Connect as landlord or tenant to sign.</small>
@@ -971,10 +1212,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
                             <input className="text-input" style={{width:'160px'}} type="number" placeholder={feeDueEth ? `Fee required: ${feeDueEth}` : 'Fee (ETH, optional)'} value={feeToSend} onChange={e => setFeeToSend(e.target.value)} />
                             <button className="btn-action" disabled={!feeDueEth} onClick={() => setFeeToSend(feeDueEth || '')}>Autofill Fee</button>
-                                <button className="btn-action" disabled={actionLoading || !canFinalize || !isAuthorizedArbitrator} onClick={handleFinalizeCancellation}>Finalize (via Arbitration Service)</button>
-                                {!isAuthorizedArbitrator && (
-                                  <small className="muted" style={{marginLeft:'8px'}}>Only the contract creator or platform arbitrator may finalize via the ArbitrationService.</small>
-                                )}
+                            {/* New UX: allow landlord or tenant to send an appeal (report dispute) instead of immediate finalization */}
+                            <button className="btn-action" disabled={actionLoading || !(isLandlord || isTenant) || !contractDetails?.cancellation?.cancelRequested} onClick={() => setShowDisputeForm(true)}>Send to arbitration (appeal)</button>
+                            <button className="btn-action" onClick={handleShowAppeal}>Show Appeal</button>
+                            {/* Platform arbitrator / factory can still finalize directly via service */}
+                            <button className="btn-action" disabled={actionLoading || !canFinalize || !isAuthorizedArbitrator} onClick={handleFinalizeCancellation}>Finalize (via Arbitration Service)</button>
+                            {!isAuthorizedArbitrator && (
+                              <small className="muted" style={{marginLeft:'8px'}}>Only the contract creator or platform arbitrator may finalize via the ArbitrationService.</small>
+                            )}
                           </div>
                         </div>
                       );
@@ -991,6 +1236,13 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                               <div className="tx-hash">{ev.by ? `${ev.by.slice(0,10)}...${ev.by.slice(-8)}` : (ev.tx ? `${ev.tx.slice(0,10)}...${ev.tx.slice(-8)}` : '—')}</div>
                             </div>
                           ))}
+                          {arbResolution && (
+                            <div className="transaction-item" style={{borderTop:'1px solid #eee', marginTop:8, paddingTop:8}}>
+                              <div style={{fontWeight:600}}>Arbitrator decision: {arbResolution.decision === 'approve' ? 'Approved (finalized)' : 'Denied (left active)'}</div>
+                              <div style={{marginTop:6}}>{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
+                              <div style={{marginTop:6}} className="muted">Recorded at: {new Date(Number(arbResolution.timestamp || 0)).toLocaleString()}</div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1017,15 +1269,29 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       </div>
                       <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Report Breach</label>
-                        <input className="text-input" placeholder="Offender (0x...)" id="nda-offender" />
-                        <input className="text-input" placeholder="Requested penalty (ETH)" id="nda-penalty" />
-                        <input className="text-input" placeholder="Evidence text (optional)" id="nda-evidence" />
-                        <button className="btn-action" disabled={actionLoading} onClick={() => {
-                          const offender = document.getElementById('nda-offender').value;
-                          const penalty = document.getElementById('nda-penalty').value;
-                          const ev = document.getElementById('nda-evidence').value;
-                          handleNdaReport(offender, penalty, ev);
-                        }}>Submit Report</button>
+                        <input className="text-input" placeholder="Offender (0x...)" value={ndaReportOffender} onChange={e => setNdaReportOffender(e.target.value)} />
+                        <input className="text-input" placeholder="Requested penalty (ETH)" value={ndaReportPenalty} onChange={e => setNdaReportPenalty(e.target.value)} />
+                        <input className="text-input" placeholder="Evidence text (optional)" value={ndaReportEvidenceText} onChange={e => setNdaReportEvidenceText(e.target.value)} />
+                        <label>Attach Image / File (optional)</label>
+                        <input type="file" accept="image/*,application/pdf" onChange={async (e) => {
+                          try {
+                            const f = e.target.files && e.target.files[0];
+                            if (!f) return;
+                            const buf = await f.arrayBuffer();
+                            const bytes = new Uint8Array(buf);
+                            const hash = ethers.keccak256(bytes);
+                            setNdaReportFileHash(hash);
+                            // also mirror into evidence text so it's submitted if user doesn't edit
+                            setNdaReportEvidenceText(hash);
+                          } catch (err) {
+                            console.error('Failed to hash NDA file', err);
+                            alert('Failed to process NDA file');
+                          }
+                        }} />
+                        {ndaReportFileHash && <small className="muted">Attached file hash: {ndaReportFileHash}</small>}
+                        <button className="btn-action" disabled={actionLoading} onClick={() => handleNdaReport(ndaReportOffender, ndaReportPenalty, ndaReportEvidenceText || ndaReportFileHash)}>
+                          Submit Report
+                        </button>
                       </div>
                         <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
                         <input className="text-input" placeholder="Case ID" id="nda-caseid" />
@@ -1079,7 +1345,62 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             <p>Could not load contract details</p>
           </div>
         )}
+        {showDisputeForm && (
+          <div className="dispute-form-overlay" onClick={() => setShowDisputeForm(false)}>
+            <div className="dispute-form" onClick={(e) => e.stopPropagation()}>
+              <h3>File an Appeal to Arbitration</h3>
+              <label>Dispute Type</label>
+              <select value={disputeForm.dtype} onChange={e => setDisputeForm(s => ({...s, dtype: Number(e.target.value)}))}>
+                <option value={0}>Damage</option>
+                <option value={1}>ConditionStart</option>
+                <option value={2}>ConditionEnd</option>
+                <option value={3}>Quality</option>
+                <option value={4}>EarlyTerminationJustCause</option>
+                <option value={5}>DepositSplit</option>
+                <option value={6}>ExternalValuation</option>
+              </select>
+              <label>Requested Amount (ETH)</label>
+              <input className="text-input" type="number" value={disputeForm.amountEth} onChange={e => setDisputeForm(s => ({...s, amountEth: e.target.value}))} />
+              <label>Evidence (short text or URL)</label>
+              <textarea className="text-input" rows={4} value={disputeForm.evidence} onChange={e => setDisputeForm(s => ({...s, evidence: e.target.value}))} />
+              <label>Attach Image / File (optional)</label>
+              <input type="file" accept="image/*,application/pdf" onChange={handleDisputeFileChange} />
+              {disputeFileName && <small className="muted">Attached: {disputeFileName} (hash: {disputeFileHash || 'processing...'})</small>}
+              <div style={{display:'flex', gap:'8px', marginTop: '8px'}}>
+                <button className="btn-action primary" disabled={actionLoading} onClick={submitDisputeForm}>Submit Appeal</button>
+                <button className="btn-action secondary" disabled={actionLoading} onClick={() => setShowDisputeForm(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+      {/* Appeal modal */}
+      {showAppealModal && appealData && (
+        <div className="appeal-overlay" onClick={() => { setShowAppealModal(false); if (appealData?._localFileUrl) { URL.revokeObjectURL(appealData._localFileUrl); } }}>
+          <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <h3>Appeal / Dispute</h3>
+              <button className="modal-close" onClick={() => { setShowAppealModal(false); if (appealData?._localFileUrl) { URL.revokeObjectURL(appealData._localFileUrl); } }}><i className="fas fa-times"></i></button>
+            </div>
+            <div style={{marginTop:8}}>
+              <p><strong>Contract:</strong> {appealData.contractAddress}</p>
+              <p><strong>Case ID:</strong> {appealData.caseId || 'n/a'}</p>
+              <p><strong>Type:</strong> {appealData.dtype}</p>
+              <p><strong>Amount:</strong> {appealData.amountEth} ETH</p>
+              <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
+              <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
+              <p><strong>Evidence Hash:</strong> {appealData.evidenceHash}</p>
+              {appealData.fileName && <p><strong>Attached File:</strong> {appealData.fileName}</p>}
+              {appealData._localFileUrl && (
+                <p><a href={appealData._localFileUrl} target="_blank" rel="noreferrer">Open local attachment ({appealData._localFileName || 'file'})</a></p>
+              )}
+              {appealData.cidUrl && (
+                <p><a href={appealData.cidUrl} target="_blank" rel="noreferrer">Open IPFS file</a></p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

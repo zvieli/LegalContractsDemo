@@ -7,8 +7,8 @@ import "./NDA/NDATemplate.sol";
 
 // Lightweight deployer for Rent contracts (keeps large creation bytecode out of main factory runtime)
 contract _RentDeployer {
-    function deploy(address _landlord, address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId) external returns (address) {
-        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _priceFeed, _propertyId);
+    function deploy(address _landlord, address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId, address _arbitrationService, uint256 _requiredDeposit) external returns (address) {
+        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _priceFeed, _propertyId, _arbitrationService, _requiredDeposit);
         return address(c);
     }
 }
@@ -22,7 +22,8 @@ contract _NDADeployer {
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
         uint256 _minDeposit,
-        address _admin
+        address _admin,
+        address _arbitrationService
     ) external returns (address) {
         NDATemplate c = new NDATemplate(
             _partyA,
@@ -31,13 +32,17 @@ contract _NDADeployer {
             _penaltyBps,
             _customClausesHash,
             _minDeposit,
-            _admin
+            _admin,
+            _arbitrationService
         );
         return address(c);
     }
 }
 
 contract ContractFactory {
+    address public factoryOwner;
+    address public defaultArbitrationService;
+    uint256 public defaultRequiredDeposit;
     address[] public allContracts;
     mapping(address => address[]) public contractsByCreator;
     // Map a contract address to its creator (deployer) for quick lookup
@@ -67,6 +72,18 @@ contract ContractFactory {
         rentDeployer = new _RentDeployer();
         ndaDeployer = new _NDADeployer();
         propertyRegistry = new PropertyRegistry();
+        factoryOwner = msg.sender;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == factoryOwner, "Only owner");
+        _;
+    }
+
+    /// @notice Set a factory-wide default arbitration service and required deposit that will be used when creating new Rent contracts.
+    function setDefaultArbitrationService(address _service, uint256 _requiredDeposit) external onlyOwner {
+        defaultArbitrationService = _service;
+        defaultRequiredDeposit = _requiredDeposit;
     }
 
     function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId) external returns (address) {
@@ -81,7 +98,7 @@ contract ContractFactory {
         (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
         require(active && owner == creator, "Bad property");
     }
-    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _priceFeed, _propertyId);
+    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit);
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;
@@ -115,7 +132,8 @@ contract ContractFactory {
             _penaltyBps,
             _customClausesHash,
             _minDeposit,
-            creator // admin = creator
+            creator, // admin = creator
+            defaultArbitrationService
         );
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);

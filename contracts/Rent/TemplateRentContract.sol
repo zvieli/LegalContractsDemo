@@ -51,9 +51,9 @@ AggregatorV3Interface public immutable priceFeed;
 
     // ============ Arbitration & Disputes (extension) ============
     // arbitration is handled via an external ArbitrationService to keep template bytecode small
-    bool public arbitrationConfigured;       // one-time configuration gate
-    address public arbitrationService;       // service proxy that can call arbitration entrypoints
-    uint256 public requiredDeposit;          // required security deposit amount (in wei) set during configuration
+    // The arbitration service is provided at contract creation and is immutable.
+    address public immutable arbitrationService;       // service proxy that can call arbitration entrypoints
+    uint256 public requiredDeposit;          // required security deposit amount (in wei) set at construction
     uint256 public depositBalance;           // tenant security deposit locked in contract
 
     enum DisputeType { Damage, ConditionStart, ConditionEnd, Quality, EarlyTerminationJustCause, DepositSplit, ExternalValuation }
@@ -98,7 +98,9 @@ AggregatorV3Interface public immutable priceFeed;
         address _tenant,
         uint256 _rentAmount,
         address _priceFeed,
-        uint256 _propertyId
+        uint256 _propertyId,
+        address _arbitrationService,
+        uint256 _requiredDeposit
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         landlord = _landlord;
         tenant = _tenant;
@@ -112,6 +114,15 @@ AggregatorV3Interface public immutable priceFeed;
     requireMutualCancel = false;
     noticePeriod = 0;
     earlyTerminationFeeBps = 0;
+    // set arbitration immutable and required deposit
+    // allow zero address for arbitrationService to indicate not pre-configured
+    // but factory will normally supply a default arbitration service address
+    // Assign the immutable directly
+    // (Solidity allows assigning immutables in the constructor)
+    // The variable is named `arbitrationService` in the contract.
+    // Cast assignment below
+    arbitrationService = _arbitrationService;
+    requiredDeposit = _requiredDeposit;
     }
 
     // Modifiers
@@ -168,7 +179,6 @@ AggregatorV3Interface public immutable priceFeed;
     }
 
     modifier onlyArbitrationService() {
-        if (arbitrationService == address(0)) revert ArbitrationNotConfigured();
         if (msg.sender != arbitrationService) revert OnlyArbitrator();
         _;
     }
@@ -331,6 +341,12 @@ function getRentInEth() public view returns (uint256) {
         if (cancelApprovals[msg.sender]) revert AlreadyApproved();
         cancelApprovals[msg.sender] = true;
         emit CancellationApproved(msg.sender);
+        // If both parties have approved the cancellation, we DO NOT finalize here.
+        // Keep the cancellation in a pending state so it is always finalized via
+        // the configured ArbitrationService. This ensures the UI/arb path is used
+        // and that any required fee forwarding happens through the service.
+        // If you prefer immediate mutual-finalize in the future, re-enable the
+        // call to `_finalizeCancellationStateOnly()` here.
     }
 
     /// @notice Finalize cancellation — must be called by the configured arbitration service.
@@ -379,27 +395,15 @@ function getRentInEth() public view returns (uint256) {
 
     // removed onlyArbitrator modifier; use arbitrationService checks in entrypoints
 
-    function configureArbitration(address _service, uint256 _requiredDeposit) external onlyLandlord onlyActive {
-        if (arbitrationConfigured) revert ArbitrationAlreadyConfigured();
-        if (_service == address(0)) revert ArbitratorInvalid();
-        arbitrationService = _service;
-        requiredDeposit = _requiredDeposit;
-        arbitrationConfigured = true;
-        emit ArbitrationConfigured(_service, _requiredDeposit);
-    }
-
-    /// @notice Set an external arbitration service (callable by landlord).
-    function setArbitrationService(address _service) external onlyLandlord onlyActive {
-        arbitrationService = _service;
-    }
+    // Arbitration service is immutable and assigned at construction. Setter functions removed.
 
     function depositSecurity() external payable onlyTenant onlyActive onlyFullySigned {
-        if (!arbitrationConfigured) revert ArbitrationNotConfigured();
-        if (depositBalance >= requiredDeposit) revert DepositAlreadySatisfied();
+        // If contract was deployed with a non-zero requiredDeposit, enforce it.
+        if (requiredDeposit > 0 && depositBalance >= requiredDeposit) revert DepositAlreadySatisfied();
         if (msg.value == 0) revert DepositTooLow();
         depositBalance += msg.value;
         emit SecurityDepositPaid(msg.sender, msg.value, depositBalance);
-        if (depositBalance < requiredDeposit) revert DepositTooLow(); // needs at least requiredDeposit overall
+        if (requiredDeposit > 0 && depositBalance < requiredDeposit) revert DepositTooLow(); // needs at least requiredDeposit overall
     }
 
     function getDisputesCount() external view returns (uint256) { return _disputes.length; }
@@ -425,7 +429,10 @@ function getRentInEth() public view returns (uint256) {
     }
 
     function reportDispute(DisputeType dtype, uint256 requestedAmount, bytes32 evidenceHash) external onlyActive returns (uint256 caseId) {
-        if (!arbitrationConfigured) revert ArbitrationNotConfigured();
+        // Allow reporting disputes even when an external arbitration service is
+        // not yet configured. This lets parties record evidence/claims and
+        // later enable arbitration via `configureArbitration` without losing
+        // previously reported cases.
         if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
         // For damage/quality claims requestedAmount must be >0
         if (requestedAmount == 0 && (dtype == DisputeType.Damage || dtype == DisputeType.Quality || dtype == DisputeType.DepositSplit)) revert AmountTooLow();

@@ -14,13 +14,19 @@ export class ContractService {
       return await primary.getCode(address);
     } catch (e) {
       const msg = String(e?.message || '');
+      // MetaMask wraps certain errors and exposes a nested cause for a 'circuit breaker' condition.
+      const isBrokenCircuit = Boolean(e?.data?.cause?.isBrokenCircuitError) || /circuit breaker/i.test(msg);
       const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
-      if (isLocal && (/invalid block tag/i.test(msg) || /Internal JSON-RPC error/i.test(msg))) {
+      // If we're on localhost and the injected provider is failing (invalid block tag, internal error, or the circuit-breaker),
+      // fall back to a direct JSON-RPC provider on 127.0.0.1:8545 which is commonly used for Hardhat/localhost.
+      if (isLocal && (/invalid block tag/i.test(msg) || /Internal JSON-RPC error/i.test(msg) || isBrokenCircuit)) {
+        console.warn('Provider.getCode failed on injected provider; falling back to http://127.0.0.1:8545', { error: e });
         try {
           const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
           return await rpc.getCode(address);
-        } catch (_) {
-          // fall through
+        } catch (rpcErr) {
+          // If fallback also fails, surface the original error for clearer diagnosis.
+          console.warn('Fallback JSON-RPC getCode failed', { rpcErr });
         }
       }
       throw e;
@@ -430,9 +436,18 @@ export class ContractService {
               '1fbaba35':'Amount too low',
               '00bfc921':'Invalid price'
             };
+            // Additional common revert mapping
+            const fallbackMap = {
+              '08c379a0': 'finalize failed' // generic Error(string)
+            };
             if (map[selector]) {
               const friendly = new Error(map[selector]);
               friendly.reason = map[selector];
+              throw friendly;
+            }
+            if (fallbackMap[selector]) {
+              const friendly = new Error(fallbackMap[selector]);
+              friendly.reason = fallbackMap[selector];
               throw friendly;
             }
           }
@@ -477,8 +492,66 @@ export class ContractService {
   async finalizeCancellationViaService(arbitrationServiceAddress, contractAddress, feeWei = 0n) {
     try {
       if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
-      const abiName = 'ArbitrationService';
-      const svc = createContractInstance(abiName, arbitrationServiceAddress, this.signer);
+      // Preflight: ensure the target contract is configured for arbitration and whether a fee is required.
+      try {
+        const target = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+        // Check arbitrationService field
+        const targetArb = await target.arbitrationService().catch(() => null);
+        if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
+          throw new Error(`Target contract ${contractAddress} has no arbitrationService configured`);
+        }
+        if (targetArb && targetArb.toLowerCase() !== arbitrationServiceAddress.toLowerCase()) {
+          throw new Error(`Target arbitrationService mismatch: contract=${targetArb} but you supplied ${arbitrationServiceAddress}`);
+        }
+
+        // Ensure a cancellation is pending
+        const cancelRequested = await target.cancelRequested().catch(() => false);
+        if (!cancelRequested) {
+          throw new Error('Target contract has no pending cancellation (cancelRequested=false)');
+        }
+
+        // Check if early termination fee is required and compute amount
+        const feeBps = Number(await target.earlyTerminationFeeBps().catch(() => 0));
+        if (feeBps > 0) {
+          // Try to call getRentInEth() which returns uint256 rent in wei
+          let requiredEth = 0n;
+          try {
+            requiredEth = BigInt(await target.getRentInEth());
+          } catch (err) {
+            // Could not compute rent in eth - surface helpful suggestion
+            throw new Error('Target requires an early termination fee but rent-in-ETH could not be determined (price feed may be missing)');
+          }
+          const requiredFee = (requiredEth * BigInt(feeBps)) / 10000n;
+          if (requiredFee > 0n) {
+            const provided = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
+            if (provided < requiredFee) {
+              throw new Error(`Target requires early termination fee of ${requiredFee} wei; pass this amount as feeWei to finalizeCancellationViaService`);
+            }
+          }
+        }
+      } catch (preErr) {
+        // Bubble up preflight errors as friendly messages
+        console.error('Arbitration preflight failed:', preErr);
+        throw preErr;
+      }
+
+      // Prefer the registered helper but gracefully fallback to a dynamic ABI import
+      let svc;
+      try {
+        const abiName = 'ArbitrationService';
+        // Try helper that uses static imports
+        svc = createContractInstance(abiName, arbitrationServiceAddress, this.signer);
+      } catch (e) {
+        // Fallback: dynamic import of ABI JSON produced by deploy script
+        try {
+          const mod = await import('../utils/contracts/ArbitrationServiceABI.json');
+          const abi = mod?.default?.abi ?? mod?.abi ?? mod;
+          svc = new (await import('ethers')).Contract(arbitrationServiceAddress, abi, this.signer);
+        } catch (impErr) {
+          console.error('Could not load ArbitrationService ABI dynamically:', impErr);
+          throw new Error('ArbitrationService ABI not available');
+        }
+      }
       // feeWei may be BigInt or string; normalize
       const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
       const tx = await svc.finalizeTargetCancellation(contractAddress, { value });
@@ -486,6 +559,140 @@ export class ContractService {
       return receipt;
     } catch (error) {
       console.error('Error finalizing via arbitration service:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Landlord-triggered finalize via ArbitrationService.finalizeByLandlord
+   * If the connected signer is the landlord, prefer calling finalizeByLandlord on the service.
+   * Otherwise callers may continue to use finalizeCancellationViaService (admin/factory path).
+   */
+  async finalizeByLandlordViaService(arbitrationServiceAddress, contractAddress, feeWei = 0n) {
+    try {
+      if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
+
+      // Preflight: ensure target configured and cancellation pending
+      const target = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+      const targetArb = await target.arbitrationService().catch(() => null);
+      if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
+        throw new Error(`Target contract ${contractAddress} has no arbitrationService configured`);
+      }
+      if (targetArb && targetArb.toLowerCase() !== arbitrationServiceAddress.toLowerCase()) {
+        throw new Error(`Target arbitrationService mismatch: contract=${targetArb} but you supplied ${arbitrationServiceAddress}`);
+      }
+
+      const cancelRequested = await target.cancelRequested().catch(() => false);
+      if (!cancelRequested) throw new Error('Target contract has no pending cancellation (cancelRequested=false)');
+
+      // Check fee if required
+      const feeBps = Number(await target.earlyTerminationFeeBps().catch(() => 0));
+      if (feeBps > 0) {
+        let requiredEth = 0n;
+        try { requiredEth = BigInt(await target.getRentInEth()); } catch (err) {
+          throw new Error('Target requires an early termination fee but rent-in-ETH could not be determined (price feed may be missing)');
+        }
+        const requiredFee = (requiredEth * BigInt(feeBps)) / 10000n;
+        if (requiredFee > 0n) {
+          const provided = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
+          if (provided < requiredFee) throw new Error(`Target requires early termination fee of ${requiredFee} wei; pass this amount as feeWei to finalizeByLandlordViaService`);
+        }
+      }
+
+      // Determine whether connected signer is landlord
+      const signerAddr = (await this.signer.getAddress()).toLowerCase();
+      const landlordAddr = (await target.landlord()).toLowerCase();
+      const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
+
+      // Prepare service instance (ABI fallback like earlier)
+      let svc;
+      try {
+        svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
+      } catch (e) {
+        try {
+          const mod = await import('../utils/contracts/ArbitrationServiceABI.json');
+          const abi = mod?.default?.abi ?? mod?.abi ?? mod;
+          svc = new (await import('ethers')).Contract(arbitrationServiceAddress, abi, this.signer);
+        } catch (impErr) {
+          console.error('Could not load ArbitrationService ABI dynamically:', impErr);
+          throw new Error('ArbitrationService ABI not available');
+        }
+      }
+
+      // If signer is landlord, call finalizeByLandlord; otherwise attempt finalizeTargetCancellation
+      if (signerAddr === landlordAddr) {
+        const tx = await svc.finalizeByLandlord(contractAddress, { value });
+        const receipt = await tx.wait();
+        return receipt;
+      }
+
+      // Fallback: attempt the admin/factory path (may revert if signer not authorized)
+      const tx = await svc.finalizeTargetCancellation(contractAddress, { value });
+      const receipt = await tx.wait();
+      return receipt;
+    } catch (error) {
+      console.error('Error finalizing via arbitration service (landlord path):', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Report a dispute on a Rent contract (appeal to arbitration).
+   * disputeType: numeric enum matching TemplateRentContract.DisputeType (0..)
+   * requestedAmount: BigInt or string in wei (use 0 for none)
+   * evidenceText: optional text to hash into bytes32 evidenceHash
+   */
+  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '') {
+    try {
+      const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+      // Ensure caller is one of the parties recorded on-chain
+      try {
+        const [landlordAddr, tenantAddr, me] = await Promise.all([
+          rent.landlord().catch(() => null),
+          rent.tenant().catch(() => null),
+          this.signer.getAddress().catch(() => null)
+        ]);
+        const lc = (landlordAddr || '').toLowerCase();
+        const tc = (tenantAddr || '').toLowerCase();
+        const mc = (me || '').toLowerCase();
+        if (mc !== lc && mc !== tc) {
+          const err = new Error(`Connected wallet (${mc}) is not a party to contract ${contractAddress}`);
+          err.code = 'NOT_A_PARTY';
+          throw err;
+        }
+      } catch (pfErr) {
+        throw pfErr;
+      }
+      // compute evidenceHash as keccak256 of utf8 bytes; if empty use zero bytes32
+      // If caller passed a bytes32 hex string, use it directly. Otherwise hash the provided text.
+      let evidenceHash = '0x' + '0'.repeat(64);
+      if (evidenceText && String(evidenceText).trim().length > 0) {
+        const s = String(evidenceText).trim();
+        if (s.startsWith('0x') && s.length === 66 && /^0x[0-9a-fA-F]{64}$/.test(s)) {
+          evidenceHash = s;
+        } else {
+          evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(s));
+        }
+      }
+      const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
+  const tx = await rent.reportDispute(disputeType, amount, evidenceHash);
+      const receipt = await tx.wait();
+      // Try to extract the caseId from emitted events
+      let caseId = null;
+      try {
+        for (const log of receipt.logs) {
+          try {
+            const parsed = rent.interface.parseLog(log);
+            if (parsed && parsed.name === 'DisputeReported') {
+              caseId = parsed.args[0]?.toString?.() ?? null;
+              break;
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return { receipt, caseId };
+    } catch (error) {
+      console.error('Error reporting rent dispute:', error);
       throw error;
     }
   }
@@ -1016,12 +1223,21 @@ async ndaWithdraw(contractAddress, amountEth) {
 async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceText) {
   try {
     const nda = await this.getNDAContract(contractAddress);
-    const requested = ethers.parseEther(String(requestedPenaltyEth));
-    const evidenceHash = evidenceText ? ethers.id(evidenceText) : ethers.ZeroHash;
-  // include on-chain dispute fee if present
-  let disputeFee = 0n;
-  try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
-  const tx = await nda.reportBreach(offender, requested, evidenceHash, { value: disputeFee });
+    const requested = requestedPenaltyEth ? ethers.parseEther(String(requestedPenaltyEth)) : 0n;
+    // If evidenceText is already a 0x-prefixed bytes32, use it directly; otherwise hash the text
+    let evidenceHash = ethers.ZeroHash;
+    if (evidenceText && String(evidenceText).trim().length > 0) {
+      const s = String(evidenceText).trim();
+      if (s.startsWith('0x') && s.length === 66 && /^0x[0-9a-fA-F]{64}$/.test(s)) {
+        evidenceHash = s;
+      } else {
+        evidenceHash = ethers.id(s);
+      }
+    }
+    // include on-chain dispute fee if present
+    let disputeFee = 0n;
+    try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
+    const tx = await nda.reportBreach(offender, requested, evidenceHash, { value: disputeFee });
     return await tx.wait();
   } catch (error) {
     console.error('Error reporting breach:', error);

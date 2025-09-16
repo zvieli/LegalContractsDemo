@@ -1,0 +1,30 @@
+.platform-page {
+  padding: 24px;
+}
+.platform-stats {
+  display: flex;
+  gap: 24px;
+  margin-top: 12px;
+}
+.platform-stats .stat {
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  padding: 12px 18px;
+  border-radius: 8px;
+}
+.platform-stats .label {
+  font-size: 12px;
+  color: #666;
+}
+.platform-stats .value {
+  font-size: 20px;
+  font-weight: 600;
+}
+.platform-page .note {
+  margin-top: 18px;
+  color: #444;
+}
+/* Minimal styling for Platform admin page */
+.platform-page { padding: 24px; }
+.platform-page h1 { margin: 0 0 8px 0; }
+.platform-page code { background: #f3f4f6; padding: 4px 8px; border-radius: 4px; }

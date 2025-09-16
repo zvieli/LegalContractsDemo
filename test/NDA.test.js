@@ -55,6 +55,9 @@ describe("NDATemplate", function () {
     const Factory = await ethers.getContractFactory("ContractFactory");
     const factory = await Factory.deploy();
     await factory.waitForDeployment();
+    // ensure factory provides the arbitration service to created templates
+    await factory.setDefaultArbitrationService(arbitrationService.target, 0);
+
     const tx = await factory.connect(partyA).createNDA(
       partyB.address,
       Math.floor(Date.now() / 1000) + 86400,
@@ -66,8 +69,7 @@ describe("NDATemplate", function () {
     const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
     ndaTemplate = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
     admin = partyA; // factory sets admin = deployer (partyA here)
-  // configure the NDA to accept calls from the ArbitrationService
-  await ndaTemplate.connect(admin).setArbitrationService(arbitrationService.target);
+  // NDA receives arbitrationService immutably from factory via default; nothing to configure on-template.
   });
 
   describe("Deployment", function () {
@@ -528,6 +530,16 @@ describe("NDATemplate - reveal & appeal windows", function () {
     const Factory = await ethers.getContractFactory('ContractFactory');
     const tempFactory = await Factory.deploy();
     await tempFactory.waitForDeployment();
+
+    // deploy an ArbitrationService and transfer ownership to the arbitrator so it can apply resolutions
+    const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
+    const svc = await ArbitrationService.deploy();
+    await svc.waitForDeployment();
+    await svc.transferOwnership(arb.target);
+    await arb.setArbitrationService(svc.target);
+    // ensure tempFactory provides the arbitration service to new NDA (so ndaWithArb receives svc immutably)
+    await tempFactory.setDefaultArbitrationService(svc.target, 0);
+
     const tx = await tempFactory.connect(adminR).createNDA(
       partyBR.address,
       Math.floor(Date.now() / 1000) + 86400,
@@ -539,16 +551,8 @@ describe("NDATemplate - reveal & appeal windows", function () {
     const log = r.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
     const ndaWithArb = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
 
-    // deploy an ArbitrationService and transfer ownership to the arbitrator so it can apply resolutions
-    const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
-    const svc = await ArbitrationService.deploy();
-    await svc.waitForDeployment();
-    await svc.transferOwnership(arb.target);
-    await arb.setArbitrationService(svc.target);
-    await ndaWithArb.connect(adminR).setArbitrationService(svc.target);
-
-  // ensure the new NDA uses the same appeal window behavior as the test NDA
-  await ndaWithArb.connect(adminR).setAppealWindowSeconds(60);
+    // ensure the new NDA uses the same appeal window behavior as the test NDA
+    await ndaWithArb.connect(adminR).setAppealWindowSeconds(60);
 
     // deposit and report on the NDAWithArb
     await ndaWithArb.connect(adminR).deposit({ value: ethers.parseEther('1') });

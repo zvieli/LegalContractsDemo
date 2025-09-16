@@ -30,7 +30,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     mapping(address => uint256) public withdrawable;
     uint256 public immutable minDeposit;
 
-    address public arbitrationService;
+    address public immutable arbitrationService;
     // Anti-spam & dispute economics
     uint256 public disputeFee; // fee required to file a dispute (wei)
     uint256 public minReportInterval; // min seconds between reports from same reporter
@@ -93,7 +93,8 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
         uint256 _minDeposit,
-        address _admin
+        address _admin,
+        address _arbitrationService
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         require(_admin != address(0), "admin=0");
         require(_partyA != address(0) && _partyB != address(0), "Invalid parties");
@@ -108,6 +109,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         penaltyBps = _penaltyBps;
         customClausesHash = _customClausesHash;
     minDeposit = _minDeposit;
+    arbitrationService = _arbitrationService;
     // Real runtime resolution should prefer `arbitrationService` (see serviceResolve/serviceEnforce).
 
     // default anti-spam params
@@ -303,10 +305,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
 
     // Compatibility shim `resolveByArbitrator` removed. Use `serviceResolve` via a configured `arbitrationService`.
 
-    /// @notice Configure an external arbitration service address that can call resolution entrypoints.
-    function setArbitrationService(address _service) external onlyAdmin onlyActive {
-        arbitrationService = _service;
-    }
+    // Note: arbitrationService is immutable and set at construction by the factory/deployer.
 
     /// @notice Minimal service-only enforcement entrypoint to transfer penalty without additional checks.
     function serviceEnforce(address guiltyParty, uint256 penaltyAmount, address beneficiary) external nonReentrant {

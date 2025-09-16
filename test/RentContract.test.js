@@ -60,22 +60,24 @@ beforeEach(async function () {
   const Factory = await ethers.getContractFactory("ContractFactory");
   const factory = await Factory.deploy();
   await factory.waitForDeployment();
+  // set factory default arbitration so created templates receive it immutably
+  const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
+  const arbsvc = await ArbitrationService.deploy();
+  await arbsvc.waitForDeployment();
+  await factory.setDefaultArbitrationService(arbsvc.target, 0);
   const tx = await factory.connect(landlord).createRentContract(
-          tenant.address,
-          ethers.parseEther("0.5"),
-          mockPriceFeed.target,
-          0
+    tenant.address,
+    ethers.parseEther("0.5"),
+    mockPriceFeed.target,
+    0
   );
   const receipt = await tx.wait();
   const evt = receipt.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
   const deployedAddr = evt.args.contractAddress;
   rentContract = await ethers.getContractAt('TemplateRentContract', deployedAddr);
 
-  // Deploy ArbitrationService and set it on the rent contract so tests can finalize
-  const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
-  arbitrationService = await ArbitrationService.deploy();
-  await arbitrationService.waitForDeployment();
-  await rentContract.connect(landlord).setArbitrationService(arbitrationService.target);
+  // The factory already set the default arbitration service; reuse the deployed service reference
+  arbitrationService = arbsvc;
 
   // Mint & Approve tokens for tenant
   await token.transfer(tenant.address, ethers.parseUnits("500", 18));

@@ -3,12 +3,14 @@ import { useEthers } from '../../contexts/EthersContext';
 import { ethers } from 'ethers';
 import './Arbitration.css';
 import ContractModal from '../../components/ContractModal/ContractModal';
+import ResolveModal from '../../components/ResolveModal/ResolveModal';
 import { ContractService } from '../../services/contractService';
 
 function Arbitration() {
   const { isConnected, account } = useEthers();
   const [disputes, setDisputes] = useState([]);
   const [loading, setLoading] = useState(true);
+  // incomingDispute removed: per-contract appeals are handled in the Contract modal/card
 
   const { signer, chainId } = useEthers();
 
@@ -70,6 +72,8 @@ function Arbitration() {
     load();
     // Re-run when account changes (e.g., admin connects or switches)
   }, [account]);
+
+  // no-op: we intentionally do not display sessionStorage incoming appeals on this page
 
   const refreshDisputes = async () => {
     setLoading(true);
@@ -133,6 +137,9 @@ function Arbitration() {
   const [isArbPromptOpen, setIsArbPromptOpen] = useState(false);
   const [arbPromptContract, setArbPromptContract] = useState(null);
   const [arbPromptInput, setArbPromptInput] = useState('');
+  const [showArbDeployHint, setShowArbDeployHint] = useState(false);
+  const [resolveModalOpen, setResolveModalOpen] = useState(false);
+  const [resolveTargetContract, setResolveTargetContract] = useState(null);
 
   const handleView = (contractAddress) => {
     setSelectedContract(contractAddress);
@@ -141,53 +148,10 @@ function Arbitration() {
     setIsModalOpen(true);
   };
 
-  const handleResolve = async (contractAddress) => {
-    if (!confirm('Finalize cancellation for this contract via ArbitrationService?')) return;
-    setActionLoading(true);
-    try {
-      const svc = new ContractService(signer, chainId);
-      // Try to read configured arbitrationService from the contract
-      let arbAddr = null;
-      try {
-        const rent = await svc.getRentContract(contractAddress);
-        arbAddr = await rent.arbitrationService().catch(() => null);
-      } catch (_) { arbAddr = null; }
-
-      if (!arbAddr || arbAddr === ethers.ZeroAddress) {
-        // open a modal to ask admin for arbitration service address (controlled UI instead of prompt)
-        setArbPromptContract(contractAddress);
-        // try to prefill from frontend MockContracts.json if available
-        try {
-          const mcMod = await import('../../utils/contracts/MockContracts.json');
-          const mc = mcMod?.default ?? mcMod;
-          const suggested = mc?.contracts?.ArbitrationService ?? '';
-          setArbPromptInput(suggested || '');
-        } catch (e) {
-          setArbPromptInput('');
-        }
-        setIsArbPromptOpen(true);
-        // stop here; the modal will drive the finalize action when admin confirms
-        setActionLoading(false);
-        return;
-      }
-
-      // finalize via service (fee 0)
-      try {
-        const receipt = await svc.finalizeCancellationViaService(arbAddr, contractAddress, 0n);
-        alert(`✅ Cancellation finalized. Tx: ${receipt.transactionHash || receipt.transactionHash}`);
-      } catch (e) {
-        console.error('Finalize failed:', e);
-        alert(`Finalize failed: ${e?.message || e}`);
-      }
-
-      // refresh list
-      await refreshDisputes();
-    } catch (e) {
-      console.error('Error resolving dispute:', e);
-      alert(`Error: ${e?.message || e}`);
-    } finally {
-      setActionLoading(false);
-    }
+  const handleResolve = (contractAddress) => {
+    // Open the resolve modal so the arbitrator can fill decision + rationale
+    setResolveTargetContract(contractAddress);
+    setResolveModalOpen(true);
   };
 
   if (!isConnected) {
@@ -294,73 +258,18 @@ function Arbitration() {
           )}
         </div>
       </div>
-      {isArbPromptOpen && (
-        <div className="arb-prompt-modal">
-          <div className="arb-prompt-inner">
-            <h3>האתר אומר localhost:5173</h3>
-            <p>No ArbitrationService configured for this contract. Enter ArbitrationService address to finalize (or cancel):</p>
-
-            <input
-              type="text"
-              placeholder="0x..."
-              value={arbPromptInput}
-              onChange={(e) => setArbPromptInput(e.target.value)}
-              style={{ width: '100%', padding: '8px', marginTop: '8px' }}
-              disabled={actionLoading}
-            />
-
-            <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setIsArbPromptOpen(false);
-                  setArbPromptInput('');
-                  setArbPromptContract(null);
-                }}
-                disabled={actionLoading}
-              >
-                ביטול
-              </button>
-
-              <button
-                className="btn-primary"
-                onClick={async () => {
-                  const input = (arbPromptInput || '').trim();
-                  if (!input) {
-                    alert('נא להזין כתובת ArbitrationService');
-                    return;
-                  }
-                  if (!ethers.isAddress(input)) {
-                    alert('כתובת לא תקינה');
-                    return;
-                  }
-
-                  setActionLoading(true);
-                  try {
-                    const svc = new ContractService(signer, chainId);
-                    const receipt = await svc.finalizeCancellationViaService(input, arbPromptContract, 0n);
-                    alert(`✅ Cancellation finalized. Tx: ${receipt?.transactionHash ?? receipt?.hash ?? 'unknown'}`);
-                    setIsArbPromptOpen(false);
-                    setArbPromptInput('');
-                    setArbPromptContract(null);
-                    await refreshDisputes();
-                  } catch (err) {
-                    console.error('Finalize failed:', err);
-                    alert(`Finalize failed: ${err?.message ?? err}`);
-                  } finally {
-                    setActionLoading(false);
-                  }
-                }}
-                disabled={actionLoading}
-              >
-                אשר
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* If no global ArbitrationService is configured, the Resolve action will show a deploy hint. */}
 
       <ContractModal contractAddress={selectedContract} isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setSelectedContract(null); refreshDisputes(); }} readOnly={modalReadOnly} />
+
+      <ResolveModal
+        isOpen={resolveModalOpen}
+        onClose={() => { setResolveModalOpen(false); setResolveTargetContract(null); }}
+        contractAddress={resolveTargetContract}
+        signer={signer}
+        chainId={chainId}
+        onResolved={async () => { await refreshDisputes(); }}
+      />
     </div>
   );
 }

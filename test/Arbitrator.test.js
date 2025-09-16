@@ -25,6 +25,9 @@ describe("Arbitrator", function () {
     const Factory = await ethers.getContractFactory("ContractFactory");
     const factory = await Factory.deploy();
     await factory.waitForDeployment();
+    // ensure factory provides the arbitration service to created templates
+    await factory.setDefaultArbitrationService(arbitrationService.target, 0);
+
     const tx = await factory.connect(partyA).createNDA(
       partyB.address,
       Math.floor(Date.now() / 1000) + 86400,
@@ -35,8 +38,7 @@ describe("Arbitrator", function () {
   const receipt = await tx.wait();
   const log = receipt.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
   ndaTemplate = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
-  // Configure the deployed NDA to accept service calls
-  await ndaTemplate.connect(partyA).setArbitrationService(arbitrationService.target);
+  // NDA receives arbitrationService immutably from factory via default; nothing to configure on-template.
 
     await ndaTemplate.connect(partyA).deposit({ value: ethers.parseEther("0.2") });
     await ndaTemplate.connect(partyB).deposit({ value: ethers.parseEther("0.2") });
