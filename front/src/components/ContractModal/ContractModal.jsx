@@ -16,6 +16,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [activeTab, setActiveTab] = useState('details');
   const [requiredEth, setRequiredEth] = useState(null);
   const [requiredEthWei, setRequiredEthWei] = useState(null);
+  const [withdrawableAmt, setWithdrawableAmt] = useState('0');
   const [feeDueEth, setFeeDueEth] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(null);
   const [policyDraft, setPolicyDraft] = useState({ notice: '', feeBps: '', mutual: false });
@@ -197,6 +198,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           };
         }));
         setTransactionHistory(transactions);
+        // read withdrawable amount for connected account (if landlord)
+        try {
+          if (account) {
+            const w = await rentContract.withdrawable(account);
+            setWithdrawableAmt(ethers.formatEther(w || 0n));
+          } else {
+            setWithdrawableAmt('0');
+          }
+        } catch (_) { setWithdrawableAmt('0'); }
       } else if (details?.type === 'NDA') {
         setTransactionHistory([]);
         // Build a simple NDA timeline from events
@@ -406,6 +416,24 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       console.error('Error paying rent:', error);
   const reason = error?.reason || error?.error?.message || error?.data?.message || error?.message;
   alert(`❌ Payment failed: ${reason}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRentWithdraw = async () => {
+    try {
+      setActionLoading(true);
+      const service = new ContractService(signer, chainId);
+      await service.withdrawRentPayments(contractAddress);
+      alert('Withdraw successful');
+      // refresh withdrawable amount
+      const rentContract = await service.getRentContract(contractAddress);
+      const w = await rentContract.withdrawable(account);
+      setWithdrawableAmt(ethers.formatEther(w || 0n));
+    } catch (e) {
+      console.error('Withdraw failed', e);
+      alert(`Withdraw failed: ${e?.reason || e?.message || e}`);
     } finally {
       setActionLoading(false);
     }
@@ -1059,6 +1087,16 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                     >
                       Use required amount
                     </button>
+                    {isLandlord && Number(withdrawableAmt || '0') > 0 && (
+                      <button
+                        onClick={handleRentWithdraw}
+                        disabled={readOnly || actionLoading}
+                        className="btn-primary"
+                        style={{marginLeft: '8px'}}
+                      >
+                        {actionLoading ? 'Processing...' : `Withdraw ${withdrawableAmt} ETH`}
+                      </button>
+                    )}
                   </div>
                 </div>
 

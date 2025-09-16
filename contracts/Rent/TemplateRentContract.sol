@@ -4,13 +4,14 @@ pragma solidity ^0.8.20;
 import "../AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 // factory enforcement removed (size optimization) - relying on factory pattern off-chain
 
 /// @title TemplateRentContract with EIP712 dual-party signature (similar to NDATemplate)
 /// @notice Adds structured data signing so BOTH landlord & tenant can sign immutable core terms.
-contract TemplateRentContract is EIP712 {
+contract TemplateRentContract is EIP712, ReentrancyGuard {
     address public immutable landlord;
     address public immutable tenant;
     uint256 public immutable propertyId; // 0 if not linked
@@ -26,6 +27,8 @@ AggregatorV3Interface public immutable priceFeed;
     uint8 public lateFeePercent = 5;
 
     mapping(address => uint256) public tokenPaid; 
+    // Pull-payment ledger: credit recipients here and let them withdraw to avoid stuck transfers
+    mapping(address => uint256) public withdrawable;
 
     // Signing state (EIP712)
     mapping(address => bool) public signedBy; // landlord/tenant => signed?
@@ -78,6 +81,7 @@ AggregatorV3Interface public immutable priceFeed;
 
     // events
     event RentPaid(address indexed tenant, uint256 amount, bool late, address token);
+    event PaymentCredited(address indexed to, uint256 amount);
     event ContractCancelled(address indexed by);
     event DueDateUpdated(uint256 newTimestamp);
     event LateFeeUpdated(uint256 newPercent);
@@ -92,6 +96,7 @@ AggregatorV3Interface public immutable priceFeed;
     event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount, bytes32 evidenceHash);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
     event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
+    event PaymentWithdrawn(address indexed to, uint256 amount);
 
     constructor(
         address _landlord,
@@ -215,7 +220,11 @@ function getRentInEth() public view returns (uint256) {
         rentPaid = true;
         totalPaid += msg.value;
         (bool sent, ) = payable(landlord).call{value: msg.value}("");
-    require(sent, "transfer fail");
+        if (!sent) {
+            // credit for pull-based withdrawal to avoid reverts
+            withdrawable[landlord] += msg.value;
+            emit PaymentCredited(landlord, msg.value);
+        }
         emit RentPaid(msg.sender, msg.value, false, address(0));
     }
 
@@ -232,9 +241,12 @@ function getRentInEth() public view returns (uint256) {
     if (msg.value < requiredEth) revert AmountTooLow();
         totalPaid += msg.value;
         rentPaid = true;
-        (bool sent, ) = payable(landlord).call{value: msg.value}("");
-    require(sent, "transfer fail");
-        emit RentPaid(msg.sender, msg.value, late, address(0));
+            (bool sent, ) = payable(landlord).call{value: msg.value}("");
+            if (!sent) {
+                withdrawable[landlord] += msg.value;
+                emit PaymentCredited(landlord, msg.value);
+            }
+            emit RentPaid(msg.sender, msg.value, late, address(0));
     }
 
     function payRentPartial() external payable onlyTenant onlyActive onlyFullySigned {
@@ -245,7 +257,10 @@ function getRentInEth() public view returns (uint256) {
         if (totalPaid >= getRentInEth()) rentPaid = true;
 
     (bool sent, ) = payable(landlord).call{value: msg.value}("");
-    require(sent, "transfer fail");
+    if (!sent) {
+        withdrawable[landlord] += msg.value;
+        emit PaymentCredited(landlord, msg.value);
+    }
         emit RentPaid(msg.sender, msg.value, late, address(0));
     }
 
@@ -271,6 +286,16 @@ function getRentInEth() public view returns (uint256) {
     if (rentSigned) revert FullySignedDueDateLocked();
         dueDate = timestamp;
         emit DueDateUpdated(timestamp);
+    }
+
+    /// @notice Withdraw any pending pull-payments credited to caller
+    function withdrawPayments() external nonReentrant {
+        uint256 amount = withdrawable[msg.sender];
+        require(amount > 0, "No funds to withdraw");
+        withdrawable[msg.sender] = 0;
+        (bool ok, ) = payable(msg.sender).call{value: amount}("");
+        require(ok, "Withdraw failed");
+        emit PaymentWithdrawn(msg.sender, amount);
     }
 
     // Direct `cancelContract` removed. Use `initiateCancellation` / `approveCancellation` +
@@ -364,7 +389,12 @@ function getRentInEth() public view returns (uint256) {
             address counterparty = cancelInitiator == landlord ? tenant : landlord;
             if (fee > 0) {
                 (bool sent, ) = payable(counterparty).call{value: fee}("");
-                if (!sent) revert FeeTransferFailed();
+                if (!sent) {
+                    // credit counterparty for pull-based withdrawal instead of reverting
+                    withdrawable[counterparty] += fee;
+                    emit PaymentCredited(counterparty, fee);
+                }
+                // emit EarlyTerminationFeePaid regardless to log the payment intent
                 emit EarlyTerminationFeePaid(msg.sender, fee, counterparty);
             }
         }
@@ -492,8 +522,14 @@ function getRentInEth() public view returns (uint256) {
             if (appliedAmount > 0) {
                 depositBalance -= appliedAmount;
                 (bool ok, ) = payable(beneficiary).call{value: appliedAmount}("");
-                if (!ok) revert FeeTransferFailed();
-                applied = appliedAmount;
+                if (!ok) {
+                    // credit beneficiary for pull-based withdrawal instead of reverting
+                    withdrawable[beneficiary] += appliedAmount;
+                    emit PaymentCredited(beneficiary, appliedAmount);
+                    applied = appliedAmount;
+                } else {
+                    applied = appliedAmount;
+                }
             }
         }
         dc.appliedAmount = applied;

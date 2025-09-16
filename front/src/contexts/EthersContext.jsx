@@ -220,6 +220,19 @@ export function EthersProvider({ children }) {
     ,refresh
   };
 
+  // Development helper: expose current ethers state to window for quick debugging
+  if (typeof window !== 'undefined' && import.meta.env && import.meta.env.DEV) {
+    try {
+      window.__APP_ETHERS__ = {
+        provider,
+        signer,
+        account,
+        chainId,
+        isConnected
+      };
+    } catch (_) {}
+  }
+
   return (
     <EthersContext.Provider value={value}>
       {children}

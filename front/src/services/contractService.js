@@ -10,26 +10,39 @@ export class ContractService {
   // Prefer wallet provider, but on localhost fall back to a direct JSON-RPC provider if the wallet provider glitches
   async getCodeSafe(address) {
     const primary = this.signer.provider;
-    try {
-      return await primary.getCode(address);
-    } catch (e) {
-      const msg = String(e?.message || '');
-      // MetaMask wraps certain errors and exposes a nested cause for a 'circuit breaker' condition.
-      const isBrokenCircuit = Boolean(e?.data?.cause?.isBrokenCircuitError) || /circuit breaker/i.test(msg);
-      const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
-      // If we're on localhost and the injected provider is failing (invalid block tag, internal error, or the circuit-breaker),
-      // fall back to a direct JSON-RPC provider on 127.0.0.1:8545 which is commonly used for Hardhat/localhost.
-      if (isLocal && (/invalid block tag/i.test(msg) || /Internal JSON-RPC error/i.test(msg) || isBrokenCircuit)) {
-        console.warn('Provider.getCode failed on injected provider; falling back to http://127.0.0.1:8545', { error: e });
-        try {
-          const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-          return await rpc.getCode(address);
-        } catch (rpcErr) {
-          // If fallback also fails, surface the original error for clearer diagnosis.
-          console.warn('Fallback JSON-RPC getCode failed', { rpcErr });
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await primary.getCode(address);
+      } catch (e) {
+        const msg = String(e?.message || '');
+        // If the provider is in the middle of a network switch, ethers may throw a transient 'network changed' error.
+        // Retry a couple times with exponential backoff to avoid spamming the node with eth_call that can show as
+        // 'Contract call: <unrecognized-selector>' in the node logs during transitions.
+        if (/network changed/i.test(msg) && attempt < maxAttempts) {
+          const backoff = 100 * Math.pow(2, attempt - 1);
+          console.warn(`Transient network change detected while reading code for ${address}, retrying in ${backoff}ms (${attempt}/${maxAttempts})`);
+          await new Promise(r => setTimeout(r, backoff));
+          continue;
         }
+
+        // MetaMask wraps certain errors and exposes a nested cause for a 'circuit breaker' condition.
+        const isBrokenCircuit = Boolean(e?.data?.cause?.isBrokenCircuitError) || /circuit breaker/i.test(msg);
+        const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
+        // If we're on localhost and the injected provider is failing (invalid block tag, internal error, or the circuit-breaker),
+        // fall back to a direct JSON-RPC provider on 127.0.0.1:8545 which is commonly used for Hardhat/localhost.
+        if (isLocal && (/invalid block tag/i.test(msg) || /Internal JSON-RPC error/i.test(msg) || isBrokenCircuit)) {
+          console.warn('Provider.getCode failed on injected provider; falling back to http://127.0.0.1:8545', { error: e });
+          try {
+            const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+            return await rpc.getCode(address);
+          } catch (rpcErr) {
+            // If fallback also fails, surface the original error for clearer diagnosis.
+            console.warn('Fallback JSON-RPC getCode failed', { rpcErr });
+          }
+        }
+        throw e;
       }
-      throw e;
     }
   }
 
@@ -143,6 +156,7 @@ export class ContractService {
 
       let tx;
       try {
+        console.debug('Sending createRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, factory: factoryContract.target || factoryContract.address });
         tx = await factoryContract.createRentContract(
           params.tenant,
           rentAmountWei,
@@ -203,6 +217,19 @@ export class ContractService {
       return createContractInstance('TemplateRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
+      throw error;
+    }
+  }
+
+  // Withdraw any pull-payments credited to caller on a Rent contract
+  async withdrawRentPayments(contractAddress) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const tx = await rentContract.withdrawPayments();
+      const receipt = await tx.wait();
+      return receipt;
+    } catch (error) {
+      console.error('Error withdrawing rent payments:', error);
       throw error;
     }
   }

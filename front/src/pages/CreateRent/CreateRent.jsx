@@ -20,10 +20,11 @@ function CreateRent() {
     rentAmount: '',
   paymentToken: '0x0000000000000000000000000000000000000000',
   paymentMethod: 'eth',
-    priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
+    // Default to mock price feed on localhost when available; otherwise use Sepolia by default
+    priceFeed: mockPriceFeedAddress || '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
     duration: '',
     startDate: '',
-    network: 'sepolia' // Default
+    network: 'localhost' // Default to localhost for developer workflows
   });
   const [createdContractAddress, setCreatedContractAddress] = useState('');
 
