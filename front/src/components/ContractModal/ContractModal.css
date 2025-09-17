@@ -399,6 +399,27 @@
   color: #fff;
 }
 
+/* Small inline copy button for tx/address fields */
+.btn-copy {
+  background: transparent;
+  border: 1px solid rgba(0,0,0,0.06);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  margin-left: 6px;
+}
+.btn-copy:hover {
+  background: rgba(0,0,0,0.04);
+  color: var(--primary-color);
+}
+.btn-copy:focus {
+  outline: 2px solid rgba(52,152,219,0.18);
+  outline-offset: 2px;
+}
+
+
 /* Appeal modal styles */
 .appeal-overlay {
   position: fixed;

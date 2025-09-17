@@ -792,6 +792,27 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       alert('Address copied to clipboard');
     }
   };
+  const handleCopyTx = async (txHash) => {
+    if (!txHash) return;
+    try {
+      await navigator.clipboard.writeText(txHash);
+      alert('Transaction hash copied to clipboard');
+    } catch (_) {
+      // Fallback copy for older browsers
+      try {
+        const input = document.createElement('input');
+        input.value = txHash;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+        alert('Transaction hash copied to clipboard');
+      } catch (e) {
+        console.error('Copy failed', e);
+        alert('Failed to copy transaction hash');
+      }
+    }
+  };
   const handleShowAppeal = async () => {
     try {
       // Try localStorage by exact key, lowercase key, then sessionStorage fallback
@@ -1012,7 +1033,10 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                         <div key={p} className="transaction-item">
                           <div className="tx-amount">{contractDetails.signatures?.[p] ? 'Signed' : 'Not signed'}</div>
                           <div className="tx-date">Deposit: {contractDetails.depositsByParty?.[p] || '0'} ETH</div>
-                          <div className="tx-hash">{p.slice(0,10)}...{p.slice(-8)}</div>
+                          <div className="tx-hash">
+                            {p.slice(0,10)}...{p.slice(-8)}
+                            <button className="btn-copy" onClick={() => handleCopyTx(p)} title="Copy address" style={{marginLeft:8}}>Copy</button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1051,9 +1075,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 {!contractDetails.isActive && (
                   <div className="alert warning">This contract is inactive. Payments are disabled.</div>
                 )}
-                {!isTenant && (
-                  <div className="alert info">Only the tenant can pay this contract.</div>
-                )}
                 {contractDetails?.cancellation?.cancelRequested && (
                   <div className="alert warning">Cancellation is pending; payments are disabled until completion.</div>
                 )}
@@ -1063,41 +1084,50 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 {requiredEth && (
                   <p className="muted">Required ETH for rent: {requiredEth} ETH</p>
                 )}
+
                 <div className="payment-section">
-                  <div className="payment-input">
-                    <input
-                      type="number"
-                      placeholder="Amount in ETH"
-                      value={paymentAmount}
-                      onChange={(e) => setPaymentAmount(e.target.value)}
-                        disabled={readOnly || actionLoading || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
-                    />
-                    {!isTenant && <small className="muted">Switch wallet to the tenant address shown above.</small>}
-                    <button 
-                      onClick={handlePayRent}
-                        disabled={readOnly || actionLoading || !paymentAmount || !contractDetails.isActive || !isTenant || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
-                      className="btn-primary"
-                    >
-                      {actionLoading ? 'Processing...' : 'Pay Rent'}
-                    </button>
-                    <button 
-                      onClick={() => setPaymentAmount(requiredEth || '')}
-                      disabled={readOnly || actionLoading || !contractDetails.isActive || !isTenant || !requiredEth || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
-                      className="btn-secondary"
-                    >
-                      Use required amount
-                    </button>
-                    {isLandlord && Number(withdrawableAmt || '0') > 0 && (
-                      <button
-                        onClick={handleRentWithdraw}
-                        disabled={readOnly || actionLoading}
+                  {/* Payment controls are tenant-only. Landlord sees withdraw options only. */}
+                  {isTenant ? (
+                    <div className="payment-input">
+                      <input
+                        type="number"
+                        placeholder="Amount in ETH"
+                        value={paymentAmount}
+                        onChange={(e) => setPaymentAmount(e.target.value)}
+                        disabled={readOnly || actionLoading || !contractDetails.isActive || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
+                      />
+                      <button 
+                        onClick={handlePayRent}
+                        disabled={readOnly || actionLoading || !paymentAmount || !contractDetails.isActive || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
                         className="btn-primary"
-                        style={{marginLeft: '8px'}}
                       >
-                        {actionLoading ? 'Processing...' : `Withdraw ${withdrawableAmt} ETH`}
+                        {actionLoading ? 'Processing...' : 'Pay Rent'}
                       </button>
-                    )}
-                  </div>
+                      <button 
+                        onClick={() => setPaymentAmount(requiredEth || '')}
+                        disabled={readOnly || actionLoading || !contractDetails.isActive || !requiredEth || !!contractDetails?.cancellation?.cancelRequested || (contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned)}
+                        className="btn-secondary"
+                      >
+                        Use required amount
+                      </button>
+                    </div>
+                  ) : isLandlord ? (
+                    <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                      {Number(withdrawableAmt || '0') > 0 ? (
+                        <button
+                          onClick={handleRentWithdraw}
+                          disabled={readOnly || actionLoading}
+                          className="btn-primary"
+                        >
+                          {actionLoading ? 'Processing...' : `Withdraw ${withdrawableAmt} ETH`}
+                        </button>
+                      ) : (
+                        <div className="muted">No withdrawable funds available.</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="alert info">Only the tenant can pay this contract. Connect as the tenant to make payments.</div>
+                  )}
                 </div>
 
                 <h3>Payment History</h3>
@@ -1109,7 +1139,10 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       <div key={index} className="transaction-item">
                         <div className="tx-amount">{tx.amount} ETH</div>
                         <div className="tx-date">{tx.date}</div>
-                        <div className="tx-hash">{tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}</div>
+                        <div className="tx-hash">
+                          {tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}
+                          <button className="btn-copy" onClick={() => handleCopyTx(tx.hash)} title="Copy tx hash" style={{marginLeft:8}}>Copy</button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -1271,7 +1304,10 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             <div key={idx} className="transaction-item">
                               <div className="tx-amount">{ev.type}</div>
                               <div className="tx-date">{ev.at ? new Date(Number(ev.at) * 1000).toLocaleString() : '—'}</div>
-                              <div className="tx-hash">{ev.by ? `${ev.by.slice(0,10)}...${ev.by.slice(-8)}` : (ev.tx ? `${ev.tx.slice(0,10)}...${ev.tx.slice(-8)}` : '—')}</div>
+                              <div className="tx-hash">
+                                {ev.by ? `${ev.by.slice(0,10)}...${ev.by.slice(-8)}` : (ev.tx ? `${ev.tx.slice(0,10)}...${ev.tx.slice(-8)}` : '—')}
+                                {ev.tx && <button className="btn-copy" onClick={() => handleCopyTx(ev.tx)} title="Copy tx hash" style={{marginLeft:8}}>Copy</button>}
+                              </div>
                             </div>
                           ))}
                           {arbResolution && (
