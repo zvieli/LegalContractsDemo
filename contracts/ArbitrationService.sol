@@ -41,18 +41,27 @@ contract ArbitrationService {
     /// service entrypoints used by templates (`serviceResolve` for NDA and
     /// `resolveDisputeFinal` for Rent). The function uses low-level calls so it
     /// can support multiple target ABI shapes without hard dependencies.
-    function applyResolutionToTarget(address targetContract, uint256 caseId, bool approve, uint256 appliedAmount, address beneficiary) external {
+    // Allow caller to forward ETH which will be forwarded to the target resolution call.
+    function applyResolutionToTarget(address targetContract, uint256 caseId, bool approve, uint256 appliedAmount, address beneficiary) external payable {
         // Allow only the owner (previous behavior) or the configured factory to call this entrypoint.
         require(msg.sender == owner || (factory != address(0) && msg.sender == factory), "Only owner or factory");
         require(targetContract != address(0), "bad target");
 
-        // Try NDA-style serviceResolve(uint256,bool,uint256,address)
-        (bool ok, ) = targetContract.call(abi.encodeWithSignature("serviceResolve(uint256,bool,uint256,address)", caseId, approve, appliedAmount, beneficiary));
+    // Try NDA-style serviceResolve(uint256,bool,uint256,address)
+    (bool ok, bytes memory returned) = targetContract.call(abi.encodeWithSignature("serviceResolve(uint256,bool,uint256,address)", caseId, approve, appliedAmount, beneficiary));
         if (ok) return;
+        // If the target reverted with a reason, bubble it up — this indicates
+        // the target recognized the entrypoint but failed (e.g. insufficient deposit).
+        if (returned.length > 0) {
+            assembly { revert(add(returned, 32), mload(returned)) }
+        }
 
-        // Try Rent-style resolveDisputeFinal(uint256,bool,uint256,address,string,string)
-        (ok, ) = targetContract.call(abi.encodeWithSignature("resolveDisputeFinal(uint256,bool,uint256,address,string,string)", caseId, approve, appliedAmount, beneficiary, "", ""));
+    // Try Rent-style resolveDisputeFinal(uint256,bool,uint256,address,string,string)
+    (ok, returned) = targetContract.call(abi.encodeWithSignature("resolveDisputeFinal(uint256,bool,uint256,address,string,string)", caseId, approve, appliedAmount, beneficiary, "", ""));
         if (ok) return;
+        if (returned.length > 0) {
+            assembly { revert(add(returned, 32), mload(returned)) }
+        }
 
         // As a last resort, try a minimal enforcement entrypoint serviceEnforce(address,uint256,address)
         // which some templates may expose for direct enforcement. In that case,

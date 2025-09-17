@@ -639,7 +639,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         contractAddress: contractAddress,
         dtype: Number(disputeForm.dtype || 0),
         amountEth: String(disputeForm.amountEth || '0'),
-        evidenceHash: evidence || '',
+        evidence: evidence || '',
         fileName: disputeFileName || '',
         cid: cid || null,
         cidUrl: cidUrl || null,
@@ -856,6 +856,79 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     } catch (e) {
       console.error('Show appeal failed', e);
       alert('Failed to show appeal');
+    }
+  };
+
+  const copyTextToClipboard = async (text) => {
+    try {
+      if (!text) throw new Error('No text to copy');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {
+      // fallback
+    }
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'absolute';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    } catch (e) {
+      console.error('Clipboard fallback failed', e);
+      return false;
+    }
+  };
+
+  const handleCopyComplaint = async () => {
+    try {
+      if (!appealData) throw new Error('No appeal data');
+
+      // If the stored evidence looks like human-entered text (not a 32-byte keccak hash), copy it directly.
+      let evidenceText = '';
+      if (appealData.evidence && typeof appealData.evidence === 'string') {
+        const v = appealData.evidence;
+        const isLikelyHash = /^0x[0-9a-fA-F]{64}$/.test(v);
+        if (!isLikelyHash) {
+          evidenceText = v;
+        }
+      }
+
+      if (evidenceText) {
+        const ok = await copyTextToClipboard(evidenceText);
+        if (ok) { alert('Complaint text copied to clipboard'); return; }
+      }
+
+      // No plain evidence text available — copy a structured summary instead (omit raw file bytes).
+      const summary = {
+        contract: appealData.contractAddress || null,
+        caseId: appealData.caseId || null,
+        type: appealData.dtype || null,
+        amountEth: appealData.amountEth || null,
+        reporter: appealData.reporter || null,
+        submitted: appealData.createdAt || null,
+  evidenceText: evidenceText || null,
+  evidence: (!evidenceText && appealData.evidence) ? appealData.evidence : null,
+        fileName: appealData.fileName || null,
+        cidUrl: appealData.cidUrl || null,
+        note: (!evidenceText && appealData._localFileUrl) ? `Attached file available at: ${appealData._localFileUrl}` : undefined
+      };
+
+      const ok = await copyTextToClipboard(JSON.stringify(summary, null, 2));
+      if (ok) {
+        alert('Appeal summary copied to clipboard');
+      } else {
+        alert('Failed to copy appeal');
+      }
+    } catch (e) {
+      console.error('Copy complaint failed', e);
+      alert(`Failed to copy complaint: ${e?.message || e}`);
     }
   };
 
@@ -1454,7 +1527,10 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
           <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
               <h3>Appeal / Dispute</h3>
-              <button className="modal-close" onClick={() => { setShowAppealModal(false); if (appealData?._localFileUrl) { URL.revokeObjectURL(appealData._localFileUrl); } }}><i className="fas fa-times"></i></button>
+              <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                <button className="btn-sm" onClick={handleCopyComplaint} title="Copy full complaint">Copy complaint</button>
+                <button className="modal-close" onClick={() => { setShowAppealModal(false); if (appealData?._localFileUrl) { URL.revokeObjectURL(appealData._localFileUrl); } }}><i className="fas fa-times"></i></button>
+              </div>
             </div>
             <div style={{marginTop:8}}>
               <p><strong>Contract:</strong> {appealData.contractAddress}</p>
@@ -1463,7 +1539,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <p><strong>Amount:</strong> {appealData.amountEth} ETH</p>
               <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
               <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
-              <p><strong>Evidence Hash:</strong> {appealData.evidenceHash}</p>
+              <p><strong>Evidence:</strong> {appealData.evidence}</p>
               {appealData.fileName && <p><strong>Attached File:</strong> {appealData.fileName}</p>}
               {appealData._localFileUrl && (
                 <p><a href={appealData._localFileUrl} target="_blank" rel="noreferrer">Open local attachment ({appealData._localFileName || 'file'})</a></p>

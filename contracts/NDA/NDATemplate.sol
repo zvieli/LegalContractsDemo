@@ -43,7 +43,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     event PartyAdded(address indexed party);
     event DepositMade(address indexed party, uint256 amount);
     event DepositWithdrawn(address indexed party, uint256 amount);
-    event BreachReported(uint256 indexed caseId, address indexed reporter, address indexed offender, uint256 requestedPenalty, bytes32 evidenceHash);
+    event BreachReported(uint256 indexed caseId, address indexed reporter, address indexed offender, uint256 requestedPenalty, string evidence);
     event BreachResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address offender, address beneficiary);
     event ContractDeactivated(address indexed by, string reason);
     event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
@@ -56,7 +56,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         address reporter;
         address offender;
         uint256 requestedPenalty;
-        bytes32 evidenceHash;
+    string evidence;
         bool resolved;
         bool approved;
     }
@@ -68,7 +68,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
 
     BreachCase[] private _cases;
     mapping(uint256 => CaseMeta) private _caseMeta; // caseId => meta
-    mapping(uint256 => string) private _evidenceURI; // optional revealed evidence storage (URI or CID)
+    // store evidence text/URI directly on report; reveal flow removed
     mapping(uint256 => uint256) private _caseFee; // fee attached to caseId
     mapping(uint256 => uint256) private _revealDeadline; // timestamp until which reveal allowed
     mapping(uint256 => uint256) private _resolvedAt; // timestamp when case was resolved
@@ -227,7 +227,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     function reportBreach(
         address offender,
         uint256 requestedPenalty,
-        bytes32 evidenceHash
+        string calldata evidence
     ) external payable onlyParty onlyActive returns (uint256 caseId) {
         require(isParty[offender], "Offender not a party");
         require(offender != msg.sender, "Cannot accuse self");
@@ -247,8 +247,8 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         BreachCase storage bc = _cases[caseId];
         bc.reporter = msg.sender;
         bc.offender = offender;
-        bc.requestedPenalty = requestedPenalty;
-        bc.evidenceHash = evidenceHash;
+    bc.requestedPenalty = requestedPenalty;
+    bc.evidence = evidence;
         // record fee and reporter bookkeeping
         if (disputeFee > 0) {
             _caseFee[caseId] = msg.value;
@@ -257,13 +257,8 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         openReportsCount[msg.sender] += 1;
 
         // set a reveal deadline for this case if configured
-        if (revealWindowSeconds > 0) {
-            _revealDeadline[caseId] = block.timestamp + revealWindowSeconds;
-        } else {
-            _revealDeadline[caseId] = 0;
-        }
-
-        emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidenceHash);
+        // reveal flow removed; evidence is stored at report time
+        emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidence);
     }
 
     function getCasesCount() external view returns (uint256) {
@@ -274,7 +269,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         address reporter,
         address offender,
         uint256 requestedPenalty,
-        bytes32 evidenceHash,
+        string memory evidence,
         bool resolved,
         bool approved,
     uint256 approveVotes,
@@ -283,7 +278,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         require(caseId < _cases.length, "Invalid case ID");
         BreachCase storage bc = _cases[caseId];
     // approveVotes and rejectVotes are deprecated (voting removed); return zeros for compatibility
-    return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidenceHash, bc.resolved, bc.approved, 0, 0);
+    return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidence, bc.resolved, bc.approved, 0, 0);
     }
 
     // Voting removed for two-party NDAs. Disputes must be resolved by an arbitrator or external oracle.
@@ -320,27 +315,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
     }
 
-    /// @notice Reveal evidence URI (e.g., IPFS CID) after committing evidenceHash on report
-    function revealEvidence(uint256 caseId, string calldata uri) external onlyParty onlyActive {
-        require(caseId < _cases.length, "Invalid case ID");
-        BreachCase storage bc = _cases[caseId];
-        require(msg.sender == bc.reporter || msg.sender == bc.offender, "Not a party to case");
-
-    // enforce reveal window if configured
-        if (revealWindowSeconds > 0) {
-            require(_revealDeadline[caseId] != 0, "No reveal window set");
-            require(block.timestamp <= _revealDeadline[caseId], "Reveal window closed");
-        }
-
-        // verify the revealed URI matches the committed evidence hash
-        bytes32 computed = keccak256(bytes(uri));
-        require(computed == bc.evidenceHash, "Evidence hash mismatch");
-
-    // prevent double-reveal
-    require(bytes(_evidenceURI[caseId]).length == 0, "Already revealed");
-    _evidenceURI[caseId] = uri;
-        emit EvidenceRevealed(caseId, uri);
-    }
+    // revealEvidence removed — evidence is stored as plain string on report
 
     function getCaseMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
         require(caseId < _cases.length, "Invalid case ID");
@@ -350,7 +325,8 @@ contract NDATemplate is EIP712, ReentrancyGuard {
 
     function getEvidenceURI(uint256 caseId) external view returns (string memory) {
         require(caseId < _cases.length, "Invalid case ID");
-        return _evidenceURI[caseId];
+        BreachCase storage bc = _cases[caseId];
+        return bc.evidence;
     }
 
     function getOffenderBreachCount(address offender) external view returns (uint256) {

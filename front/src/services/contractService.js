@@ -667,7 +667,7 @@ export class ContractService {
    * Report a dispute on a Rent contract (appeal to arbitration).
    * disputeType: numeric enum matching TemplateRentContract.DisputeType (0..)
    * requestedAmount: BigInt or string in wei (use 0 for none)
-   * evidenceText: optional text to hash into bytes32 evidenceHash
+   * evidenceText: optional plain text or URL to store on-chain as string
    */
   async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '') {
     try {
@@ -690,19 +690,10 @@ export class ContractService {
       } catch (pfErr) {
         throw pfErr;
       }
-      // compute evidenceHash as keccak256 of utf8 bytes; if empty use zero bytes32
-      // If caller passed a bytes32 hex string, use it directly. Otherwise hash the provided text.
-      let evidenceHash = '0x' + '0'.repeat(64);
-      if (evidenceText && String(evidenceText).trim().length > 0) {
-        const s = String(evidenceText).trim();
-        if (s.startsWith('0x') && s.length === 66 && /^0x[0-9a-fA-F]{64}$/.test(s)) {
-          evidenceHash = s;
-        } else {
-          evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(s));
-        }
-      }
+      // Pass plain evidence string to the contract. Templates now accept `string evidence`.
       const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
-  const tx = await rent.reportDispute(disputeType, amount, evidenceHash);
+      const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
+      const tx = await rent.reportDispute(disputeType, amount, evidence);
       const receipt = await tx.wait();
       // Try to extract the caseId from emitted events
       let caseId = null;
@@ -1120,7 +1111,8 @@ async getNDAContractDetails(contractAddress, options = {}) {
             reporter: c[0],
             offender: c[1],
             requestedPenalty: ethers.formatEther(c[2]),
-            evidenceHash: c[3],
+            // templates now return a string evidence at index 3
+            evidence: c[3],
             resolved: !!c[4],
             approved: !!c[5],
             approveVotes: Number(c[6] || 0),
@@ -1251,20 +1243,12 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
   try {
     const nda = await this.getNDAContract(contractAddress);
     const requested = requestedPenaltyEth ? ethers.parseEther(String(requestedPenaltyEth)) : 0n;
-    // If evidenceText is already a 0x-prefixed bytes32, use it directly; otherwise hash the text
-    let evidenceHash = ethers.ZeroHash;
-    if (evidenceText && String(evidenceText).trim().length > 0) {
-      const s = String(evidenceText).trim();
-      if (s.startsWith('0x') && s.length === 66 && /^0x[0-9a-fA-F]{64}$/.test(s)) {
-        evidenceHash = s;
-      } else {
-        evidenceHash = ethers.id(s);
-      }
-    }
+    // Pass plain evidence string to the NDA template (was previously a bytes32 hash)
+    const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
     // include on-chain dispute fee if present
     let disputeFee = 0n;
     try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
-    const tx = await nda.reportBreach(offender, requested, evidenceHash, { value: disputeFee });
+    const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
     return await tx.wait();
   } catch (error) {
     console.error('Error reporting breach:', error);

@@ -56,14 +56,14 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
     // set dispute fee
     await nda.connect(admin).setDisputeFee(ethers.parseEther('0.01'));
 
-    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('e'));
+  const evidence = 'evidence';
 
-    // report with fee
-    await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.2'), evidenceHash, { value: ethers.parseEther('0.01') });
+  // report with fee (evidence passed as string now)
+  await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.2'), evidence, { value: ethers.parseEther('0.01') });
 
   // resolve via the arbitrator deployed in beforeEach
-  const evidence = ethers.toUtf8Bytes('evidence');
-  await arb.connect(admin).createDisputeForCase(nda.target, 0, evidence);
+  const evidenceBytes = ethers.toUtf8Bytes('evidence');
+  await arb.connect(admin).createDisputeForCase(nda.target, 0, evidenceBytes);
   await arb.connect(admin).resolveDispute(1, partyB.address, ethers.parseEther('0.2'), admin.address);
 
     const pending = await nda.getPendingEnforcement(0);
@@ -81,8 +81,9 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
   await nda.connect(admin).setAppealWindowSeconds(3600);
 
     // report with no fee
-    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('e2'));
-    await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.3'), evidenceHash);
+  const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('e2'));
+  // previous tests used a hash; keep compatibility by passing string evidence here
+  await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.3'), 'e2');
 
     // make beneficiary the Reverter contract by setting arbitrator to reverter (simulate arbitrator calling resolve with beneficiary)
     // For simplicity, call resolveByArbitratorFinal directly from admin: simulate that beneficiary is reverter
@@ -116,17 +117,14 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
   await nda.connect(admin).setAppealWindowSeconds(1);
 
   const uri = 'ipfs://abc';
-  const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(uri));
 
-  // set reveal window before reporting so revealDeadline is recorded at report time
+  // set reveal window before reporting (no effect in new flow) and report with string evidence
   await nda.connect(admin).setRevealWindowSeconds(3600);
-  await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.1'), evidenceHash);
+  await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.1'), uri);
 
-    // reveal once
-    await nda.connect(admin).revealEvidence(0, uri);
-
-    // double reveal should revert
-    await expect(nda.connect(admin).revealEvidence(0, uri)).to.be.revertedWith('Already revealed');
+    // double reveal removed - evidence stored directly; ensure stored value
+    const stored = await nda.getEvidenceURI(0);
+    expect(stored).to.equal(uri);
 
   // resolve via the arbitrator deployed in beforeEach to create a pending enforcement entry
   const evidence3 = ethers.toUtf8Bytes('evidence3');

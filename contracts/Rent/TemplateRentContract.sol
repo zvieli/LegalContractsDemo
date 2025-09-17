@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "../AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -29,6 +30,8 @@ AggregatorV3Interface public immutable priceFeed;
     mapping(address => uint256) public tokenPaid; 
     // Pull-payment ledger: credit recipients here and let them withdraw to avoid stuck transfers
     mapping(address => uint256) public withdrawable;
+    // Track on-chain recorded debts owed by parties when a resolution exceeds available funds
+    mapping(address => uint256) public debtOwed;
 
     // Signing state (EIP712)
     mapping(address => bool) public signedBy; // landlord/tenant => signed?
@@ -57,7 +60,8 @@ AggregatorV3Interface public immutable priceFeed;
     // The arbitration service is provided at contract creation and is immutable.
     address public immutable arbitrationService;       // service proxy that can call arbitration entrypoints
     uint256 public requiredDeposit;          // required security deposit amount (in wei) set at construction
-    uint256 public depositBalance;           // tenant security deposit locked in contract
+    // per-party deposit balances (landlord and tenant can deposit security)
+    mapping(address => uint256) public partyDeposit;
 
     enum DisputeType { Damage, ConditionStart, ConditionEnd, Quality, EarlyTerminationJustCause, DepositSplit, ExternalValuation }
 
@@ -65,7 +69,7 @@ AggregatorV3Interface public immutable priceFeed;
         address initiator;
         DisputeType dtype;
         uint256 requestedAmount;    // claim amount (e.g., damages or amount to release)
-        bytes32 evidenceHash;       // off-chain evidence reference (IPFS hash etc.)
+        string evidence;            // off-chain evidence text/URI stored directly
         bool resolved;
         bool approved;
         uint256 appliedAmount;      // actual amount applied (deducted or released)
@@ -92,11 +96,16 @@ AggregatorV3Interface public immutable priceFeed;
     event CancellationFinalized(address indexed by);
     event EarlyTerminationFeePaid(address indexed from, uint256 amount, address indexed to);
     event ArbitrationConfigured(address indexed arbitrator, uint256 requiredDeposit);
-    event SecurityDepositPaid(address indexed tenant, uint256 amount, uint256 total);
-    event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount, bytes32 evidenceHash);
+    event SecurityDepositPaid(address indexed by, uint256 amount, uint256 total);
+    event DepositDebited(address indexed who, uint256 amount);
+    event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount, string evidence);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
+    event DebtRecorded(address indexed debtor, uint256 amount);
+    event ERC20DebtCollected(address indexed token, address indexed from, uint256 amount);
     event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
     event PaymentWithdrawn(address indexed to, uint256 amount);
+    /// @notice emitted when an attempted approval fails due to insufficient deposit
+    error InsufficientDepositForResolution(uint256 available, uint256 required);
 
     constructor(
         address _landlord,
@@ -427,13 +436,11 @@ function getRentInEth() public view returns (uint256) {
 
     // Arbitration service is immutable and assigned at construction. Setter functions removed.
 
-    function depositSecurity() external payable onlyTenant onlyActive onlyFullySigned {
-        // If contract was deployed with a non-zero requiredDeposit, enforce it.
-        if (requiredDeposit > 0 && depositBalance >= requiredDeposit) revert DepositAlreadySatisfied();
+    function depositSecurity() external payable onlyActive onlyFullySigned {
         if (msg.value == 0) revert DepositTooLow();
-        depositBalance += msg.value;
-        emit SecurityDepositPaid(msg.sender, msg.value, depositBalance);
-        if (requiredDeposit > 0 && depositBalance < requiredDeposit) revert DepositTooLow(); // needs at least requiredDeposit overall
+        partyDeposit[msg.sender] += msg.value;
+        emit SecurityDepositPaid(msg.sender, msg.value, partyDeposit[msg.sender]);
+        if (requiredDeposit > 0 && partyDeposit[msg.sender] < requiredDeposit) revert DepositTooLow();
     }
 
     function getDisputesCount() external view returns (uint256) { return _disputes.length; }
@@ -442,14 +449,14 @@ function getRentInEth() public view returns (uint256) {
         address initiator,
         DisputeType dtype,
         uint256 requestedAmount,
-        bytes32 evidenceHash,
+        string memory evidence,
         bool resolved,
         bool approved,
         uint256 appliedAmount
     ) {
         require(caseId < _disputes.length, "bad id");
         DisputeCase storage dc = _disputes[caseId];
-        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidenceHash, dc.resolved, dc.approved, dc.appliedAmount);
+        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidence, dc.resolved, dc.approved, dc.appliedAmount);
     }
 
     function getDisputeMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
@@ -458,7 +465,7 @@ function getRentInEth() public view returns (uint256) {
         return (m.classification, m.rationale);
     }
 
-    function reportDispute(DisputeType dtype, uint256 requestedAmount, bytes32 evidenceHash) external onlyActive returns (uint256 caseId) {
+    function reportDispute(DisputeType dtype, uint256 requestedAmount, string calldata evidence) external onlyActive returns (uint256 caseId) {
         // Allow reporting disputes even when an external arbitration service is
         // not yet configured. This lets parties record evidence/claims and
         // later enable arbitration via `configureArbitration` without losing
@@ -473,9 +480,9 @@ function getRentInEth() public view returns (uint256) {
         dc.initiator = msg.sender;
         dc.dtype = dtype;
         dc.requestedAmount = requestedAmount;
-        dc.evidenceHash = evidenceHash;
+        dc.evidence = evidence;
 
-        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceHash);
+        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidence);
     }
 
     /// @notice Final resolution used by arbitrator/oracle (single-step) similar to NDA oracle path.
@@ -485,6 +492,7 @@ function getRentInEth() public view returns (uint256) {
     /// @param beneficiary receiver of funds (usually landlord for damage; tenant for refund scenarios)
     /// @param classification short label (<=64 chars)
     /// @param rationale explanation (<=512 chars)
+    // Allow arbitration service to forward ETH to supplement depositBalance when resolving
     function resolveDisputeFinal(
         uint256 caseId,
         bool approve,
@@ -497,6 +505,7 @@ function getRentInEth() public view returns (uint256) {
     }
 
     // Internal resolver reused by both the external oracle/arbitrator entrypoint and internal paths.
+    // added forwardedEth: extra ETH forwarded by the arbitration service to supplement depositBalance
     function _resolveDisputeFinal(
         uint256 caseId,
         bool approve,
@@ -517,25 +526,95 @@ function getRentInEth() public view returns (uint256) {
 
         uint256 applied = 0;
         if (approve && appliedAmount > 0) {
-            // For damage / quality / deposit split we deduct from depositBalance to beneficiary (landlord or tenant)
-            if (appliedAmount > depositBalance) appliedAmount = depositBalance;
-            if (appliedAmount > 0) {
-                depositBalance -= appliedAmount;
-                (bool ok, ) = payable(beneficiary).call{value: appliedAmount}("");
-                if (!ok) {
-                    // credit beneficiary for pull-based withdrawal instead of reverting
-                    withdrawable[beneficiary] += appliedAmount;
-                    emit PaymentCredited(beneficiary, appliedAmount);
-                    applied = appliedAmount;
-                } else {
-                    applied = appliedAmount;
-                }
+            // debtor is the other party (not the initiator)
+            address debtor = dc.initiator == landlord ? tenant : landlord;
+            uint256 available = partyDeposit[debtor];
+            // enforce on-chain policy: approvals that move funds must be fully
+            // covered by the debtor's deposit. Revert otherwise.
+            if (available < appliedAmount) {
+                revert InsufficientDepositForResolution({ available: available, required: appliedAmount });
+            }
+            // debit full appliedAmount
+            partyDeposit[debtor] = available - appliedAmount;
+            emit DepositDebited(debtor, appliedAmount);
+            // attempt to send to beneficiary
+            (bool ok, ) = payable(beneficiary).call{value: appliedAmount}("");
+            if (!ok) {
+                withdrawable[beneficiary] += appliedAmount;
+                emit PaymentCredited(beneficiary, appliedAmount);
+                applied = appliedAmount;
+            } else {
+                applied = appliedAmount;
             }
         }
         dc.appliedAmount = applied;
         _disputeMeta[caseId] = DisputeMeta({classification: classification, rationale: rationale});
         emit DisputeResolved(caseId, approve, applied, beneficiary);
         emit DisputeRationale(caseId, classification, rationale);
+    }
+
+    /// @notice Attempt to collect recorded ERC20 debt from debtor using allowance/transferFrom
+    /// @param tokenAddress ERC20 token address
+    /// @param from debtor address (must match recorded debt)
+    /// @param amount amount to collect (up to recorded debt)
+    function collectERC20Debt(address tokenAddress, address from, uint256 amount) external onlyActive {
+        require(from == landlord || from == tenant, "invalid debtor");
+        uint256 owed = debtOwed[from];
+        require(owed > 0, "no debt");
+        uint256 take = amount > owed ? owed : amount;
+        IERC20 token = IERC20(tokenAddress);
+        // requires prior approve(from -> this contract)
+        token.safeTransferFrom(from, address(this), take);
+        // credit withdrawable to beneficiary (assume initiator is recipient of debt collection)
+        // if last resolved dispute initiator is the beneficiary we credit them; otherwise leave in withdrawable
+        // For simplicity, credit to initiator of last dispute if exists
+        address beneficiary = address(0);
+        if (_disputes.length > 0) {
+            // use last dispute's initiator as beneficiary for collected ERC20 funds
+            beneficiary = _disputes[_disputes.length - 1].initiator;
+        }
+        if (beneficiary != address(0)) {
+            withdrawable[beneficiary] += take;
+        }
+        debtOwed[from] -= take;
+        emit ERC20DebtCollected(tokenAddress, from, take);
+    }
+
+    /// @notice Collect recorded ERC20 debt from debtor using EIP-2612 permit (single tx)
+    /// @param tokenAddress ERC20 token address (must implement IERC20Permit)
+    /// @param from debtor address (must match recorded debt)
+    /// @param amount amount to collect (up to recorded debt)
+    /// @param deadline permit deadline
+    /// @param v,r,s permit signature params
+    function collectERC20DebtWithPermit(
+        address tokenAddress,
+        address from,
+        uint256 amount,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external onlyActive {
+        require(from == landlord || from == tenant, "invalid debtor");
+        uint256 owed = debtOwed[from];
+        require(owed > 0, "no debt");
+        uint256 take = amount > owed ? owed : amount;
+
+        IERC20Permit permitToken = IERC20Permit(tokenAddress);
+        // obtain permit so we can transferFrom in same tx
+        permitToken.permit(from, address(this), take, deadline, v, r, s);
+
+        IERC20(tokenAddress).safeTransferFrom(from, address(this), take);
+
+        address beneficiary = address(0);
+        if (_disputes.length > 0) {
+            beneficiary = _disputes[_disputes.length - 1].initiator;
+        }
+        if (beneficiary != address(0)) {
+            withdrawable[beneficiary] += take;
+        }
+        debtOwed[from] -= take;
+        emit ERC20DebtCollected(tokenAddress, from, take);
     }
 
     // Compatibility shim `resolveByArbitrator` removed. Use `resolveDisputeFinal` via a configured `arbitrationService`.

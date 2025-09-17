@@ -473,41 +473,29 @@ describe("NDATemplate - reveal & appeal windows", function () {
     await ndaR.connect(partyBR).deposit({ value: ethers.parseEther('0.5') });
 
     // report
-    await expect(ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), evidenceHash))
-      .to.emit(ndaR, 'BreachReported');
+    // With the new flow the evidence string is stored directly on report
+    await expect(ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), uri))
+      .to.emit(ndaR, 'BreachReported')
+      .withArgs(0, adminR.address, partyBR.address, ethers.parseEther('0.1'), uri);
 
-    const dl = await ndaR.getRevealDeadline(0);
-    expect(dl).to.be.gt(0);
-
-    // wrong reveal should revert
-    await expect(ndaR.connect(adminR).revealEvidence(0, "ipfs://wrong"))
-      .to.be.revertedWith('Evidence hash mismatch');
-
-    // proper reveal works
-    await expect(ndaR.connect(adminR).revealEvidence(0, uri))
-      .to.emit(ndaR, 'EvidenceRevealed')
-      .withArgs(0, uri);
-
+    // Evidence should be retrievable immediately
     const stored = await ndaR.getEvidenceURI(0);
     expect(stored).to.equal(uri);
   });
 
   it("rejects reveal after reveal window expires", async function () {
-    await ndaR.connect(adminR).setRevealWindowSeconds(10); // short window
+    // reveal flow removed: evidence is stored at report time, so nothing to reveal
+    await ndaR.connect(adminR).setRevealWindowSeconds(10); // short window (has no effect now)
 
     const uri = "ipfs://QmShortWindow";
-    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(uri));
 
     await ndaR.connect(adminR).deposit({ value: ethers.parseEther('0.5') });
     await ndaR.connect(partyBR).deposit({ value: ethers.parseEther('0.5') });
 
-    await ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), evidenceHash);
+    await ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), uri);
 
-    // advance time beyond window
-    await ethers.provider.send('evm_increaseTime', [20]);
-    await ethers.provider.send('evm_mine');
-
-    await expect(ndaR.connect(adminR).revealEvidence(0, uri)).to.be.revertedWith('Reveal window closed');
+    const stored = await ndaR.getEvidenceURI(0);
+    expect(stored).to.equal(uri);
   });
 
   it("defers enforcement when appeal window set and finalizes after expiry", async function () {
