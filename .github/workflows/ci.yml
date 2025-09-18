@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - name: Install root deps
+        run: npm ci
+      - name: Install frontend deps
+        run: npm --prefix front ci
+      - name: Run Hardhat tests
+        run: npx hardhat test --no-compile
+      - name: Build frontend
+        run: npm --prefix front run build
+      - name: Upload test results (if any)
+        if: always()
+        run: echo "CI completed"

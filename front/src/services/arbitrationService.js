@@ -9,102 +9,16 @@ export class ArbitrationService {
 
   async getArbitratorForNDA(ndaAddress) {
     const nda = createContractInstance('NDATemplate', ndaAddress, this.signer);
-    // NDA templates expose a configured address which may be either an
-    // Arbitrator factory (which exposes dispute methods) or an
-    // ArbitrationService helper. Detect which ABI fits and return the
-    // appropriate contract instance so callers call valid selectors.
+    // NDA templates no longer store a direct `arbitrator`. Instead they
+    // expose the configured `arbitrationService` which manages disputes.
     const svc = await nda.arbitrationService();
     if (!svc || svc === ethers.ZeroAddress) {
       throw new Error('This NDA has no arbitrationService configured');
     }
-    // Try to detect on-chain which implementation this address exposes by
-    // making a safe read-only probe. The Arbitrator factory exposes
-    // `getActiveDisputesCount()` while the generic ArbitrationService does not.
-    try {
-      const arb = createContractInstance('Arbitrator', svc, this.signer);
-      // Perform a harmless view call to verify the address implements the
-      // Arbitrator ABI. If this call succeeds we return the arbitrator instance.
-      await arb.getActiveDisputesCount();
-      console.debug('[ArbitrationService] Detected Arbitrator factory at', svc);
-      return arb;
-    } catch (probeErr) {
-      // Not an Arbitrator factory; fallback to the ArbitrationService helper ABI
-      try {
-        const asvc = createContractInstance('ArbitrationService', svc, this.signer);
-        console.debug('[ArbitrationService] Detected ArbitrationService helper at', svc);
-        return asvc;
-      } catch (err) {
-        throw new Error('Could not create arbitrator/service contract instance: ' + String(err?.message || err));
-      }
-    }
-  }
-
-  // Read the configured arbitration service/factory for an arbitrary target
-  // contract (Rent or NDA). Returns either an Arbitrator factory or an
-  // ArbitrationService helper contract instance.
-  async getServiceForTarget(targetContractAddress) {
-    try {
-      // Try as Rent: read the arbitrationService field from the target
-      const target = createContractInstance('TemplateRentContract', targetContractAddress, this.signer);
-      let svcAddr = await target.arbitrationService().catch(() => null);
-      if (!svcAddr || svcAddr === ethers.ZeroAddress) {
-        // Fall back to ContractFactory-configured global service
-        try {
-          const cfMod = await import('../utils/contracts/ContractFactory.json');
-          const cf = cfMod?.default ?? cfMod;
-          svcAddr = cf?.contracts?.ArbitrationService || null;
-        } catch (_) { svcAddr = null; }
-      }
-      if (!svcAddr) throw new Error('No arbitration service configured for target');
-
-      // Probe whether the address is an Arbitrator factory by calling a
-      // harmless view. If it responds, return that instance.
-      try {
-        const arb = createContractInstance('Arbitrator', svcAddr, this.signer);
-        await arb.getActiveDisputesCount();
-        console.debug('[ArbitrationService] Service probe: Arbitrator factory detected at', svcAddr);
-        return arb;
-      } catch (_) {
-        const asvc = createContractInstance('ArbitrationService', svcAddr, this.signer);
-        console.debug('[ArbitrationService] Service probe: ArbitrationService helper detected at', svcAddr);
-        return asvc;
-      }
-    } catch (err) {
-      console.error('Error getting service for target:', err);
-      throw err;
-    }
-  }
-
-  /**
-   * Apply a resolution to a target contract/case in a compatible way.
-   * If the configured on-chain instance is an `Arbitrator` factory, call
-   * `resolveDispute(disputeId, offender, penaltyWei, beneficiary)`.
-   * Otherwise, if it's an `ArbitrationService` helper, call
-   * `applyResolutionToTarget(targetContract, caseId, approve, appliedAmount, beneficiary)`.
-   */
-  async applyResolution(targetContract, caseId, approve, appliedAmountWei = 0n, beneficiary) {
-    try {
-      // Determine the service implementation for this target contract
-      const svc = await this.getServiceForTarget(targetContract);
-      // If the service is an Arbitrator factory, call resolveDispute
-      try {
-        svc.interface.getFunction('resolveDispute');
-        const tx = await svc.resolveDispute(Number(caseId), ethers.ZeroAddress, BigInt(appliedAmountWei), beneficiary);
-        return await tx.wait();
-      } catch (_) {
-        // Otherwise call the ArbitrationService helper's applyResolutionToTarget
-        try {
-          svc.interface.getFunction('applyResolutionToTarget');
-          const tx = await svc.applyResolutionToTarget(targetContract, Number(caseId), !!approve, BigInt(appliedAmountWei), beneficiary);
-          return await tx.wait();
-        } catch (err2) {
-          throw new Error('No compatible resolution entrypoint found on service/factory');
-        }
-      }
-    } catch (error) {
-      console.error('Error applying resolution for target:', error);
-      throw error;
-    }
+    // The owner of the ArbitrationService is expected to be the on-chain
+    // Arbitrator factory. We return the service contract instance here so
+    // callers can interact with dispute creation helpers via the service.
+    return createContractInstance('ArbitrationService', svc, this.signer);
   }
 
   async getArbitratorOwner(ndaAddress) {

@@ -234,6 +234,43 @@ export class ContractService {
     }
   }
 
+  // Read the pull-based withdrawable balance for an account on a Rent contract
+  async getWithdrawable(contractAddress, account) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const w = await rentContract.withdrawable(account);
+      return BigInt(w || 0n);
+    } catch (error) {
+      // If ABI mismatch or getter not present, return 0
+      console.debug('getWithdrawable not available or failed', error);
+      return 0n;
+    }
+  }
+
+  // Best-effort read of a reporter/dispute bond for a given case id.
+  // Templates may implement different names for this field; try common variants
+  async getDisputeBond(contractAddress, caseId) {
+    try {
+      const rent = await this.getRentContract(contractAddress);
+      const candidates = ['getDisputeBond', 'disputeBond', 'reporterBond', 'bondOf', 'caseReporterBond'];
+      for (const name of candidates) {
+        try {
+          if (typeof rent[name] === 'function') {
+            const val = await rent[name](caseId);
+            return BigInt(val || 0n);
+          }
+        } catch (_) {
+          // ignore and try next
+        }
+      }
+      // Not found — return zero
+      return 0n;
+    } catch (error) {
+      console.debug('getDisputeBond failed', error);
+      return 0n;
+    }
+  }
+
   async getRentContractDetails(contractAddress, options = {}) {
     const { silent = false } = options || {};
     try {
