@@ -30,6 +30,8 @@ AggregatorV3Interface public immutable priceFeed;
     mapping(address => uint256) public tokenPaid; 
     // Pull-payment ledger: credit recipients here and let them withdraw to avoid stuck transfers
     mapping(address => uint256) public withdrawable;
+    // Reporter bond per dispute caseId (optional bond attached by reporter)
+    mapping(uint256 => uint256) private _reporterBond;
     // Track on-chain recorded debts owed by parties when a resolution exceeds available funds
     mapping(address => uint256) public debtOwed;
 
@@ -445,6 +447,19 @@ function getRentInEth() public view returns (uint256) {
 
     function getDisputesCount() external view returns (uint256) { return _disputes.length; }
 
+    /// @notice Deposit (or top-up) the reporter bond for an existing dispute case
+    function depositReporterBond(uint256 caseId) external payable onlyActive {
+        require(caseId < _disputes.length, "bad id");
+        require(msg.value > 0, "no value");
+        _reporterBond[caseId] += msg.value;
+    }
+
+    /// @notice Read the reporter bond attached to a dispute (0 if none)
+    function getDisputeBond(uint256 caseId) external view returns (uint256) {
+        if (caseId >= _disputes.length) return 0;
+        return _reporterBond[caseId];
+    }
+
     function getDispute(uint256 caseId) external view returns (
         address initiator,
         DisputeType dtype,
@@ -465,7 +480,7 @@ function getRentInEth() public view returns (uint256) {
         return (m.classification, m.rationale);
     }
 
-    function reportDispute(DisputeType dtype, uint256 requestedAmount, string calldata evidence) external onlyActive returns (uint256 caseId) {
+    function reportDispute(DisputeType dtype, uint256 requestedAmount, string calldata evidence) external payable onlyActive returns (uint256 caseId) {
         // Allow reporting disputes even when an external arbitration service is
         // not yet configured. This lets parties record evidence/claims and
         // later enable arbitration via `configureArbitration` without losing
@@ -481,6 +496,11 @@ function getRentInEth() public view returns (uint256) {
         dc.dtype = dtype;
         dc.requestedAmount = requestedAmount;
         dc.evidence = evidence;
+
+        // Record optional reporter bond attached to this report
+        if (msg.value > 0) {
+            _reporterBond[caseId] = msg.value;
+        }
 
         emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidence);
     }
@@ -523,6 +543,46 @@ function getRentInEth() public view returns (uint256) {
         if (dc.resolved) revert DisputeAlreadyResolved();
         dc.resolved = true;
         dc.approved = approve;
+
+        // Handle reporter bond (if any) before finalizing
+        uint256 bond = _reporterBond[caseId];
+        if (bond > 0) {
+            // clear stored bond immediately to prevent re-entrancy/multiple attempts
+            _reporterBond[caseId] = 0;
+            if (approve) {
+                // attempt to return bond to the initiator
+                address initiator = dc.initiator;
+                (bool okBond, ) = payable(initiator).call{value: bond}('');
+                if (!okBond) {
+                    // credit for pull-based withdrawal
+                    withdrawable[initiator] += bond;
+                    emit PaymentCredited(initiator, bond);
+                }
+            } else {
+                // if rejected, forward bond to arbitrationService owner if available
+                address arbOwner = address(0);
+                if (arbitrationService != address(0)) {
+                    // try to read owner() from the arbitration service (best-effort)
+                    (bool ok, bytes memory data) = arbitrationService.staticcall(abi.encodeWithSignature("owner()"));
+                    if (ok && data.length >= 32) {
+                        // safe to decode since data length >= 32
+                        arbOwner = abi.decode(data, (address));
+                    }
+                }
+
+                if (arbOwner != address(0)) {
+                    (bool sentOwner, ) = payable(arbOwner).call{value: bond}("");
+                    if (!sentOwner) {
+                        withdrawable[arbOwner] += bond;
+                        emit PaymentCredited(arbOwner, bond);
+                    }
+                } else {
+                    // no owner available; credit to contract address withdrawable
+                    withdrawable[address(this)] += bond;
+                    emit PaymentCredited(address(this), bond);
+                }
+            }
+        }
 
         uint256 applied = 0;
         if (approve && appliedAmount > 0) {

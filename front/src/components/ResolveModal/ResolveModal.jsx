@@ -12,6 +12,10 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [requiredFeeWei, setRequiredFeeWei] = useState(0n);
   const [requiredFeeEth, setRequiredFeeEth] = useState('0');
   const [disputeInfo, setDisputeInfo] = useState(null); // { caseId, requestedAmountWei, initiator }
+  const [reporterBondEth, setReporterBondEth] = useState('0');
+  const [initiatorWithdrawableEth, setInitiatorWithdrawableEth] = useState('0');
+  const [arbOwnerWithdrawableEth, setArbOwnerWithdrawableEth] = useState('0');
+  const [withdrawing, setWithdrawing] = useState(false);
   const [loadingDispute, setLoadingDispute] = useState(false);
   const [disputeAmountEth, setDisputeAmountEth] = useState('0');
   const [landlordDepositEth, setLandlordDepositEth] = useState('0');
@@ -114,6 +118,30 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                   setDebtRemainderEth(ethers.formatEther(remainder));
                 } catch (dErr) {
                   console.debug('Could not read party deposits:', dErr);
+                }
+
+                // Try to fetch reporter bond and withdrawable balances
+                try {
+                  const svc = new ContractService(signer, chainId);
+                  const bond = BigInt(await svc.getDisputeBond(contractAddress, i));
+                  setReporterBondEth((await import('ethers')).formatEther(bond));
+                  const initW = BigInt(await svc.getWithdrawable(contractAddress, initiator));
+                  setInitiatorWithdrawableEth((await import('ethers')).formatEther(initW));
+                  // arbitration owner withdrawable - best-effort: read arbitrationService owner then withdrawable
+                  try {
+                    const rent = await svc.getRentContract(contractAddress);
+                    const svcAddr = await rent.arbitrationService().catch(() => null);
+                    if (svcAddr && svcAddr !== '0x0000000000000000000000000000000000000000') {
+                      const arbSvc = createContractInstance('ArbitrationService', svcAddr, signer);
+                      const owner = await arbSvc.owner().catch(() => null);
+                      if (owner) {
+                        const ownersW = BigInt(await svc.getWithdrawable(contractAddress, owner));
+                        setArbOwnerWithdrawableEth((await import('ethers')).formatEther(ownersW));
+                      }
+                    }
+                  } catch (_) {}
+                } catch (bErr) {
+                  console.debug('Could not read reporter bond or withdrawables:', bErr);
                 }
 
                 break;
@@ -229,6 +257,39 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               <div style={{fontSize:12, color:'#555'}}>Approving will transfer the requested amount to the beneficiary. This action may move funds on-chain.</div>
               <div style={{marginTop:8}}>
                 <label><input type="checkbox" checked={confirmPay} onChange={e => setConfirmPay(e.target.checked)} /> I confirm approving will transfer {disputeAmountEth} ETH to {disputeInfo.initiator}</label>
+              </div>
+            </div>
+          )}
+
+          {/* Reporter bond and withdrawable info */}
+          {disputeInfo && (
+            <div style={{marginTop:12}}>
+              <div><strong>Reporter bond:</strong> {reporterBondEth} ETH</div>
+              <div><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
+              <div><strong>Arbitration owner withdrawable:</strong> {arbOwnerWithdrawableEth} ETH</div>
+              <div style={{marginTop:8}}>
+                <button
+                  type="button"
+                  className="btn-sm"
+                  onClick={async () => {
+                    try {
+                      setWithdrawing(true);
+                      const svc = new ContractService(signer, chainId);
+                      await svc.withdrawRentPayments(contractAddress);
+                      // refresh UI values
+                      const bond = BigInt(await svc.getDisputeBond(contractAddress, disputeInfo.caseId));
+                      setReporterBondEth((await import('ethers')).formatEther(bond));
+                      const initW = BigInt(await svc.getWithdrawable(contractAddress, disputeInfo.initiator));
+                      setInitiatorWithdrawableEth((await import('ethers')).formatEther(initW));
+                      // dispatch event to update parent
+                      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
+                    } catch (wErr) {
+                      console.error('Withdraw failed', wErr);
+                      alert('Withdraw failed: ' + (wErr?.message || wErr));
+                    } finally { setWithdrawing(false); }
+                  }}
+                  disabled={withdrawing}
+                >{withdrawing ? 'Withdrawing...' : 'Withdraw available'}</button>
               </div>
             </div>
           )}
