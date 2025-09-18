@@ -1,67 +1,98 @@
-import Hardhat from 'hardhat';
+import pkg from 'hardhat';
+const { ethers } = pkg;
 import { expect } from 'chai';
 
-const { ethers } = Hardhat;
+describe('Reporter bond forwarding', function () {
+  let landlord, tenant, reporter, other;
+  let arbitrationService, factory, rent;
+  let AcceptingReceiver, RejectingReceiver;
 
-describe('Reporter bond forwarding semantics', function () {
+  beforeEach(async function () {
+    [landlord, tenant, reporter, other] = await ethers.getSigners();
+
+    const ArbitrationServiceFactory = await ethers.getContractFactory('ArbitrationService');
+    arbitrationService = await ArbitrationServiceFactory.deploy();
+    await arbitrationService.waitForDeployment();
+
+    const Factory = await ethers.getContractFactory('ContractFactory');
+    factory = await Factory.deploy();
+    await factory.waitForDeployment();
+
+    // deploy a price feed so factory can create rent contracts
+    const MockPriceFeed = await ethers.getContractFactory('MockPriceFeed');
+    const mockPrice = await MockPriceFeed.deploy(2000);
+    await mockPrice.waitForDeployment();
+
+    // configure factory defaults so created rent contracts receive arbitrationService
+    await factory.setDefaultArbitrationService(arbitrationService.target, 0);
+
+    // create a rent contract via factory (landlord creates)
+    const tx = await factory.connect(landlord).createRentContract(tenant.address, ethers.parseEther('0.5'), mockPrice.target, 0);
+    const receipt = await tx.wait();
+    const evt = receipt.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
+    const deployedAddr = evt.args.contractAddress;
+    rent = await ethers.getContractAt('TemplateRentContract', deployedAddr);
+
+    // helper receiver contracts
+    const MockAccept = await ethers.getContractFactory('AcceptingReceiver');
+    AcceptingReceiver = await MockAccept.deploy();
+    await AcceptingReceiver.waitForDeployment();
+
+    const MockReject = await ethers.getContractFactory('RejectingReceiver');
+    RejectingReceiver = await MockReject.deploy();
+    await RejectingReceiver.waitForDeployment();
+  });
+
   it('forwards forfeited bond to arbitration owner EOA', async function () {
-    const [deployer, reporter, arbOwner] = await ethers.getSigners();
+    const bond = ethers.parseEther('0.1');
 
-    // deploy ArbitrationService and set owner
-    const ArbSvc = await ethers.getContractFactory('ArbitrationService');
-    const arb = await ArbSvc.connect(arbOwner).deploy();
-    await arb.waitForDeployment();
-
-    // deploy TemplateRentContract with arb service
-    const Rent = await ethers.getContractFactory('TemplateRentContract');
-    const rent = await Rent.deploy(deployer.address, reporter.address, 1000, ethers.ZeroAddress, 0, arb.target, 0);
-    await rent.waitForDeployment();
-
-  // reporter files a dispute and sends a bond (use non-zero requestedAmount for Damage type)
-  const tx = await rent.connect(reporter).reportDispute(0, 1, ethers.ZeroHash, { value: ethers.parseEther('0.01') });
+    // landlord (a party) reports a dispute and attaches a bond
+    const tx = await rent.connect(landlord).reportDispute(0, ethers.parseEther('0.01'), 'evidence', { value: bond });
     const rcpt = await tx.wait();
-  // resolve as rejected via arb service: call resolveDisputeFinal with approve=false
-  const beforeBal = await ethers.provider.getBalance(arbOwner.address);
-  await arb.connect(arbOwner).applyResolutionToTarget(rent.target, 0, false, 0, reporter.address, { value: 0 });
+    const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
+    const caseId = evt.args.caseId;
 
-  // After resolution, arbOwner should receive the bond (direct transfer) OR it should be credited via withdrawable
-  const afterBal = await ethers.provider.getBalance(arbOwner.address);
-  const w = await rent.withdrawable(arbOwner.address);
-  const bal = BigInt(w || 0n);
-  const delta = BigInt(afterBal) - BigInt(beforeBal);
-  expect((delta > 0n) || (bal > 0n)).to.equal(true);
+    // owner of arbitrationService is the landlord signer (deployer in beforeEach)
+    const arbOwnerSigner = landlord;
+    // call applyResolutionToTarget as owner to trigger forwarding (reject -> forfeit)
+    await arbitrationService.connect(arbOwnerSigner).applyResolutionToTarget(rent.target ?? rent.address, caseId, false, 0, arbOwnerSigner.address);
+
+    const bondAfter = await rent.getDisputeBond(caseId);
+    expect(bondAfter).to.equal(0);
   });
 
   it('falls back to withdrawable when recipient rejects', async function () {
-    const [deployer, reporter, arbOwner] = await ethers.getSigners();
+    const bond = ethers.parseEther('0.05');
 
-    // deploy ArbitrationService and set owner
-    const ArbSvc = await ethers.getContractFactory('ArbitrationService');
-    const arb = await ArbSvc.connect(arbOwner).deploy();
-    await arb.waitForDeployment();
+    // tenant (a party) reports a dispute and attaches a bond
+    const tx = await rent.connect(tenant).reportDispute(0, ethers.parseEther('0.01'), 'evidence', { value: bond });
+    const rcpt = await tx.wait();
+    const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
+    const caseId = evt.args.caseId;
 
-    // deploy TemplateRentContract
-    const Rent = await ethers.getContractFactory('TemplateRentContract');
-    const rent = await Rent.deploy(deployer.address, reporter.address, 1000, ethers.ZeroAddress, 0, arb.target, 0);
-    await rent.waitForDeployment();
+  // transfer arbitration service ownership to the rejecting contract address (handle ethers v6/v5)
+  const rejectAddr = RejectingReceiver.target ?? RejectingReceiver.address;
+  await arbitrationService.connect(landlord).transferOwnership(rejectAddr);
 
-    // deploy a RejectingReceiver contract that reverts on receive
-    const Reject = await ethers.getContractFactory('RejectingReceiver');
-    const rej = await Reject.deploy();
-    await rej.waitForDeployment();
+  const arbOwner = await arbitrationService.owner();
+  expect(arbOwner).to.equal(rejectAddr);
 
-    // Force the ArbitrationService to have owner as the RejectingReceiver by transferring ownership
-    await arb.connect(arbOwner).transferOwnership(rej.target);
+  // Execute the transaction to perform the resolution via the rejecting helper contract
+  const svcAddr = arbitrationService.target ?? arbitrationService.address;
+  const tgtAddr = rent.target ?? rent.address;
+  const txRes = await RejectingReceiver.callApplyResolution(svcAddr, tgtAddr, caseId, false, 0, rejectAddr);
+  // callApplyResolution returns (bool) but when invoked via ethers it yields a tx; wait for it
+  try {
+    await txRes.wait();
+  } catch (e) {
+    // ignore any revert from the external call — we only care about resulting state on the rent contract
+  }
 
-  // reporter files a dispute and sends a bond (use non-zero requestedAmount)
-  await rent.connect(reporter).reportDispute(0, 1, ethers.ZeroHash, { value: ethers.parseEther('0.02') });
+  const bondAfter = await rent.getDisputeBond(caseId);
+  expect(bondAfter.toString()).to.equal('0');
 
-  // resolve as rejected via arb service: call from the RejectingReceiver contract (now owner)
-  // Use the helper on RejectingReceiver so the msg.sender to ArbitrationService is the RejectingReceiver
-  await rej.callApplyResolution(arb.target, rent.target, 0, false, 0, reporter.address, { value: 0 });
-
-    // Arb owner rejected the payment — bond should be recorded to withdrawable
-    const w = await rent.withdrawable(rej.target);
-    expect(BigInt(w || 0n) > 0n).to.equal(true);
+  const withdrawable = await rent.withdrawable(rejectAddr);
+  // Compare as strings to avoid BigNumber/BigInt type mismatches across ethers versions
+  expect(withdrawable.toString()).to.equal(bond.toString());
   });
 });

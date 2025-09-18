@@ -221,6 +221,48 @@ export class ContractService {
     }
   }
 
+  // Read withdrawable amount for an account from a Rent contract (best-effort)
+  async getWithdrawable(contractAddress, account) {
+    try {
+      const rent = await this.getRentContract(contractAddress);
+      const w = await rent.withdrawable(account);
+      return BigInt(w || 0);
+    } catch (e) {
+      // Fallback: attempt low-level call with signature
+      try {
+        const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+        const data = rent.interface.encodeFunctionData('withdrawable', [account]);
+        const res = await this.signer.provider.call({ to: contractAddress, data });
+        const decoded = rent.interface.decodeFunctionResult('withdrawable', res);
+        return BigInt(decoded[0] || 0);
+      } catch (err) {
+        console.warn('Could not read withdrawable for', account, err);
+        return 0n;
+      }
+    }
+  }
+
+  // Read the reporter bond for a dispute case (best-effort)
+  async getDisputeBond(contractAddress, caseId) {
+    try {
+      const rent = await this.getRentContract(contractAddress);
+      const b = await rent.getDisputeBond(caseId);
+      return BigInt(b || 0);
+    } catch (e) {
+      // fallback: try alternative getter name
+      try {
+        const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+        const data = rent.interface.encodeFunctionData('getDisputeBond', [caseId]);
+        const res = await this.signer.provider.call({ to: contractAddress, data });
+        const decoded = rent.interface.decodeFunctionResult('getDisputeBond', res);
+        return BigInt(decoded[0] || 0);
+      } catch (err) {
+        console.warn('Could not read dispute bond for', contractAddress, caseId, err);
+        return 0n;
+      }
+    }
+  }
+
   // Withdraw any pull-payments credited to caller on a Rent contract
   async withdrawRentPayments(contractAddress) {
     try {
