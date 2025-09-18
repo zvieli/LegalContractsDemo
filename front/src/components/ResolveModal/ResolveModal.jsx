@@ -24,10 +24,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [debtorDepositWei, setDebtorDepositWei] = useState(0n);
   const [willBeDebitedEth, setWillBeDebitedEth] = useState('0');
   const [debtRemainderEth, setDebtRemainderEth] = useState('0');
-  const [reporterBondEth, setReporterBondEth] = useState('0');
-  const [initiatorWithdrawableEth, setInitiatorWithdrawableEth] = useState('0');
-  const [arbOwnerWithdrawableEth, setArbOwnerWithdrawableEth] = useState('0');
-  const [withdrawing, setWithdrawing] = useState(false);
+  const [appealLocal, setAppealLocal] = useState(null);
+  // (Removed duplicate state declarations)
   const [confirmPay, setConfirmPay] = useState(false);
 
   // Helper to parse ETH strings shown in UI back to wei BigInt safely
@@ -179,6 +177,25 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
       }
     };
     loadDispute();
+    // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
+    try {
+      const key1 = `incomingDispute:${contractAddress}`;
+      const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+      let js = null;
+      try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
+      if (!js) {
+        try {
+          const sess = sessionStorage.getItem('incomingDispute');
+          if (sess) {
+            const o = JSON.parse(sess);
+            if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) js = sess;
+          }
+        } catch (_) { js = js; }
+      }
+      if (js) {
+        try { setAppealLocal(JSON.parse(js)); } catch { setAppealLocal(null); }
+      } else setAppealLocal(null);
+    } catch (_) { setAppealLocal(null); }
     return () => { mounted = false; };
   }, [isOpen, contractAddress, signer, chainId]);
 
@@ -302,11 +319,52 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           )}
 
           {/* Reporter bond and withdrawable info */}
-          {disputeInfo && (
+              {disputeInfo && (
             <div style={{marginTop:12}}>
               <div><strong>Reporter bond:</strong> {reporterBondEth} ETH</div>
               <div><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
               <div><strong>Arbitration owner withdrawable:</strong> {arbOwnerWithdrawableEth} ETH</div>
+              {/* If reporter is viewing and bond is zero, allow posting bond */}
+              {String(disputeInfo.initiator).toLowerCase() === (signer?._address || '').toLowerCase() && Number(reporterBondEth) === 0 && !appealLocal?.paid && (
+                <div style={{marginTop:8}}>
+                  <button className="btn-sm primary" onClick={async () => {
+                    try {
+                      setWithdrawing(true);
+                      const svc = new ContractService(signer, chainId);
+                      // Determine required bond amount from contract (best-effort)
+                      const bondWei = await svc.getDisputeBond(contractAddress, disputeInfo.caseId).catch(() => 0n);
+                      if (!bondWei || bondWei === 0n) {
+                        alert('Could not determine required bond amount for this dispute');
+                        return;
+                      }
+                      const rcpt = await svc.postReporterBond(contractAddress, disputeInfo.caseId, bondWei);
+                      // Refresh bond display
+                      const bondAfter = BigInt(await svc.getDisputeBond(contractAddress, disputeInfo.caseId));
+                      setReporterBondEth((await import('ethers')).formatEther(bondAfter));
+                      // mark local appeal as paid
+                      try {
+                        const newLocal = {...(appealLocal||{}), paid: true, paidAt: Date.now(), paidTxHash: rcpt.transactionHash, paidAmountEth: (await import('ethers')).formatEther(bondWei)};
+                        setAppealLocal(newLocal);
+                        try {
+                          const key1 = `incomingDispute:${contractAddress}`;
+                          const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+                          localStorage.setItem(key1, JSON.stringify(newLocal));
+                          localStorage.setItem(key2, JSON.stringify(newLocal));
+                        } catch (_) {}
+                      } catch (_) {}
+                      // append to transaction history by dispatching an event
+                      try {
+                        const ent = { amount: (await import('ethers')).formatEther(bondWei), date: new Date().toLocaleString(), hash: rcpt.transactionHash };
+                        window.dispatchEvent(new CustomEvent('transaction:record', { detail: ent }));
+                      } catch (_) {}
+                      alert('Reporter bond posted successfully');
+                    } catch (e) {
+                      console.error('Posting reporter bond failed', e);
+                      alert('Failed to post reporter bond: ' + (e?.message || e));
+                    } finally { setWithdrawing(false); }
+                  }}>Post Reporter Bond</button>
+                </div>
+              )}
               <div style={{marginTop:8}}>
                 <button
                   type="button"

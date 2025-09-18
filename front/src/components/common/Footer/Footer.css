@@ -27,9 +27,10 @@
   font-size: 1.2rem;
 }
 
-.footer-logo svg {
+.footer-logo img {
   width: 30px;
   height: 30px;
+  object-fit: contain;
 }
 
 .footer-section p {

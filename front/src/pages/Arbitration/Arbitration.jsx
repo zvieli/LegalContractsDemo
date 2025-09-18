@@ -8,6 +8,8 @@ import { ContractService } from '../../services/contractService';
 
 function Arbitration() {
   const { isConnected, account } = useEthers();
+  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
+  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const [disputes, setDisputes] = useState([]);
   const [loading, setLoading] = useState(true);
   // incomingDispute removed: per-contract appeals are handled in the Contract modal/card
@@ -161,6 +163,19 @@ function Arbitration() {
           <i className="fas fa-wallet"></i>
           <h2>Connect Your Wallet</h2>
           <p>Please connect your wallet to access arbitration</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Only the configured platform admin may access the Arbitration center.
+  if (!isAdmin) {
+    return (
+      <div className="arbitration-page">
+        <div className="not-authorized">
+          <i className="fas fa-user-shield"></i>
+          <h2>Not authorized</h2>
+          <p>This page is restricted to platform administrators.</p>
         </div>
       </div>
     );

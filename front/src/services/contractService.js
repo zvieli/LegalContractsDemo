@@ -276,6 +276,51 @@ export class ContractService {
     }
   }
 
+  // Post reporter bond for a dispute case (best-effort). Templates may accept a payable
+  // function named `postReporterBond`, `payReporterBond`, `reportDispute` or similar.
+  // We try known candidate names and send value accordingly.
+  async postReporterBond(contractAddress, caseId, amountWei) {
+    try {
+      const rent = await this.getRentContract(contractAddress);
+      const candidates = ['postReporterBond', 'payReporterBond', 'postBond', 'depositReporterBond', 'reportDispute'];
+      for (const name of candidates) {
+        if (typeof rent[name] === 'function') {
+          // Some entrypoints take (caseId) and are payable; others create new disputes and accept more args.
+          try {
+            // Try simple call signature first
+            const tx = await rent[name](caseId, { value: amountWei });
+            return await tx.wait();
+          } catch (e) {
+            // try without caseId (some functions create the dispute and accept calldata)
+            try {
+              const tx2 = await rent[name]({ value: amountWei });
+              return await tx2.wait();
+            } catch (_) {
+              // ignore and try next candidate
+            }
+          }
+        }
+      }
+      // last resort: attempt low-level send to the contract (no function) — not recommended
+      throw new Error('No known reporter bond entrypoint found on target contract');
+    } catch (err) {
+      console.error('postReporterBond failed', err);
+      throw err;
+    }
+  }
+
+  // Deposit security (appeal deposit / party deposit) to a Rent contract
+  async depositSecurity(contractAddress, amountWei) {
+    try {
+      const rent = await this.getRentContract(contractAddress);
+      const tx = await rent.depositSecurity({ value: amountWei });
+      return await tx.wait();
+    } catch (err) {
+      console.error('depositSecurity failed', err);
+      throw err;
+    }
+  }
+
   // Read the pull-based withdrawable balance for an account on a Rent contract
   async getWithdrawable(contractAddress, account) {
     try {

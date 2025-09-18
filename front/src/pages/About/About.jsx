@@ -9,7 +9,7 @@ function About() {
   return (
     <div className="about-page">
       <div className="page-header">
-        <h1>About LegalContracts</h1>
+        <h1>About ArbiTrust</h1>
         <p>Revolutionizing legal agreements with blockchain technology</p>
       </div>
 
@@ -17,7 +17,7 @@ function About() {
         <div className="about-section">
           <h2>Our Mission</h2>
           <p>
-            LegalContracts leverages blockchain technology to create transparent, 
+            ArbiTrust leverages blockchain technology to create transparent, 
             secure, and enforceable smart legal agreements. We're democratizing 
             access to legal services through decentralized technology.
           </p>
