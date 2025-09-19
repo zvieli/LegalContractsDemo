@@ -14,9 +14,9 @@ function Footer() {
           <div className="footer-section">
             <div className="footer-logo">
               <img src="/arbitrust-logo.svg" alt="ArbiTrust Logo" style={{width:30,height:30}} />
-              <span>ArbiTrust</span>
+              <span className="footer-brand">ArbiTrust</span>
             </div>
-            <p>Advanced platform for creating and managing smart contracts on blockchain</p>
+            <p className="footer-desc">Advanced platform for creating and managing legal smart contracts on the blockchain.</p>
           </div>
 
           <div className="footer-section">
@@ -29,18 +29,21 @@ function Footer() {
             </ul>
           </div>
 
-          <div className="footer-section">
+          <div className="footer-section developer">
             <h4>Developer</h4>
             <div className="developer-info">
-              <p>Developed with ❤️ by</p>
-              <a 
-                href="https://www.linkedin.com/in/lior-zvieli-783107311/" 
-                target="_blank" 
+              <p className="developer-copy">Built with <span aria-hidden>❤️</span> by</p>
+              <a
+                href="https://www.linkedin.com/in/lior-zvieli-783107311/"
+                target="_blank"
                 rel="noopener noreferrer"
                 className="developer-link"
+                aria-label="Lior Zvieli on LinkedIn"
               >
-                <i className="fab fa-linkedin"></i>
-                Lior Zvieli
+                <span className="dev-icon" aria-hidden>
+                  <i className="fab fa-linkedin"></i>
+                </span>
+                <span className="dev-name">Lior Zvieli</span>
               </a>
             </div>
           </div>

@@ -294,6 +294,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               <div style={{marginBottom:6}}><strong>Debtor deposit available:</strong> {debtorDepositEth} ETH</div>
               <div style={{marginBottom:6}}><strong>Will be debited from deposit:</strong> {willBeDebitedEth} ETH</div>
               {debtRemainderEth !== '0' && <div style={{marginBottom:6, color:'#a33'}}><strong>Remainder recorded as debt:</strong> {debtRemainderEth} ETH</div>}
+              <div style={{marginBottom:6}}><strong>Reporter bond (fixed):</strong> 0.002 ETH</div>
               <div style={{marginBottom:6}}><strong>Reporter bond (held):</strong> {reporterBondEth} ETH</div>
               <div style={{marginBottom:6}}><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
               {arbOwnerWithdrawableEth !== '0' && <div style={{marginBottom:6}}><strong>Arbitrator owner withdrawable:</strong> {arbOwnerWithdrawableEth} ETH</div>}
@@ -321,7 +322,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           {/* Reporter bond and withdrawable info */}
               {disputeInfo && (
             <div style={{marginTop:12}}>
-              <div><strong>Reporter bond:</strong> {reporterBondEth} ETH</div>
+              <div><strong>Reporter bond (fixed):</strong> 0.002 ETH</div>
+              <div><strong>Reporter bond (held):</strong> {reporterBondEth} ETH</div>
               <div><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
               <div><strong>Arbitration owner withdrawable:</strong> {arbOwnerWithdrawableEth} ETH</div>
               {/* If reporter is viewing and bond is zero, allow posting bond */}
@@ -331,19 +333,17 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                     try {
                       setWithdrawing(true);
                       const svc = new ContractService(signer, chainId);
-                      // Determine required bond amount from contract (best-effort)
-                      const bondWei = await svc.getDisputeBond(contractAddress, disputeInfo.caseId).catch(() => 0n);
-                      if (!bondWei || bondWei === 0n) {
-                        alert('Could not determine required bond amount for this dispute');
-                        return;
-                      }
-                      const rcpt = await svc.postReporterBond(contractAddress, disputeInfo.caseId, bondWei);
+                      // Use fixed reporter bond (0.002 ETH) instead of claimed amount
+                      const fixedBondWei = BigInt(await (await import('ethers')).parseEther('0.002'));
+                      const rcpt = await svc.postReporterBond(contractAddress, disputeInfo.caseId, fixedBondWei);
                       // Refresh bond display
-                      const bondAfter = BigInt(await svc.getDisputeBond(contractAddress, disputeInfo.caseId));
-                      setReporterBondEth((await import('ethers')).formatEther(bondAfter));
+                      // Refresh bond display; if contract reports zero, show fixed amount stored locally
+                      const bondAfter = BigInt(await svc.getDisputeBond(contractAddress, disputeInfo.caseId).catch(() => 0n));
+                      setReporterBondEth((await import('ethers')).formatEther(bondAfter || fixedBondWei));
                       // mark local appeal as paid
                       try {
-                        const newLocal = {...(appealLocal||{}), paid: true, paidAt: Date.now(), paidTxHash: rcpt.transactionHash, paidAmountEth: (await import('ethers')).formatEther(bondWei)};
+                        const txHash = rcpt?.transactionHash || rcpt?.hash || rcpt?.receipt?.transactionHash || rcpt?.receipt?.hash || null;
+                        const newLocal = {...(appealLocal||{}), paid: true, paidAt: Date.now(), paidTxHash: txHash, paidAmountEth: (await import('ethers')).formatEther(fixedBondWei)};
                         setAppealLocal(newLocal);
                         try {
                           const key1 = `incomingDispute:${contractAddress}`;
@@ -354,7 +354,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                       } catch (_) {}
                       // append to transaction history by dispatching an event
                       try {
-                        const ent = { amount: (await import('ethers')).formatEther(bondWei), date: new Date().toLocaleString(), hash: rcpt.transactionHash };
+                        const ent = { amount: (await import('ethers')).formatEther(fixedBondWei), date: new Date().toLocaleString(), hash: txHash, raw: rcpt };
                         window.dispatchEvent(new CustomEvent('transaction:record', { detail: ent }));
                       } catch (_) {}
                       alert('Reporter bond posted successfully');

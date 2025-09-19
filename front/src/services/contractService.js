@@ -286,15 +286,30 @@ export class ContractService {
       for (const name of candidates) {
         if (typeof rent[name] === 'function') {
           // Some entrypoints take (caseId) and are payable; others create new disputes and accept more args.
-          try {
+            try {
             // Try simple call signature first
             const tx = await rent[name](caseId, { value: amountWei });
-            return await tx.wait();
+            const receipt = await tx.wait();
+            // Normalize return: include transactionHash and hash fields for UI compatibility
+            const norm = { ...(receipt || {}), receipt, transactionHash: receipt?.transactionHash || receipt?.hash || tx?.hash || null, hash: receipt?.transactionHash || receipt?.hash || tx?.hash || null };
+            try {
+              const payer = (await this.signer.getAddress?.()) || null;
+              await ContractService.saveTransaction(contractAddress, { type: 'bond', amountWei: String(amountWei), amount: (await import('ethers')).formatEther(BigInt(amountWei)), date: new Date().toLocaleString(), hash: norm.transactionHash, raw: norm, payer });
+            } catch (_) {}
+            if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
+            return norm;
           } catch (e) {
             // try without caseId (some functions create the dispute and accept calldata)
             try {
               const tx2 = await rent[name]({ value: amountWei });
-              return await tx2.wait();
+              const receipt2 = await tx2.wait();
+              const norm2 = { ...(receipt2 || {}), receipt: receipt2, transactionHash: receipt2?.transactionHash || receipt2?.hash || tx2?.hash || null, hash: receipt2?.transactionHash || receipt2?.hash || tx2?.hash || null };
+              try {
+                const payer2 = (await this.signer.getAddress?.()) || null;
+                await ContractService.saveTransaction(contractAddress, { type: 'bond', amountWei: String(amountWei), amount: (await import('ethers')).formatEther(BigInt(amountWei)), date: new Date().toLocaleString(), hash: norm2.transactionHash, raw: norm2, payer: payer2 });
+              } catch (_) {}
+              if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
+              return norm2;
             } catch (_) {
               // ignore and try next candidate
             }
@@ -314,10 +329,43 @@ export class ContractService {
     try {
       const rent = await this.getRentContract(contractAddress);
       const tx = await rent.depositSecurity({ value: amountWei });
-      return await tx.wait();
+      const receipt = await tx.wait();
+      try {
+        const payer = (await this.signer.getAddress?.()) || null;
+        await ContractService.saveTransaction(contractAddress, { type: 'deposit', amountWei: String(amountWei), amount: (await import('ethers')).formatEther(BigInt(amountWei)), date: new Date().toLocaleString(), hash: receipt?.transactionHash || receipt?.hash || tx?.hash || null, raw: receipt, payer });
+      } catch (_) {}
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
+      return receipt;
     } catch (err) {
       console.error('depositSecurity failed', err);
       throw err;
+    }
+  }
+
+  // Simple localStorage-backed transaction list per contract to mirror on-chain payments across roles
+  static async saveTransaction(contractAddress, entry) {
+    try {
+      const key = `txs:${String(contractAddress).toLowerCase()}`;
+      const raw = localStorage.getItem(key);
+      const arr = raw ? JSON.parse(raw) : [];
+      arr.unshift(entry);
+      try { localStorage.setItem(key, JSON.stringify(arr)); } catch (_) {}
+      return true;
+    } catch (e) {
+      console.warn('saveTransaction failed', e);
+      return false;
+    }
+  }
+
+  static async getTransactions(contractAddress) {
+    try {
+      const key = `txs:${String(contractAddress).toLowerCase()}`;
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      return JSON.parse(raw);
+    } catch (e) {
+      console.warn('getTransactions failed', e);
+      return [];
     }
   }
 
@@ -817,7 +865,9 @@ export class ContractService {
       // Pass plain evidence string to the contract. Templates now accept `string evidence`.
       const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
       const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
-      const tx = await rent.reportDispute(disputeType, amount, evidence);
+  // Explicitly send zero value when creating the dispute so wallets are not prompted
+  // to send the requested claim amount. Reporter bond is handled separately.
+  const tx = await rent.reportDispute(disputeType, amount, evidence, { value: 0n });
       const receipt = await tx.wait();
       // Try to extract the caseId from emitted events
       let caseId = null;

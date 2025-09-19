@@ -1,8 +1,9 @@
 .footer {
   background-color: var(--primary-color);
   color: white;
-  padding: 3rem 0 1rem;
+  padding: 2.5rem 0 1.25rem;
   margin-top: auto;
+  font-family: var(--font-system, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial);
 }
 
 .footer-content {
@@ -10,21 +11,36 @@
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 2rem;
   margin-bottom: 2rem;
+  align-items: start; /* ensure all columns align to the top */
 }
 
 .footer-section h4 {
   color: var(--secondary-color);
-  margin-bottom: 1rem;
-  font-size: 1.2rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+/* Center the Developer column to match the visual balance of the footer */
+.footer-section.developer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start; /* match other columns (left-aligned) */
 }
 
 .footer-logo {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1rem;
-  font-weight: 600;
-  font-size: 1.2rem;
+  margin-bottom: 0.75rem;
+}
+
+.footer-brand {
+  font-weight: 700;
+  font-size: 1.15rem;
+  font-family: var(--font-serif, Georgia, 'Times New Roman', serif);
+  color: white;
 }
 
 .footer-logo img {
@@ -33,10 +49,17 @@
   object-fit: contain;
 }
 
+.footer-desc {
+  color: #d0d0d0;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+  max-width: 36ch;
+}
+
 .footer-section p {
   color: #ccc;
   line-height: 1.6;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
 }
 
 .footer-section ul {
@@ -60,12 +83,19 @@
 
 /* Developer Section */
 .developer-info {
-  text-align: center;
+  text-align: left;
 }
 
 .developer-info p {
-  margin-bottom: 1rem;
-  color: #ccc;
+  margin-bottom: 0.5rem;
+  color: #cfcfcf;
+  font-size: 0.95rem;
+}
+
+.developer-copy {
+  margin: 0 0 0.5rem 0;
+  color: #cfcfcf;
+  font-size: 0.95rem;
 }
 
 .developer-link {
@@ -75,23 +105,33 @@
   color: var(--secondary-color) !important;
   text-decoration: none;
   font-weight: 600;
-  padding: 0.5rem 1rem;
-  border: 2px solid var(--secondary-color);
-  border-radius: 25px;
-  transition: var(--transition);
+  padding: 0.45rem 0.9rem;
+  border: 1.5px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  transition: transform 0.18s ease, background-color 0.18s ease;
 }
 
 .developer-link:hover {
-  background-color: var(--secondary-color);
+  background-color: rgba(255,255,255,0.05);
   color: white !important;
   transform: translateY(-2px);
+}
+
+.dev-icon i {
+  font-size: 1.05rem;
+  color: var(--secondary-color);
+}
+
+.dev-name {
+  color: #e9eef8;
+  font-size: 0.95rem;
 }
 
 /* Technology Section */
 .tech-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .tech-item {
@@ -108,9 +148,10 @@
 
 .footer-bottom {
   text-align: center;
-  padding-top: 2rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  color: #999;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  color: #bdbdbd;
+  font-size: 0.92rem;
 }
 
 @media (max-width: 768px) {

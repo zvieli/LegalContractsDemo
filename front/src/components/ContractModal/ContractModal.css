@@ -82,6 +82,34 @@
   gap: 0.25rem;
 }
 
+/* Inline checkbox layout for policy form rows */
+.detail-item.checkbox-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem; /* tighter gap so checkbox sits close to label */
+  justify-content: flex-start;
+}
+.detail-item.checkbox-inline .label {
+  margin: 0;
+  min-width: auto; /* remove forced min-width so label and checkbox stay together at left */
+  white-space: nowrap;
+}
+.detail-item.checkbox-inline input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+
+/* Ensure the policy section grid aligns items to the start (left) */
+.policy-section .details-grid,
+.policy-form .details-grid {
+  align-items: start;
+}
+
+.policy-section .detail-item .label,
+.policy-form .detail-item .label {
+  text-align: left;
+}
+
 .detail-item .label {
   font-weight: 600;
   color: var(--primary-color);
@@ -249,6 +277,19 @@
   animation: fadeIn 0.3s ease;
 }
 
+/* Keep the section title centered but align informational lines to the left
+   so messages like 'Both parties must sign...' and 'Required ETH for rent' align
+   with the payment controls and withdraw messages. */
+.tab-content h3 {
+  text-align: center;
+}
+.tab-content .alert,
+.tab-content .muted {
+  text-align: left;
+  max-width: 680px; /* keep lines readable */
+  margin-left: 0;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -265,10 +306,43 @@
   color: var(--primary-color);
 }
 
+/* Ensure the whole cancellation policy block is left-aligned */
+.policy-section {
+  text-align: left;
+}
+
+.policy-section .details-grid,
+.policy-form .details-grid {
+  justify-items: start; /* align grid children to the left */
+}
+
 .policy-form .detail-item {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+
+/* More specific override so checkbox-inline inside policy form/section stays inline */
+.policy-form .detail-item.checkbox-inline,
+.policy-section .detail-item.checkbox-inline {
+  display: flex;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+.policy-form .detail-item.checkbox-inline,
+.policy-section .detail-item.checkbox-inline {
+  justify-content: flex-start !important;
+}
+.policy-form .detail-item.checkbox-inline .label,
+.policy-section .detail-item.checkbox-inline .label {
+  display: inline-block;
+  margin: 0;
+  white-space: nowrap;
+}
+.policy-form .detail-item.checkbox-inline input[type="checkbox"],
+.policy-section .detail-item.checkbox-inline input[type="checkbox"] {
+  margin-left: 0;
 }
 
 .payment-input {
