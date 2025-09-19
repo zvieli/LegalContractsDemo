@@ -841,7 +841,7 @@ export class ContractService {
    * requestedAmount: BigInt or string in wei (use 0 for none)
    * evidenceText: optional plain text or URL to store on-chain as string
    */
-  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '') {
+  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '', bondWei = 0n) {
     try {
       const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
       // Ensure caller is one of the parties recorded on-chain
@@ -865,9 +865,10 @@ export class ContractService {
       // Pass plain evidence string to the contract. Templates now accept `string evidence`.
       const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
       const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
-  // Explicitly send zero value when creating the dispute so wallets are not prompted
-  // to send the requested claim amount. Reporter bond is handled separately.
-  const tx = await rent.reportDispute(disputeType, amount, evidence, { value: 0n });
+  // Include bond (if provided) in the same transaction so reporter pays it when
+  // creating the dispute. Default bondWei is 0n for backwards compatibility.
+  const value = typeof bondWei === 'bigint' ? bondWei : BigInt(bondWei || 0);
+  const tx = await rent.reportDispute(disputeType, amount, evidence, { value });
       const receipt = await tx.wait();
       // Try to extract the caseId from emitted events
       let caseId = null;
@@ -1413,16 +1414,18 @@ async ndaWithdraw(contractAddress, amountEth) {
   }
 }
 
-async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceText) {
+async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceText, bondWei = 0n) {
   try {
     const nda = await this.getNDAContract(contractAddress);
     const requested = requestedPenaltyEth ? ethers.parseEther(String(requestedPenaltyEth)) : 0n;
     // Pass plain evidence string to the NDA template (was previously a bytes32 hash)
     const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
-    // include on-chain dispute fee if present
-    let disputeFee = 0n;
-    try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
-    const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
+  // include on-chain dispute fee if present, plus any reporter bond value
+  let disputeFee = 0n;
+  try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
+  const bond = typeof bondWei === 'bigint' ? bondWei : BigInt(bondWei || 0);
+  const value = disputeFee + bond;
+  const tx = await nda.reportBreach(offender, requested, evidence, { value });
     return await tx.wait();
   } catch (error) {
     console.error('Error reporting breach:', error);

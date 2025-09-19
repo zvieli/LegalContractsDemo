@@ -326,45 +326,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               <div><strong>Reporter bond (held):</strong> {reporterBondEth} ETH</div>
               <div><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
               <div><strong>Arbitration owner withdrawable:</strong> {arbOwnerWithdrawableEth} ETH</div>
-              {/* If reporter is viewing and bond is zero, allow posting bond */}
-              {String(disputeInfo.initiator).toLowerCase() === (signer?._address || '').toLowerCase() && Number(reporterBondEth) === 0 && !appealLocal?.paid && (
-                <div style={{marginTop:8}}>
-                  <button className="btn-sm primary" onClick={async () => {
-                    try {
-                      setWithdrawing(true);
-                      const svc = new ContractService(signer, chainId);
-                      // Use fixed reporter bond (0.002 ETH) instead of claimed amount
-                      const fixedBondWei = BigInt(await (await import('ethers')).parseEther('0.002'));
-                      const rcpt = await svc.postReporterBond(contractAddress, disputeInfo.caseId, fixedBondWei);
-                      // Refresh bond display
-                      // Refresh bond display; if contract reports zero, show fixed amount stored locally
-                      const bondAfter = BigInt(await svc.getDisputeBond(contractAddress, disputeInfo.caseId).catch(() => 0n));
-                      setReporterBondEth((await import('ethers')).formatEther(bondAfter || fixedBondWei));
-                      // mark local appeal as paid
-                      try {
-                        const txHash = rcpt?.transactionHash || rcpt?.hash || rcpt?.receipt?.transactionHash || rcpt?.receipt?.hash || null;
-                        const newLocal = {...(appealLocal||{}), paid: true, paidAt: Date.now(), paidTxHash: txHash, paidAmountEth: (await import('ethers')).formatEther(fixedBondWei)};
-                        setAppealLocal(newLocal);
-                        try {
-                          const key1 = `incomingDispute:${contractAddress}`;
-                          const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
-                          localStorage.setItem(key1, JSON.stringify(newLocal));
-                          localStorage.setItem(key2, JSON.stringify(newLocal));
-                        } catch (_) {}
-                      } catch (_) {}
-                      // append to transaction history by dispatching an event
-                      try {
-                        const ent = { amount: (await import('ethers')).formatEther(fixedBondWei), date: new Date().toLocaleString(), hash: txHash, raw: rcpt };
-                        window.dispatchEvent(new CustomEvent('transaction:record', { detail: ent }));
-                      } catch (_) {}
-                      alert('Reporter bond posted successfully');
-                    } catch (e) {
-                      console.error('Posting reporter bond failed', e);
-                      alert('Failed to post reporter bond: ' + (e?.message || e));
-                    } finally { setWithdrawing(false); }
-                  }}>Post Reporter Bond</button>
-                </div>
-              )}
+              {/* Reporter bond is paid with the initial report transaction; no separate post button needed. */}
               <div style={{marginTop:8}}>
                 <button
                   type="button"
