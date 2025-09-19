@@ -221,6 +221,50 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           try {
             const parsed = JSON.parse(js);
             setAppealLocal(parsed);
+            // If we have a local incomingDispute marker, verify on-chain whether the case was resolved.
+            try {
+              const svc = new ContractService(signer, chainId);
+              // attempt both Rent and NDA contracts depending on details.type
+              if (details?.type === 'Rental') {
+                const rent = await svc.getRentContract(contractAddress);
+                if (parsed.caseId != null) {
+                  const d = await rent.getDispute(Number(parsed.caseId)).catch(() => null);
+                  if (d && d[4]) { // resolved == true
+                    // remove local incomingDispute markers so UI won't show unresolved appeal
+                    try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
+                    try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
+                    try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
+                    setHasAppeal(false);
+                    setAppealLocal(null);
+                    // capture on-chain resolution locally for UI
+                    const approved = !!d[5];
+                    const applied = d[6] ? BigInt(d[6]).toString() : '0';
+                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, timestamp: Date.now() };
+                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
+                    setArbResolution(payload);
+                  }
+                }
+              } else if (details?.type === 'NDA') {
+                const nda = await svc.getNDAContract(contractAddress);
+                if (parsed.caseId != null) {
+                  const d = await nda.getDispute(Number(parsed.caseId)).catch(() => null);
+                  if (d && d[4]) {
+                    try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
+                    try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
+                    try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
+                    setHasAppeal(false);
+                    setAppealLocal(null);
+                    const approved = !!d[5];
+                    const applied = d[6] ? BigInt(d[6]).toString() : '0';
+                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, timestamp: Date.now() };
+                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
+                    setArbResolution(payload);
+                  }
+                }
+              }
+            } catch (checkErr) {
+              // best-effort only; ignore errors here
+            }
           } catch (_) { setAppealLocal(null); }
         } else {
           setAppealLocal(null);
@@ -1362,6 +1406,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 {contractDetails?.cancellation?.cancelRequested && (
                   <div className="alert warning">Cancellation is pending; payments are disabled until completion.</div>
                 )}
+                {arbResolution && (
+                  <div className="alert info">Arbitration decision: <strong>{arbResolution.decision}</strong> (saved locally at {new Date(arbResolution.timestamp).toLocaleString()})</div>
+                )}
                 {contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned && (
                   <div className="alert info">Both parties must sign before payments are enabled.</div>
                 )}
@@ -1397,16 +1444,11 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                     </div>
                   ) : isLandlord ? (
                     <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                      {/* Withdraws are handled automatically when transfers succeed; if a pull-payment exists show info */}
                       {Number(withdrawableAmt || '0') > 0 ? (
-                        <button
-                          onClick={handleRentWithdraw}
-                          disabled={readOnly || actionLoading}
-                          className="btn-primary"
-                        >
-                          {actionLoading ? 'Processing...' : `Withdraw ${withdrawableAmt} ETH`}
-                        </button>
+                        <div className="alert info">You have a pull-payment available ({withdrawableAmt} ETH). Use the Owner dashboard to withdraw if needed.</div>
                       ) : (
-                        <div className="muted">No withdrawable funds available.</div>
+                        <div className="muted">No withdrawable balance on-chain; recent arbitration transfers may have been sent directly to recipients.</div>
                       )}
                     </div>
                   ) : (
@@ -1807,7 +1849,28 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
                         <input className="text-input" type="number" placeholder={`Deposit (min ${contractDetails.minDeposit})`} onChange={e => setPaymentAmount(e.target.value)} value={paymentAmount} />
                         <button className="btn-action" disabled={actionLoading || !paymentAmount} onClick={() => handleNdaDeposit(paymentAmount)}>Deposit</button>
-                        <button className="btn-action" disabled={actionLoading || !paymentAmount} onClick={() => handleNdaWithdraw(paymentAmount)}>Withdraw</button>
+                        {(() => {
+                          try {
+                            const me = account ? String(account).toLowerCase() : null;
+                            if (!me) return null;
+                            // show withdraw if transactionHistory contains a deposit by this account or if on-chain indicates canWithdraw
+                            let hasDeposit = false;
+                            if (Array.isArray(transactionHistory) && transactionHistory.length > 0) {
+                              for (const p of transactionHistory) {
+                                try {
+                                  if (p && p.type === 'deposit') {
+                                    const payer = p.payer ? String(p.payer).toLowerCase() : (p.raw && p.raw.from ? String(p.raw.from).toLowerCase() : null);
+                                    if (payer && payer === me) { hasDeposit = true; break; }
+                                  }
+                                } catch (_) {}
+                              }
+                            }
+                            if (hasDeposit) {
+                              return <button className="btn-action" disabled={actionLoading || !paymentAmount} onClick={() => handleNdaWithdraw(paymentAmount)}>Withdraw</button>;
+                            }
+                          } catch (_) {}
+                          return null;
+                        })()}
                       </div>
                       <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Report Breach</label>

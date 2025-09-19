@@ -15,8 +15,10 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [reporterBondEth, setReporterBondEth] = useState('0');
   const [initiatorWithdrawableEth, setInitiatorWithdrawableEth] = useState('0');
   const [arbOwnerWithdrawableEth, setArbOwnerWithdrawableEth] = useState('0');
+  const [arbOwnerAddr, setArbOwnerAddr] = useState(null);
   const [withdrawing, setWithdrawing] = useState(false);
   const [loadingDispute, setLoadingDispute] = useState(false);
+  const [account, setAccount] = useState(null);
   const [disputeAmountEth, setDisputeAmountEth] = useState('0');
   const [landlordDepositEth, setLandlordDepositEth] = useState('0');
   const [tenantDepositEth, setTenantDepositEth] = useState('0');
@@ -78,6 +80,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     const loadDispute = async () => {
       setLoadingDispute(true);
       try {
+        try { const me = await signer.getAddress?.(); setAccount(me || null); } catch (_) { setAccount(null); }
         const svc = new ContractService(signer, chainId);
         const rent = await svc.getRentContract(contractAddress);
         // Try to find the most recent dispute/case on-chain via getDisputesCount/getDispute
@@ -119,24 +122,25 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                   setWillBeDebitedEth(ethers.formatEther(toApply));
                   setDebtRemainderEth(ethers.formatEther(remainder));
                   // Read reporter bond and withdrawable balances (best-effort via service helpers)
-                  try {
-                    const svc2 = new ContractService(signer, chainId);
-                    const bond = await svc2.getDisputeBond(contractAddress, i).catch(() => 0n);
-                    setReporterBondEth(ethers.formatEther(bond));
-                    const initW = await svc2.getWithdrawable(contractAddress, initiator).catch(() => 0n);
-                    setInitiatorWithdrawableEth(ethers.formatEther(initW));
-                    // Also read withdrawable for arbitration owner (best-effort via arbitrationService lookup)
                     try {
-                      const arbSvc = new ArbitrationService(signer, chainId);
-                      const arbOwnerAddr = await arbSvc.getArbitrationServiceOwnerByNDA(contractAddress).catch(() => null);
-                      if (arbOwnerAddr) {
-                        const arbW = await svc2.getWithdrawable(contractAddress, arbOwnerAddr).catch(() => 0n);
-                        setArbOwnerWithdrawableEth(ethers.formatEther(arbW));
-                      }
-                    } catch (_) { /* ignore */ }
-                  } catch (bondErr) {
-                    console.debug('Bond/withdrawable read failed', bondErr);
-                  }
+                      const svc2 = new ContractService(signer, chainId);
+                      const bond = await svc2.getDisputeBond(contractAddress, i).catch(() => 0n);
+                      setReporterBondEth(ethers.formatEther(bond));
+                      const initW = await svc2.getWithdrawable(contractAddress, initiator).catch(() => 0n);
+                      setInitiatorWithdrawableEth(ethers.formatEther(initW));
+                      // Also read withdrawable for arbitration owner (best-effort via arbitrationService lookup)
+                      try {
+                        const arbSvc = new ArbitrationService(signer, chainId);
+                        const owner = await arbSvc.getArbitrationServiceOwnerByNDA(contractAddress).catch(() => null);
+                        if (owner) {
+                          setArbOwnerAddr(owner);
+                          const arbW = await svc2.getWithdrawable(contractAddress, owner).catch(() => 0n);
+                          setArbOwnerWithdrawableEth(ethers.formatEther(arbW));
+                        }
+                      } catch (_) { /* ignore */ }
+                    } catch (bondErr) {
+                      console.debug('Bond/withdrawable read failed', bondErr);
+                    }
                 } catch (dErr) {
                   console.debug('Could not read party deposits:', dErr);
                 }
@@ -231,8 +235,11 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           // use the ArbitrationService helper to apply the resolution to the target
           // and transfer the requested amount to the initiator (beneficiary).
           if (disputeInfo && disputeInfo.requestedAmountWei > 0n) {
+            // Use the frontend ArbitrationService helper to resolve the dispute. The
+            // helper expects the penalty in ETH (string), so format the wei value.
             const arbSvc = new (await import('../../services/arbitrationService')).ArbitrationService(signer, chainId);
-            await arbSvc.applyResolution(contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator);
+            const penaltyEth = (await import('ethers')).formatEther(disputeInfo.requestedAmountWei);
+            await arbSvc.resolveDispute(contractAddress, disputeInfo.caseId, true, penaltyEth, disputeInfo.initiator);
           } else {
             // Otherwise treat as cancellation finalize and forward early-termination fee if required
             const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
@@ -253,6 +260,10 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
         localStorage.setItem(key, JSON.stringify(payload));
         // Also save a summary to sessionStorage for immediate visibility elsewhere
         sessionStorage.setItem('lastArbResolution', JSON.stringify(payload));
+        // Clear any local incomingDispute marker so the UI no longer shows the active appeal
+        try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
+        try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
+        try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
       } catch (e) {
         console.warn('Could not persist arbitration decision locally', e);
       }
@@ -297,25 +308,13 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               <div style={{marginBottom:6}}><strong>Reporter bond (fixed):</strong> 0.002 ETH</div>
               <div style={{marginBottom:6}}><strong>Reporter bond (held):</strong> {reporterBondEth} ETH</div>
               <div style={{marginBottom:6}}><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
-              {arbOwnerWithdrawableEth !== '0' && <div style={{marginBottom:6}}><strong>Arbitrator owner withdrawable:</strong> {arbOwnerWithdrawableEth} ETH</div>}
               <div style={{fontSize:12, color:'#555'}}>Approving will transfer the requested amount to the beneficiary. This action may move funds on-chain.</div>
               <div style={{marginTop:8}}>
                 <label><input type="checkbox" checked={confirmPay} onChange={e => setConfirmPay(e.target.checked)} /> I confirm approving will transfer {disputeAmountEth} ETH to {disputeInfo.initiator}</label>
               </div>
-              <div style={{marginTop:8, display:'flex', gap:8}}>
-                <button type="button" className="btn-sm" disabled={withdrawing || initiatorWithdrawableEth === '0'} onClick={async () => {
-                  try {
-                    setWithdrawing(true);
-                    const svc = new ContractService(signer, chainId);
-                    await svc.withdrawRentPayments(contractAddress);
-                    // refresh dispute info after withdraw
-                    setTimeout(() => window.dispatchEvent(new Event('deposit:updated')), 400);
-                  } catch (e) {
-                    console.error('Withdraw failed', e);
-                    alert('Withdraw failed: ' + String(e?.message || e));
-                  } finally { setWithdrawing(false); }
-                }}>{withdrawing ? 'Withdrawing...' : 'Withdraw available'}</button>
-              </div>
+                <div style={{marginTop:8}}>
+                  <em style={{color:'#555'}}>If the beneficiary received funds directly, no withdrawal is necessary.</em>
+                </div>
             </div>
           )}
 
@@ -325,31 +324,9 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               <div><strong>Reporter bond (fixed):</strong> 0.002 ETH</div>
               <div><strong>Reporter bond (held):</strong> {reporterBondEth} ETH</div>
               <div><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
-              <div><strong>Arbitration owner withdrawable:</strong> {arbOwnerWithdrawableEth} ETH</div>
               {/* Reporter bond is paid with the initial report transaction; no separate post button needed. */}
               <div style={{marginTop:8}}>
-                <button
-                  type="button"
-                  className="btn-sm"
-                  onClick={async () => {
-                    try {
-                      setWithdrawing(true);
-                      const svc = new ContractService(signer, chainId);
-                      await svc.withdrawRentPayments(contractAddress);
-                      // refresh UI values
-                      const bond = BigInt(await svc.getDisputeBond(contractAddress, disputeInfo.caseId));
-                      setReporterBondEth((await import('ethers')).formatEther(bond));
-                      const initW = BigInt(await svc.getWithdrawable(contractAddress, disputeInfo.initiator));
-                      setInitiatorWithdrawableEth((await import('ethers')).formatEther(initW));
-                      // dispatch event to update parent
-                      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
-                    } catch (wErr) {
-                      console.error('Withdraw failed', wErr);
-                      alert('Withdraw failed: ' + (wErr?.message || wErr));
-                    } finally { setWithdrawing(false); }
-                  }}
-                  disabled={withdrawing}
-                >{withdrawing ? 'Withdrawing...' : 'Withdraw available'}</button>
+                <em style={{color:'#555'}}>Arbitration owner withdraws (if any) are handled off-chain or via the owner's UI.</em>
               </div>
             </div>
           )}

@@ -214,6 +214,7 @@ export class ContractService {
 
   async getRentContract(contractAddress) {
     try {
+      if (!contractAddress) throw new Error('No contract address provided');
       return createContractInstance('TemplateRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
