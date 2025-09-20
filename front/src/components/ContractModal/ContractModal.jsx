@@ -1016,7 +1016,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
 
     // Include fixed reporter bond (0.002 ETH) in the initial report transaction
   const fixedBondWei = BigInt(await (await import('ethers')).parseEther('0.002'));
-  const { caseId, receipt } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence, fixedBondWei);
+  // If we successfully pinned evidence, send the returned CID on-chain so the contract stores a durable reference.
+  const evidenceToSend = cid || evidence || '';
+  const { caseId, receipt } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidenceToSend, fixedBondWei);
       // Persist the full form for the arbitrator UI and navigate to Arbitration page
     try {
       const incoming = {
