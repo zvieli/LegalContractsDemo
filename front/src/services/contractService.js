@@ -816,7 +816,7 @@ export class ContractService {
    * requestedAmount: BigInt or string in wei (use 0 for none)
    * evidenceText: optional plain text or URL to store on-chain as string
    */
-  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '', bondWei = 0n) {
+  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '', bondWei = 0n, evidenceCid = '') {
     try {
       const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
       // Ensure caller is one of the parties recorded on-chain
@@ -843,21 +843,43 @@ export class ContractService {
   // Include bond (if provided) in the same transaction so reporter pays it when
   // creating the dispute. Default bondWei is 0n for backwards compatibility.
   const value = typeof bondWei === 'bigint' ? bondWei : BigInt(bondWei || 0);
-  const tx = await rent.reportDispute(disputeType, amount, evidence, { value });
-      const receipt = await tx.wait();
-      // Try to extract the caseId from emitted events
-      let caseId = null;
-      try {
-        for (const log of receipt.logs) {
-          try {
-            const parsed = rent.interface.parseLog(log);
-            if (parsed && parsed.name === 'DisputeReported') {
-              caseId = parsed.args[0]?.toString?.() ?? null;
-              break;
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
+  // Prefer new ABI entrypoint `reportDisputeWithCid(contract, dtype, amount, evidence, cid)`
+  let receipt = null;
+  let caseId = null;
+  try {
+    // Try to call the newer function (some deployed templates may not have it)
+    // Pass explicit CID when provided by frontend; otherwise pass empty string.
+    const tx = await rent.reportDisputeWithCid(disputeType, amount, evidence, evidenceCid || '', { value });
+    const r = await tx.wait();
+    receipt = r;
+    // try to parse event
+    try {
+      for (const log of receipt.logs) {
+        try {
+          const parsed = rent.interface.parseLog(log);
+          if (parsed && parsed.name === 'DisputeReported') {
+            caseId = parsed.args[0]?.toString?.() ?? null;
+            break;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  } catch (errNew) {
+    // Fallback to legacy call
+    const tx = await rent.reportDispute(disputeType, amount, evidence, { value });
+    receipt = await tx.wait();
+    try {
+      for (const log of receipt.logs) {
+        try {
+          const parsed = rent.interface.parseLog(log);
+          if (parsed && parsed.name === 'DisputeReported') {
+            caseId = parsed.args[0]?.toString?.() ?? null;
+            break;
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
       return { receipt, caseId };
     } catch (error) {
       console.error('Error reporting rent dispute:', error);

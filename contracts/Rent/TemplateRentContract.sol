@@ -72,6 +72,7 @@ AggregatorV3Interface public immutable priceFeed;
         DisputeType dtype;
         uint256 requestedAmount;    // claim amount (e.g., damages or amount to release)
         string evidence;            // off-chain evidence text/URI stored directly
+        string evidenceCid;         // optional IPFS CID for pinned evidence
         bool resolved;
         bool approved;
         uint256 appliedAmount;      // actual amount applied (deducted or released)
@@ -477,6 +478,22 @@ function getRentInEth() public view returns (uint256) {
         return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidence, dc.resolved, dc.approved, dc.appliedAmount);
     }
 
+    /// @notice Get dispute including optional on-chain CID stored separately
+    function getDisputeWithCid(uint256 caseId) external view returns (
+        address initiator,
+        DisputeType dtype,
+        uint256 requestedAmount,
+        string memory evidence,
+        string memory evidenceCid,
+        bool resolved,
+        bool approved,
+        uint256 appliedAmount
+    ) {
+        require(caseId < _disputes.length, "bad id");
+        DisputeCase storage dc = _disputes[caseId];
+        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidence, dc.evidenceCid, dc.resolved, dc.approved, dc.appliedAmount);
+    }
+
     function getDisputeMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
         require(caseId < _disputes.length, "bad id");
         DisputeMeta storage m = _disputeMeta[caseId];
@@ -501,6 +518,27 @@ function getRentInEth() public view returns (uint256) {
         dc.evidence = evidence;
 
         // Record optional reporter bond attached to this report
+        if (msg.value > 0) {
+            _reporterBond[caseId] = msg.value;
+        }
+
+        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidence);
+    }
+
+    /// @notice Report a dispute and provide an explicit pinned evidence CID (on-chain storage)
+    function reportDisputeWithCid(DisputeType dtype, uint256 requestedAmount, string calldata evidence, string calldata evidenceCid) external payable onlyActive returns (uint256 caseId) {
+        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+        if (requestedAmount == 0 && (dtype == DisputeType.Damage || dtype == DisputeType.Quality || dtype == DisputeType.DepositSplit)) revert AmountTooLow();
+
+        caseId = _disputes.length;
+        _disputes.push();
+        DisputeCase storage dc = _disputes[caseId];
+        dc.initiator = msg.sender;
+        dc.dtype = dtype;
+        dc.requestedAmount = requestedAmount;
+        dc.evidence = evidence;
+        dc.evidenceCid = evidenceCid;
+
         if (msg.value > 0) {
             _reporterBond[caseId] = msg.value;
         }

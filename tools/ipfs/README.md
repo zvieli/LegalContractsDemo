@@ -59,4 +59,58 @@ Troubleshooting
 - If `ipfs-core` reports repo locks, ensure there are no other `js-ipfs` processes running and prefer running the docker go-ipfs daemon.
 - The go-ipfs HTTP API requires multipart/form-data `file` uploads for `api/v0/add`.
 
-If you want me to expand this README with example HTTP requests or a sample `.env` template, tell me and I will add it.
+Example `.env` (DO NOT COMMIT)
+
+```
+# tools/ipfs/.env - local dev only
+PIN_SERVER_API_KEY=changeme_api_key_please_replace
+ADMIN_PRIVATE_KEY=0x<your_admin_private_key_here>
+# Optional: admin public key used by front-end to encrypt evidence for admin
+ADMIN_PUBLIC_KEY=0x<your_admin_public_key_here>
+# Optional: override IPFS daemon API base
+IPFS_API_BASE=http://127.0.0.1:5001
+# CORS origins allowed by the pin-server (comma-separated)
+ALLOWED_ORIGINS=http://localhost:5173
+```
+
+Example HTTP requests
+
+1) Pin encrypted/plain evidence (client -> pin-server)
+
+```
+POST /pin
+Content-Type: application/json
+
+{
+    "cipherStr": "<base64-or-encrypted-string>",
+    "meta": { "contractAddress": "0x...", "reporter": "0x...", "fileName": "evidence.png" }
+}
+
+Response (200):
+{
+    "id": "<internal-id>",
+    "cid": "Qm...",            // optional - present when IPFS add succeeded
+    "used": "api"|"ipfs-core"|"store-fallback",
+    "meta": { ... }
+}
+```
+
+2) Admin decrypt (requires `PIN_SERVER_API_KEY` header)
+
+```
+POST /admin/decrypt/<id>
+Headers:
+    x-api-key: <PIN_SERVER_API_KEY>
+
+Response (200):
+{
+    "id": "<internal-id>",
+    "decrypted": "<original plaintext>"
+}
+```
+
+Notes
+- The pin-server persists the full `cipherStr` in `tools/ipfs/store/<id>.json` as an audit/fallback. This allows admins to decrypt evidence even if IPFS add fails.
+- When automating tests/CI, prefer running `docker compose up -d` in `tools/ipfs` before invoking the pin-server to ensure deterministic CID behavior.
+
+If you want, I can add curl/Postman/JS examples for these requests and a small `tools/ipfs/README-quickstart.md` that walks through starting Docker, pinning, and decrypting.

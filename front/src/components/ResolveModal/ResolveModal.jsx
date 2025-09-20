@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ContractService } from '../../services/contractService';
 import { ArbitrationService } from '../../services/arbitrationService';
+import { buildCidUrl } from '../../utils/ipfs';
 import { ethers } from 'ethers';
 import './ResolveModal.css';
 
@@ -90,7 +91,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
         const svc = new ContractService(signer, chainId);
         // If contractAddress is falsy, svc.getRentContract will throw; avoid that.
         const rent = await svc.getRentContract(contractAddress);
-        // Try to find the most recent dispute/case on-chain via getDisputesCount/getDispute
+                // Try to find the most recent dispute/case on-chain via getDisputesCount/getDispute
         const count = Number(await rent.getDisputesCount().catch(() => 0));
         if (count > 0) {
           // Walk backwards to find the first unresolved case
@@ -102,7 +103,13 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               const requestedAmount = BigInt(d[2] || 0);
               const resolved = !!d[4];
               if (!resolved) {
+                // try to load on-chain metadata including evidence CID when available
+                let withCid = null;
+                try { withCid = await rent.getDisputeWithCid?.(i).catch(() => null); } catch (_) { withCid = null; }
                 setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator });
+                        if (withCid && withCid[4]) {
+                          try { setDisputeInfo(prev => ({ ...prev, evidenceCid: withCid[4] })); } catch (_) {}
+                        }
                 try {
                   setDisputeAmountEth(ethers.formatEther(requestedAmount));
                 } catch {
@@ -209,6 +216,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     } catch (_) { setAppealLocal(null); }
     return () => { mounted = false; };
   }, [isOpen, contractAddress, signer, chainId]);
+
+  // use shared buildCidUrl from utils
 
   useEffect(() => {
     let mounted = true;
@@ -383,6 +392,15 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             <div style={{marginTop:12, padding:12, border:'1px solid #eee', borderRadius:6, background:'#fafafa'}}>
               <div style={{marginBottom:6}}><strong>Requested amount:</strong> {disputeAmountEth} ETH</div>
               <div style={{marginBottom:6}}><strong>Beneficiary (initiator):</strong> {disputeInfo.initiator}</div>
+              {disputeInfo.evidenceCid && (
+                <div style={{marginBottom:6}}>
+                  <strong>Evidence CID:</strong>
+                  <div style={{marginTop:6}}>
+                    <a target="_blank" rel="noreferrer" href={buildCidUrl(disputeInfo.evidenceCid)}>{disputeInfo.evidenceCid}</a>
+                    <button className="btn-copy" style={{marginLeft:8}} onClick={() => { navigator.clipboard?.writeText(disputeInfo.evidenceCid); }}>Copy CID</button>
+                  </div>
+                </div>
+              )}
               <div style={{marginBottom:6}}><strong>Landlord deposit:</strong> {landlordDepositEth} ETH</div>
               <div style={{marginBottom:6}}><strong>Tenant deposit:</strong> {tenantDepositEth} ETH</div>
               <div style={{marginBottom:6}}><strong>Debtor deposit available:</strong> {debtorDepositEth} ETH</div>

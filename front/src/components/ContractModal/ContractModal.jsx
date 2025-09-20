@@ -5,6 +5,7 @@ import { ContractService } from '../../services/contractService';
 import { ethers } from 'ethers';
 import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
+import { buildCidUrl } from '../../utils/ipfs';
 import './ContractModal.css';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
@@ -281,13 +282,26 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                   if (d && d[4]) { // resolved
                     const approved = !!d[5];
                     const applied = d[6] ? BigInt(d[6]).toString() : '0';
+                    // Try to read on-chain rationale/classification and evidence CID when available
+                    let meta = null;
+                    let withCid = null;
+                    try {
+                      meta = await rent.getDisputeMeta(i).catch(() => null);
+                    } catch (_) { meta = null; }
+                    try {
+                      withCid = await rent.getDisputeWithCid?.(i).catch(() => null);
+                    } catch (_) { withCid = null; }
                     const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, caseId: i, timestamp: Date.now() };
+                    if (meta) {
+                      try { payload.classification = meta[0] || null; payload.rationale = meta[1] || null; } catch (_) {}
+                    }
+                    if (withCid) {
+                      try { payload.evidenceCid = withCid[4] || null; } catch (_) {}
+                    }
                     try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
-                            updateArbResolution(payload);
-                            // Reflect resolved state in UI immediately
-                            try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
-                            // Persisted and updated component state; do not re-dispatch an app-wide event here to avoid read->write loops
-                            try { /* updateArbResolution already updated refs */ } catch (_) {}
+                    updateArbResolution(payload);
+                    // Reflect resolved state in UI immediately
+                    try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
                     break;
                   }
                 } catch (_) {}
@@ -1018,7 +1032,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const fixedBondWei = BigInt(await (await import('ethers')).parseEther('0.002'));
   // If we successfully pinned evidence, send the returned CID on-chain so the contract stores a durable reference.
   const evidenceToSend = cid || evidence || '';
-  const { caseId, receipt } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidenceToSend, fixedBondWei);
+  const { caseId, receipt } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidenceToSend, fixedBondWei, cid || '');
       // Persist the full form for the arbitrator UI and navigate to Arbitration page
     try {
       const incoming = {
@@ -1360,6 +1374,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       return false;
     }
   };
+
+  // use shared buildCidUrl from utils
 
   const handleCopyComplaint = async () => {
     try {
@@ -2261,10 +2277,15 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               {appealData._localFileUrl && (
                 <p><a href={appealData._localFileUrl} target="_blank" rel="noreferrer">Open local attachment ({appealData._localFileName || 'file'})</a></p>
               )}
-              {appealData.cidUrl && (
+              {(appealData && (appealData.cid || appealData.cidUrl)) && (
                 <p style={{display:'flex', gap:8, alignItems:'center'}}>
-                  <a href={appealData.cidUrl} target="_blank" rel="noreferrer">Open IPFS file</a>
-                  <button className="btn-sm" onClick={async () => { try { setShowPinnedModal(true); await fetchPinnedRecord(appealData.cid || appealData.cidUrl.split('/').slice(-1)[0]); } catch (e) { alert('Failed to load pinned record: ' + e?.message || e); } }}>View pinned evidence</button>
+                  {
+                    (() => {
+                      const cid = appealData.cid || (appealData.cidUrl ? String(appealData.cidUrl).split('/').slice(-1)[0] : null);
+                      return <a href={cid ? buildCidUrl(cid) : (appealData.cidUrl || '#')} target="_blank" rel="noreferrer">Open IPFS file</a>;
+                    })()
+                  }
+                  <button className="btn-sm" onClick={async () => { try { setShowPinnedModal(true); const cid = appealData.cid || (appealData.cidUrl ? String(appealData.cidUrl).split('/').slice(-1)[0] : null); await fetchPinnedRecord(cid); } catch (e) { alert('Failed to load pinned record: ' + e?.message || e); } }}>View pinned evidence</button>
                 </p>
               )}
             </div>
@@ -2317,6 +2338,18 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             <div>
               <div style={{marginBottom:8}}><strong>Decision:</strong> {arbResolution.decision}</div>
               <div style={{whiteSpace:'pre-wrap', background:'#fff', padding:8, border:'1px solid #f0e6d6', borderRadius:4}}>{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
+              {arbResolution.classification && (
+                <div style={{marginTop:8}}><strong>Classification:</strong> {arbResolution.classification}</div>
+              )}
+              {arbResolution.evidenceCid && (
+                <div style={{marginTop:8}}>
+                  <strong>Evidence CID:</strong>
+                  <div style={{marginTop:6}}>
+                    <a target="_blank" rel="noreferrer" href={buildCidUrl(arbResolution.evidenceCid)}>{arbResolution.evidenceCid}</a>
+                    <button className="btn-copy" style={{marginLeft:8}} onClick={() => { navigator.clipboard?.writeText(arbResolution.evidenceCid); }}>Copy CID</button>
+                  </div>
+                </div>
+              )}
               <div style={{marginTop:8, fontSize:12, color:'#666'}}>Recorded at: {arbResolution.timestamp ? new Date(Number(arbResolution.timestamp)).toLocaleString() : '—'}</div>
               <h5 style={{marginTop:12}}>Full Debug</h5>
               <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>{JSON.stringify({ arbResolution, contractDetails, appealLocal }, null, 2)}</pre>

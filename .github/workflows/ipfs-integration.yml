@@ -1,3 +1,45 @@
+name: IPFS Integration Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Start go-ipfs via docker compose
+        working-directory: ./tools/ipfs
+        run: |
+          docker compose up -d
+
+      - name: Wait for IPFS API
+        run: |
+          for i in {1..30}; do
+            if curl -sSf http://127.0.0.1:5001/api/v0/version >/dev/null 2>&1; then echo "ipfs api ready" && break; fi
+            echo "waiting for ipfs..."; sleep 1;
+          done
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Tear down go-ipfs
+        if: always()
+        working-directory: ./tools/ipfs
+        run: docker compose down --remove-orphans
 name: IPFS Integration
 
 on:
