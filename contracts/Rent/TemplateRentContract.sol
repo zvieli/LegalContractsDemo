@@ -115,8 +115,9 @@ AggregatorV3Interface public immutable priceFeed;
         uint256 _rentAmount,
         address _priceFeed,
         uint256 _propertyId,
-        address _arbitrationService,
-        uint256 _requiredDeposit
+        address _arbitration_service,
+        uint256 _requiredDeposit,
+        uint256 _dueDate
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         landlord = _landlord;
         tenant = _tenant;
@@ -137,8 +138,10 @@ AggregatorV3Interface public immutable priceFeed;
     // (Solidity allows assigning immutables in the constructor)
     // The variable is named `arbitrationService` in the contract.
     // Cast assignment below
-    arbitrationService = _arbitrationService;
+    arbitrationService = _arbitration_service;
     requiredDeposit = _requiredDeposit;
+    // Initialize dueDate atomically from constructor param so factory can set it on create
+    dueDate = _dueDate;
     }
 
     // Modifiers

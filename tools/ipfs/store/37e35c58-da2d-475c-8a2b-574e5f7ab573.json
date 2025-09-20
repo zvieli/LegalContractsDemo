@@ -1,0 +1,15 @@
+{
+  "id": "37e35c58-da2d-475c-8a2b-574e5f7ab573",
+  "cid": "QmcyfRt67LxCdkz8kBFrGPKxysRgdSm2xLAc4A8aqVfZTr",
+  "meta": {
+    "note": "automated test"
+  },
+  "createdAt": 1758375264125,
+  "raw": {
+    "added": "QmcyfRt67LxCdkz8kBFrGPKxysRgdSm2xLAc4A8aqVfZTr"
+  },
+  "cipherStrLength": 226,
+  "used": "ipfs-core",
+  "cipherStrSample": "ccbad0aa34fa2adf2a25f7aeeedd093403e9ea09a7fdaf577e1a9e08b8397cba4ff953d13b30755a873e9f0df9912967eed36effb54cdb69c2b0840609a003f1f29c6316c7b987750fa7fd5c4618320aa81bee8319edc01ff7fc8c4a7d133d78da3efedbf7a2a521328014801f6c55eba6",
+  "cipherStrFull": "ccbad0aa34fa2adf2a25f7aeeedd093403e9ea09a7fdaf577e1a9e08b8397cba4ff953d13b30755a873e9f0df9912967eed36effb54cdb69c2b0840609a003f1f29c6316c7b987750fa7fd5c4618320aa81bee8319edc01ff7fc8c4a7d133d78da3efedbf7a2a521328014801f6c55eba6"
+}

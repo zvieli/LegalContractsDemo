@@ -52,6 +52,12 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
   const [appealLocal, setAppealLocal] = useState(null);
+  const [showPinnedModal, setShowPinnedModal] = useState(false);
+  const [pinnedRecord, setPinnedRecord] = useState(null);
+  const [pinnedDecrypted, setPinnedDecrypted] = useState(null);
+  const [pinnedLoading, setPinnedLoading] = useState(false);
+  const [pinnedError, setPinnedError] = useState(null);
+  const [showRationale, setShowRationale] = useState(false);
   const [showDebugState, setShowDebugState] = useState(false);
   const latestArbResolutionRef = useRef(null);
   const latestArbKeyRef = useRef(null);
@@ -956,9 +962,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       setActionLoading(true);
       const svc = new ContractService(signer, chainId);
   const amountWei = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
-  // prefer file hash if present, otherwise use evidence text
-  const evidence = disputeFileHash || disputeForm.evidence || '';
-  // If a file was attached and user provided a web3.storage token, upload it and include CID
+  // prefer explicit evidence text (including text file contents) if present, otherwise fall back to file hash
+  const evidence = disputeForm.evidence || disputeFileHash || '';
+  // If a file was attached and a local pin-server is available, upload it and include CID
   let cid = null;
   let cidUrl = null;
   let localIdbKey = null;
@@ -975,8 +981,40 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         console.error('Failed to store file locally:', e);
       }
     }
+    // Attempt to pin the evidence (text or binary) to local pin-server for durable storage.
+    // If the environment provides an ADMIN_PUBLIC_KEY in localStorage we will encrypt
+    // the evidence for that recipient before pinning.
+    try {
+      const pinServer = (process.env.REACT_APP_PIN_SERVER_URL) || 'http://localhost:3002';
+      // craft payload: prefer full text evidence, otherwise use attached file bytes
+      let toPin = disputeForm.evidence || '';
+      if (!toPin && disputeFile) {
+        try { const buf = await disputeFile.arrayBuffer(); toPin = Buffer.from(buf).toString('base64'); } catch (_) { toPin = ''; }
+      }
+      if (toPin) {
+        let cipherStr = toPin;
+        try {
+          // Prefer build-time Vite env variable, otherwise allow a localStorage override
+          const envKey = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) ? import.meta.env.VITE_ADMIN_PUBLIC_KEY : null;
+          const adminKey = envKey || localStorage.getItem('ADMIN_PUBLIC_KEY');
+          if (adminKey) {
+            const { encryptForRecipient } = await import('../../utils/crypto');
+            cipherStr = await encryptForRecipient(adminKey, toPin);
+          }
+        } catch (e) { console.debug('Encryption failed, falling back to plain text pin', e); }
+        try {
+          const resp = await fetch(`${pinServer}/pin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cipherStr, meta: { contractAddress, reporter: account || null, fileName: disputeFileName || null } }) });
+          if (resp && resp.ok) {
+            const j = await resp.json().catch(() => null);
+            if (j && j.cid) { cid = j.cid; cidUrl = `${pinServer}/pin/${j.id}` || null; }
+            // persist returned id locally for debugging
+            try { if (j && j.id) localStorage.setItem(`pin:${contractAddress}:${j.id}`, JSON.stringify(j)); } catch (_) {}
+          }
+        } catch (pinErr) { console.debug('Pin server error, continuing without CID', pinErr); }
+      }
+    } catch (pinOuter) { console.debug('Pin step failed', pinOuter); }
 
-  // Include fixed reporter bond (0.002 ETH) in the initial report transaction
+    // Include fixed reporter bond (0.002 ETH) in the initial report transaction
   const fixedBondWei = BigInt(await (await import('ethers')).parseEther('0.002'));
   const { caseId, receipt } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence, fixedBondWei);
       // Persist the full form for the arbitrator UI and navigate to Arbitration page
@@ -1076,12 +1114,28 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       if (!f) return;
       setDisputeFileName(f.name || '');
       setDisputeFile(f);
-      const buf = await f.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      const hash = ethers.keccak256(bytes);
-      setDisputeFileHash(hash);
-      // also set evidence field for visibility
-      setDisputeForm(s => ({...s, evidence: hash}));
+      // If the attached file is textual, read it as text and store the full content
+      try {
+        const isText = (f.type && f.type.indexOf('text/') === 0) || /\.(txt|md|json|csv|html?)$/i.test(f.name || '');
+        if (isText) {
+          const txt = await f.text();
+          setDisputeForm(s => ({ ...s, evidence: txt }));
+          // compute a hash for reference but keep the full text as evidence
+          try { const buf = await f.arrayBuffer(); const bytes = new Uint8Array(buf); const hash = ethers.keccak256(bytes); setDisputeFileHash(hash); } catch (_) { setDisputeFileHash(''); }
+        } else {
+          // Non-text files: store bytes in IndexedDB and leave the human-facing evidence field
+          const buf = await f.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          const hash = ethers.keccak256(bytes);
+          setDisputeFileHash(hash);
+          // Do not place the raw binary into localStorage; keep a readable note in the evidence field
+          setDisputeForm(s => ({ ...s, evidence: `Attached file: ${f.name}` }));
+        }
+      } catch (e) {
+        console.error('Failed to process dispute file:', e);
+        // fallback: compute hash and set as evidence
+        try { const buf = await f.arrayBuffer(); const bytes = new Uint8Array(buf); const hash = ethers.keccak256(bytes); setDisputeFileHash(hash); setDisputeForm(s => ({...s, evidence: hash})); } catch (_) { setDisputeFileHash(''); }
+      }
     } catch (e) {
       console.error('Failed to hash file:', e);
       alert('Failed to process file for evidence.');
@@ -1186,6 +1240,50 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         console.error('Copy failed', e);
         alert('Failed to copy transaction hash');
       }
+    }
+  };
+
+  // Fetch audit record from pin-server and attempt client-side decryption
+  const fetchPinnedRecord = async (id) => {
+    try {
+      setPinnedError(null);
+      setPinnedLoading(true);
+      setPinnedRecord(null);
+      setPinnedDecrypted(null);
+      const pinServer = (process.env.REACT_APP_PIN_SERVER_URL) || 'http://localhost:3002';
+      const apiKey = localStorage.getItem('PIN_SERVER_API_KEY') || null;
+      // Fetch the audit record first (may be public metadata)
+      const headers = apiKey ? { 'X-API-KEY': apiKey } : {};
+      const resp = await fetch(`${pinServer}/pin/${id}`, { headers });
+      if (!resp.ok) throw new Error(`Pin server returned ${resp.status}`);
+      const rec = await resp.json();
+      setPinnedRecord(rec);
+
+      // If admin API key is available, request server-side decryption for the record
+      if (apiKey) {
+        try {
+          const dr = await fetch(`${pinServer}/admin/decrypt/${id}`, { method: 'POST', headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+          if (dr && dr.ok) {
+            const jd = await dr.json().catch(() => null);
+            if (jd && jd.decrypted) setPinnedDecrypted(jd.decrypted);
+          } else {
+            const txt = await dr.text().catch(() => '');
+            setPinnedError(`Decrypt failed: ${dr.status} ${txt}`);
+          }
+        } catch (deErr) {
+          setPinnedError(String(deErr));
+        }
+      } else {
+        // no API key: server-side decrypt not attempted. Admins should set PIN_SERVER_API_KEY in localStorage for automatic server-side decrypt.
+        setPinnedError('Server-side decryption not performed: set PIN_SERVER_API_KEY in localStorage for admin decrypt.');
+      }
+
+      setPinnedLoading(false);
+      return rec;
+    } catch (e) {
+      setPinnedError(String(e));
+      setPinnedLoading(false);
+      throw e;
     }
   };
   const handleShowAppeal = async () => {
@@ -1354,6 +1452,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <button className="btn-sm" onClick={handleShowAppeal} style={{marginRight:6}}>Show Appeal</button>
             )}
             <button className="btn-sm" onClick={() => setShowDebugState(s => !s)} style={{marginRight:6}}>Debug</button>
+            {( (arbResolution && arbResolution.rationale) || (appealLocal && appealLocal.evidence) ) && (
+              <button className="btn-sm" onClick={() => setShowRationale(s => !s)} style={{marginRight:6}}>Show Rationale</button>
+            )}
             <button className="modal-close" onClick={onClose}>
               <i className="fas fa-times"></i>
             </button>
@@ -1940,7 +2041,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             <button className="btn-action" disabled={!feeDueEth} onClick={() => setFeeToSend(feeDueEth || '')}>Autofill Fee</button>
                             {/* New UX: allow landlord or tenant to send an appeal (report dispute) instead of immediate finalization */}
                             <button className="btn-action" disabled={actionLoading || !(isLandlord || isTenant) || !contractDetails?.cancellation?.cancelRequested} onClick={() => setShowDisputeForm(true)}>Send to arbitration (appeal)</button>
-                            <button className="btn-action" onClick={handleShowAppeal}>Show Appeal</button>
+                            {hasAppeal && <button className="btn-action" onClick={handleShowAppeal}>Show Appeal</button>}
                             {/* Platform arbitrator / factory can still finalize directly via service */}
                             <button className="btn-action" disabled={actionLoading || !canFinalize || !isAuthorizedArbitrator} onClick={handleFinalizeCancellation}>Finalize (via Arbitration Service)</button>
                             {!isAuthorizedArbitrator && (
@@ -2143,13 +2244,57 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <p><strong>Amount:</strong> {appealData.amountEth} ETH</p>
               <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
               <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
-              <p><strong>Evidence:</strong> {appealData.evidence}</p>
-              {appealData.fileName && <p><strong>Attached File:</strong> {appealData.fileName}</p>}
+              <div>
+                <p style={{display:'flex', gap:8, alignItems:'center'}}>
+                  <strong>Evidence:</strong>
+                  <span style={{marginLeft:6, whiteSpace:'pre-wrap'}} className={appealData.evidence ? '' : 'muted'}>
+                    {appealData.evidence || <span className="muted">(no textual evidence provided)</span>}
+                  </span>
+                  {appealData.evidence && (
+                    <button className="btn-sm" style={{marginLeft:8}} onClick={async () => { try { await copyTextToClipboard(String(appealData.evidence)); alert('Evidence copied to clipboard'); } catch (_) { alert('Copy failed'); } }}>Copy</button>
+                  )}
+                </p>
+                {appealData.fileName && <p><strong>Attached File:</strong> {appealData.fileName}</p>}
+              </div>
               {appealData._localFileUrl && (
                 <p><a href={appealData._localFileUrl} target="_blank" rel="noreferrer">Open local attachment ({appealData._localFileName || 'file'})</a></p>
               )}
               {appealData.cidUrl && (
-                <p><a href={appealData.cidUrl} target="_blank" rel="noreferrer">Open IPFS file</a></p>
+                <p style={{display:'flex', gap:8, alignItems:'center'}}>
+                  <a href={appealData.cidUrl} target="_blank" rel="noreferrer">Open IPFS file</a>
+                  <button className="btn-sm" onClick={async () => { try { setShowPinnedModal(true); await fetchPinnedRecord(appealData.cid || appealData.cidUrl.split('/').slice(-1)[0]); } catch (e) { alert('Failed to load pinned record: ' + e?.message || e); } }}>View pinned evidence</button>
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {showPinnedModal && (
+        <div className="appeal-overlay" onClick={() => { setShowPinnedModal(false); setPinnedRecord(null); setPinnedDecrypted(null); }}>
+          <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <h3>Pinned Evidence</h3>
+              <div>
+                <button className="modal-close" onClick={() => { setShowPinnedModal(false); setPinnedRecord(null); setPinnedDecrypted(null); }}><i className="fas fa-times"></i></button>
+              </div>
+            </div>
+            <div style={{marginTop:8}}>
+              {pinnedLoading && <div>Loading...</div>}
+              {pinnedError && <div className="muted">Error: {pinnedError}</div>}
+              {pinnedRecord && (
+                <div>
+                  <p><strong>ID:</strong> {pinnedRecord.id}</p>
+                  <p><strong>CID:</strong> {pinnedRecord.cid}</p>
+                  <p><strong>Meta:</strong> <pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(pinnedRecord.meta, null, 2)}</pre></p>
+                  <h5>Decrypted content (if local private key provided)</h5>
+                  {pinnedDecrypted ? (
+                    <div style={{whiteSpace:'pre-wrap', maxHeight:300, overflow:'auto', background:'#fff', padding:8, border:'1px solid #eee'}}>{pinnedDecrypted}</div>
+                  ) : (
+                    <div className="muted">No decrypted content available. For admin auto-decrypt, set `PIN_SERVER_API_KEY` in localStorage (the client will call server `/admin/decrypt/:id`).</div>
+                  )}
+                  <h5 style={{marginTop:12}}>Full audit record</h5>
+                  <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>{JSON.stringify(pinnedRecord, null, 2)}</pre>
+                </div>
               )}
             </div>
           </div>
@@ -2161,6 +2306,22 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
           <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>
             {JSON.stringify({ arbResolution, contractDetails, appealLocal }, null, 2)}
           </pre>
+        </div>
+      )}
+      {showRationale && (
+        <div style={{padding:12, borderTop:'1px solid #eee', background:'#fff8e6', fontSize:13}}>
+          <h4>Arbitrator Rationale</h4>
+          {arbResolution ? (
+            <div>
+              <div style={{marginBottom:8}}><strong>Decision:</strong> {arbResolution.decision}</div>
+              <div style={{whiteSpace:'pre-wrap', background:'#fff', padding:8, border:'1px solid #f0e6d6', borderRadius:4}}>{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
+              <div style={{marginTop:8, fontSize:12, color:'#666'}}>Recorded at: {arbResolution.timestamp ? new Date(Number(arbResolution.timestamp)).toLocaleString() : '—'}</div>
+              <h5 style={{marginTop:12}}>Full Debug</h5>
+              <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>{JSON.stringify({ arbResolution, contractDetails, appealLocal }, null, 2)}</pre>
+            </div>
+          ) : (
+            <div className="muted">No arbitration resolution persisted for this contract.</div>
+          )}
         </div>
       )}
     </div>

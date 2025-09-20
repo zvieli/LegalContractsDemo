@@ -27,6 +27,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [willBeDebitedEth, setWillBeDebitedEth] = useState('0');
   const [debtRemainderEth, setDebtRemainderEth] = useState('0');
   const [appealLocal, setAppealLocal] = useState(null);
+  const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   // (Removed duplicate state declarations)
   const [confirmPay, setConfirmPay] = useState(false);
 
@@ -209,6 +210,21 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     return () => { mounted = false; };
   }, [isOpen, contractAddress, signer, chainId]);
 
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        if (!isOpen || !contractAddress || !signer) return;
+        const svc = new ContractService(signer, chainId);
+        const ok = await svc.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
+        if (mounted) setIsAuthorizedArbitrator(!!ok);
+      } catch (e) {
+        if (mounted) setIsAuthorizedArbitrator(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [isOpen, contractAddress, signer, chainId]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
@@ -281,7 +297,9 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           // After on-chain confirmation, persist the decision locally and clear incoming markers
           try {
             const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
-            const payload = { contractAddress, decision, rationale, timestamp: Date.now() };
+            // Use existing appealLocal.rationale if available, otherwise the rationale state (kept for backward compat)
+            const resolvedRationale = (appealLocal && appealLocal.evidence) ? appealLocal.evidence : rationale;
+            const payload = { contractAddress, decision, rationale: resolvedRationale, timestamp: Date.now() };
             localStorage.setItem(key, JSON.stringify(payload));
             sessionStorage.setItem('lastArbResolution', JSON.stringify(payload));
             try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
@@ -299,12 +317,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
       // Persist the arbitrator decision and rationale locally per-contract so it can be shown in UI
       try {
         const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
-        const payload = {
-          contractAddress,
-          decision,
-          rationale,
-          timestamp: Date.now(),
-        };
+        const resolvedRationale = (appealLocal && appealLocal.evidence) ? appealLocal.evidence : rationale;
+        const payload = { contractAddress, decision, rationale: resolvedRationale, timestamp: Date.now() };
         localStorage.setItem(key, JSON.stringify(payload));
         // Also save a summary to sessionStorage for immediate visibility elsewhere
         sessionStorage.setItem('lastArbResolution', JSON.stringify(payload));
@@ -346,8 +360,23 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             </label>
           </div>
           <div style={{marginTop:12}}>
-            <label>Rationale (optional)</label>
-            <textarea value={rationale} onChange={e => setRationale(e.target.value)} rows={6} style={{width:'100%'}} />
+            <label>Rationale</label>
+            {isAuthorizedArbitrator ? (
+              <div>
+                <textarea
+                  className="text-input"
+                  rows={4}
+                  value={rationale}
+                  onChange={(e) => setRationale(e.target.value)}
+                  placeholder="Enter rationale (this will be recorded with the resolution)"
+                  style={{width:'100%', boxSizing:'border-box'}}
+                />
+              </div>
+            ) : (
+              <div style={{padding:8, background:'#fafafa', border:'1px solid #eee', borderRadius:4, minHeight:48}}>
+                {(appealLocal && appealLocal.evidence) ? appealLocal.evidence : (rationale || <span style={{color:'#888'}}>No rationale provided</span>)}
+              </div>
+            )}
           </div>
           {/* Show dispute / payment details when a dispute requests funds */}
           {disputeInfo && disputeInfo.requestedAmountWei > 0n && (

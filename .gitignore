@@ -1,6 +1,10 @@
 node_modules
 .env
 
+# envs for local tools/frontend
+.env.local
+.env.*
+
 # Hardhat files
 /cache
 /artifacts

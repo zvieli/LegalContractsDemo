@@ -62,7 +62,7 @@ export class ContractService {
 
   async createRentContract(params) {
     try {
-      // ולידציה לכתובות כדי למנוע ניסיון לפתור ENS
+      // validate addresses to avoid ENS resolution attempts
       if (!params.tenant.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
         throw new Error('Tenant address must be a valid Ethereum address');
       }
@@ -75,115 +75,32 @@ export class ContractService {
 
       const factoryContract = await this.getFactoryContract();
 
-      // Ensure the connected signer/provider is on the expected chain. A
-      // mismatched network is the most common cause of an ambiguous
-      // 'Internal JSON-RPC error' when calling eth_sendTransaction from the
-      // browser (MetaMask will try to sign/send to an address that doesn't
-      // exist on the current network). We must not swallow this error.
-      let net;
-      try {
-        net = await this.signer.provider.getNetwork();
-      } catch (err) {
-        console.warn('Could not determine provider network:', err);
-        throw new Error('Could not determine connected wallet network. Ensure your wallet is connected and try again.');
-      }
-      if (Number(net.chainId) !== Number(this.chainId)) {
-        throw new Error(`Connected wallet network mismatch: provider chainId=${net.chainId} but expected=${this.chainId}. Please switch your wallet to the correct network.`);
-      }
-
-      // Quick balance preflight: prevent send attempts when the signer has no ETH
-      // which can lead to confusing provider errors. This is a best-effort check.
-      try {
-        const bal = await this.signer.getBalance();
-        // require at least a tiny balance (0.0001 ETH) to cover gas on most nets
-        const min = ethers.parseEther('0.0001');
-        if (bal < min) {
-          throw new Error('Connected wallet has insufficient ETH balance to create a contract. Fund the wallet and try again.');
-        }
-      } catch (balErr) {
-        // If getBalance fails, don't block the user, but present a helpful warning
-        console.warn('Could not determine signer balance:', balErr);
-      }
-
       const rentAmountWei = ethers.parseEther(params.rentAmount);
-
-      // Preflight checks: ensure price feed exists on-chain (common localhost pitfall)
-      try {
-        const code = await this.getCodeSafe(params.priceFeed);
-        if (!code || code === '0x') {
-          const chain = Number(this.chainId);
-          throw new Error(`Selected price feed has no contract code on chain ${chain}. If you're on localhost, choose "Mock Price Feed (Local)".`);
-        }
-      } catch (pfErr) {
-        throw pfErr;
+      const requiredDeposit = params.requiredDeposit || 0;
+      // compute dueDate as startDate + duration (days -> seconds)
+      // The UI passes startDate as unix seconds. Handle both seconds and ms robustly.
+      let dueDate = 0;
+      if (params.startDate) {
+        const startNum = Number(params.startDate);
+        // if the number looks like milliseconds (>1e12) convert to seconds
+        const startSeconds = startNum > 1e12 ? Math.floor(startNum / 1000) : startNum;
+        const days = Number(params.duration || 0);
+        dueDate = days > 0 ? startSeconds + days * 24 * 60 * 60 : startSeconds;
       }
 
-      // Extra diagnostics to help debug provider errors (network/account/address mismatches)
-      try {
-        const signerAddr = await this.signer.getAddress().catch(() => null);
-        const factoryAddr = factoryContract.target || factoryContract.address || null;
-        console.debug('Preparing factory.createRentContract', { factoryAddr, signerAddr, expectedChainId: this.chainId });
-
-        // If an injected wallet is present, surface its selected account and chainId
-        try {
-          if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
-            const ethAccounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
-            const ethChainId = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
-            console.debug('Injected wallet state before send', { ethAccounts, ethChainId });
-            const selected = (ethAccounts && ethAccounts[0]) || null;
-            if (selected && signerAddr && selected.toLowerCase() !== signerAddr.toLowerCase()) {
-              throw new Error(`Wallet selected account (${selected}) does not match the connected signer (${signerAddr}). Please select the correct account in your wallet and try again.`);
-            }
-            // Also check the injected chainId vs the expected chain
-            if (ethChainId) {
-              try {
-                const hexExpected = `0x${Number(this.chainId).toString(16)}`;
-                if (ethChainId !== hexExpected) {
-                  throw new Error(`Wallet network mismatch: wallet chainId=${ethChainId} but expected=${hexExpected}. Please switch your wallet to the correct network and try again.`);
-                }
-              } catch (cErr) {
-                // bubble up the chain mismatch as a friendly error
-                throw cErr;
-              }
-            }
-          }
-        } catch (walletStateErr) {
-          // Re-throw with helpful context so UI surfaces actionable advice
-          console.error('Wallet preflight check failed:', walletStateErr);
-          throw walletStateErr;
-        }
-      } catch (_) {}
-
-      let tx;
-      try {
-        console.debug('Sending createRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, factory: factoryContract.target || factoryContract.address });
-        tx = await factoryContract.createRentContract(
-          params.tenant,
-          rentAmountWei,
-          params.priceFeed,
-          0
-        );
-      } catch (sendErr) {
-        // Try to surface the underlying RPC payload and give actionable guidance
-        try {
-          console.error('Factory createRentContract failed:', sendErr);
-          // Some providers surface the raw RPC payload under sendErr.payload
-          if (sendErr?.payload) {
-            console.error('Underlying RPC payload:', sendErr.payload);
-          }
-          if (sendErr?.error) {
-            console.error('Provider error object:', sendErr.error);
-          }
-        } catch (_) {}
-        // Friendly message for common causes
-        throw new Error('Failed to send transaction to the factory. Verify your wallet is connected to the expected network (localhost if using Hardhat), the selected account is unlocked/has ETH, and the frontend deployment addresses match the network. See console for raw RPC payload.');
-      }
+      const tx = await factoryContract.createRentContract(
+        params.tenant,
+        rentAmountWei,
+        params.priceFeed,
+        params.propertyId || 0,
+        dueDate,
+        { value: requiredDeposit }
+      );
 
       const receipt = await tx.wait();
 
-      // חילוץ כתובת החוזה מה-event
+      // Extract contract address from the event
       let contractAddress = null;
-
       for (const log of receipt.logs) {
         try {
           const parsedLog = factoryContract.interface.parseLog(log);
@@ -199,9 +116,9 @@ export class ContractService {
       return {
         receipt,
         contractAddress,
-        success: !!contractAddress
+        success: !!contractAddress,
+        dueDate
       };
-
     } catch (error) {
       console.error('Error creating rent contract:', error);
       // Normalize common provider error
@@ -210,7 +127,7 @@ export class ContractService {
       }
       throw error;
     }
-  }
+    }
 
   async getRentContract(contractAddress) {
     try {

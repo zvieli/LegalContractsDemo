@@ -51,7 +51,13 @@
     "axios": "^1.11.0",
     "body-parser": "^2.2.0",
     "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.6.1",
-    "express": "^5.1.0"
+    "eth-crypto": "^3.1.0",
+    "express": "^5.1.0",
+    "fs-extra": "^11.3.2",
+    "ipfs-core": "^0.18.1",
+    "node-fetch": "^3.3.2",
+    "uuid": "^13.0.0"
   }
 }
