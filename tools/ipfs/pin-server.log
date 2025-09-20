@@ -1,1 +1,7 @@
 IPFS pin server (HTTP) listening on :3002
+generating Ed25519 keypair...
+to get started, enter:
+
+	jsipfs cat /ipfs/QmRaaUwTNfwgFZpeUy8qrZwrp2dY4kCKmmB5xEqvH3vtD1/readme
+
+secp256k1 unavailable, reverting to browser version
