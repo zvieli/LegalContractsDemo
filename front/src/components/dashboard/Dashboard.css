@@ -302,7 +302,7 @@
   color: #3498db;
 }
 
-.contract-status.cancelled {
+.contract-status.inactive {
   background: #fdecea;
   color: #e74c3c;
 }

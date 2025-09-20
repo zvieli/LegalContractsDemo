@@ -78,10 +78,16 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     loadFee();
     // Also attempt to load a pending dispute (case) on the rent contract if present
     const loadDispute = async () => {
+      // Defensive: require modal to be open and have a valid contract address and signer
+      if (!isOpen || !contractAddress || !signer) {
+        setLoadingDispute(false);
+        return;
+      }
       setLoadingDispute(true);
       try {
         try { const me = await signer.getAddress?.(); setAccount(me || null); } catch (_) { setAccount(null); }
         const svc = new ContractService(signer, chainId);
+        // If contractAddress is falsy, svc.getRentContract will throw; avoid that.
         const rent = await svc.getRentContract(contractAddress);
         // Try to find the most recent dispute/case on-chain via getDisputesCount/getDispute
         const count = Number(await rent.getDisputesCount().catch(() => 0));
@@ -232,18 +238,60 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           alert('No ArbitrationService configured. Cannot finalize on-chain.');
         } else {
           // If we detected a dispute (non-cancellation) and it requests an amount,
-          // use the ArbitrationService helper to apply the resolution to the target
+          // use the ContractService helper to apply the resolution to the target
           // and transfer the requested amount to the initiator (beneficiary).
+          const svc2 = new ContractService(signer, chainId);
+          // Authorization preflight: ensure connected signer is owner or factory allowed by ArbitrationService
+          try {
+            const arbContract = (await import('../../utils/contracts/ArbitrationServiceABI.json')).default?.abi ? null : null;
+            // create instance via ContractService helper
+            const svcInst = await (async () => {
+              try { return await svc2.getRentContract(contractAddress).catch(() => null); } catch (_) { return null; }
+            })();
+            // Instead of relying on target, create a direct ArbitrationService contract to read owner/factory
+            try {
+              const mod = await import('../../utils/contracts/ArbitrationServiceABI.json');
+              const abi = mod?.default?.abi ?? mod?.abi ?? mod;
+              const ethersMod = await import('ethers');
+              const arbRead = new ethersMod.Contract(arbAddr, abi, signer.provider || signer);
+              const ownerAddr = await arbRead.owner().catch(() => null);
+              const factoryAddr = await arbRead.factory().catch(() => null);
+              const me = (await signer.getAddress?.()).toLowerCase();
+              const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
+              if (!allowed) {
+                throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
+              }
+            } catch (authErr) {
+              // Bubble up authorization error to user
+              throw authErr;
+            }
+          } catch (authCheckErr) {
+            alert(`Authorization check failed: ${authCheckErr?.message || authCheckErr}`);
+            setSubmitting(false);
+            return;
+          }
           if (disputeInfo && disputeInfo.requestedAmountWei > 0n) {
-            // Use the frontend ArbitrationService helper to resolve the dispute. The
-            // helper expects the penalty in ETH (string), so format the wei value.
-            const arbSvc = new (await import('../../services/arbitrationService')).ArbitrationService(signer, chainId);
-            const penaltyEth = (await import('ethers')).formatEther(disputeInfo.requestedAmountWei);
-            await arbSvc.resolveDispute(contractAddress, disputeInfo.caseId, true, penaltyEth, disputeInfo.initiator);
+            await svc2.applyResolutionToTargetViaService(arbAddr, contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, 0n);
           } else {
             // Otherwise treat as cancellation finalize and forward early-termination fee if required
             const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
-            await svc.finalizeCancellationViaService(arbAddr, contractAddress, feeToSend);
+            await svc2.finalizeCancellationViaService(arbAddr, contractAddress, feeToSend);
+          }
+
+          // After on-chain confirmation, persist the decision locally and clear incoming markers
+          try {
+            const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
+            const payload = { contractAddress, decision, rationale, timestamp: Date.now() };
+            localStorage.setItem(key, JSON.stringify(payload));
+            sessionStorage.setItem('lastArbResolution', JSON.stringify(payload));
+            try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
+            try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
+            try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
+            if (typeof window !== 'undefined' && window.dispatchEvent) {
+              window.dispatchEvent(new CustomEvent('arb:resolved', { detail: payload }));
+            }
+          } catch (e) {
+            console.warn('Could not persist arbitration decision locally after tx', e);
           }
         }
       }
@@ -264,6 +312,12 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
         try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
         try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
         try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
+        // Notify the app that this contract was resolved so open UIs can refresh
+        try {
+          if (typeof window !== 'undefined' && window.dispatchEvent) {
+            window.dispatchEvent(new CustomEvent('arb:resolved', { detail: payload }));
+          }
+        } catch (_) {}
       } catch (e) {
         console.warn('Could not persist arbitration decision locally', e);
       }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useRef } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import { ethers } from 'ethers';
@@ -51,6 +52,28 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
   const [appealLocal, setAppealLocal] = useState(null);
+  const [showDebugState, setShowDebugState] = useState(false);
+  const latestArbResolutionRef = useRef(null);
+  const latestArbKeyRef = useRef(null);
+
+  const arbKeyFor = (p) => {
+    try {
+      if (!p) return null;
+      const ca = String(p.contractAddress || '').toLowerCase();
+      const d = String(p.decision || '').toLowerCase();
+      const a = String(p.appliedAmount || '').toLowerCase();
+      const cid = p.caseId != null ? String(p.caseId) : '';
+      return `${ca}|${d}|${a}|${cid}`;
+    } catch (_) { return null; }
+  };
+
+  const updateArbResolution = (payload) => {
+    try {
+      setArbResolution(payload);
+    } catch (_) {}
+    try { latestArbResolutionRef.current = payload; } catch (_) {}
+    try { latestArbKeyRef.current = arbKeyFor(payload); } catch (_) {}
+  };
   const [onchainReporterBondEth, setOnchainReporterBondEth] = useState('0');
   const [appealRequestedWei, setAppealRequestedWei] = useState(0n);
   const [appealReporterBondWei, setAppealReporterBondWei] = useState(0n);
@@ -173,8 +196,54 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       } catch (_) {}
     };
     const h = () => { reload(); };
+    const arbResolvedHandler = (ev) => {
+      try {
+        const d = ev?.detail;
+        if (!d) return;
+        // Debug log for developer to confirm handler fired and payload
+        try { console.debug('arb:resolved received in ContractModal', { payload: d, target: contractAddress }); } catch (_) {}
+        // If the event targets this contract, persist the resolution locally and refresh on-chain state
+        if (String(d.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) {
+          try {
+            const payload = d;
+            const pk = `arbResolution:${String(contractAddress).toLowerCase()}`;
+            try { localStorage.setItem(pk, JSON.stringify(payload)); } catch (_) {}
+            updateArbResolution(payload);
+            setHasAppeal(false);
+            setAppealLocal(null);
+            // After receiving the event, re-fetch on-chain details to confirm the template's `active()` state
+            (async () => {
+              try {
+                const svc = new ContractService(signer, chainId);
+                const refreshed = await svc.getRentContractDetails(contractAddress).catch(() => null);
+                if (refreshed) {
+                  setContractDetails(refreshed);
+                } else {
+                  // If we couldn't refresh details (ABI differences, etc.), fall back to optimistic UI update
+                  if (payload && payload.decision === 'approve') {
+                    setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev);
+                  }
+                }
+              } catch (refreshErr) {
+                console.debug('Could not refresh contract details after arb:resolved', refreshErr);
+                if (payload && payload.decision === 'approve') {
+                  setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev);
+                }
+              }
+            })();
+            // Persisted and updated component state; do not re-dispatch an app-wide event here to avoid read->write loops
+          } catch (err) {
+            try { console.debug('arbResolvedHandler inner error', err); } catch (_) {}
+          }
+        }
+      } catch (err) { try { console.debug('arbResolvedHandler error', err); } catch (_) {} }
+    };
     window.addEventListener('deposit:updated', h);
-    return () => window.removeEventListener('deposit:updated', h);
+    window.addEventListener('arb:resolved', arbResolvedHandler);
+    return () => {
+      window.removeEventListener('deposit:updated', h);
+      window.removeEventListener('arb:resolved', arbResolvedHandler);
+    };
   }, [contractAddress]);
 
   const loadContractData = async () => {
@@ -190,6 +259,55 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
       }
       setContractDetails(details);
+      // Best-effort: if there is no local incomingDispute marker but a dispute was
+      // resolved on-chain, detect it here and persist arbResolution so UI updates.
+      try {
+        if (details?.type === 'Rental') {
+          const svc = new ContractService(signer, chainId);
+          try {
+            const rent = await svc.getRentContract(contractAddress);
+            // First try to read disputes via getters
+            const count = Number(await rent.getDisputesCount().catch(() => 0));
+            if (count > 0) {
+              for (let i = count - 1; i >= 0; i--) {
+                try {
+                  const d = await rent.getDispute(i).catch(() => null);
+                  if (d && d[4]) { // resolved
+                    const approved = !!d[5];
+                    const applied = d[6] ? BigInt(d[6]).toString() : '0';
+                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, caseId: i, timestamp: Date.now() };
+                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
+                            updateArbResolution(payload);
+                            // Reflect resolved state in UI immediately
+                            try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
+                            // Persisted and updated component state; do not re-dispatch an app-wide event here to avoid read->write loops
+                            try { /* updateArbResolution already updated refs */ } catch (_) {}
+                    break;
+                  }
+                } catch (_) {}
+              }
+            } else {
+              // Fallback: scan logs for DisputeResolved events (if contract exposes events but no getters)
+              try {
+                const filters = rent.filters?.DisputeResolved?.() || [];
+                if (filters) {
+                  const evs = await rent.queryFilter(rent.filters.DisputeResolved());
+                  if (evs && evs.length) {
+                    const last = evs[evs.length - 1];
+                    const approved = last.args?.approved ?? true;
+                    const applied = last.args?.appliedAmount ? BigInt(last.args.appliedAmount).toString() : '0';
+                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, caseId: last.args?.caseId ?? null, timestamp: Date.now() };
+                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
+                    updateArbResolution(payload);
+                    try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
+                    try { /* updateArbResolution already updated refs; avoid emitting here */ } catch (_) {}
+                  }
+                }
+              } catch (_) {}
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
       // Load persisted transactions for this contract (bond/deposit records shared across roles)
       try {
         const persisted = await ContractService.getTransactions(contractAddress).catch(() => []);
@@ -241,7 +359,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     const applied = d[6] ? BigInt(d[6]).toString() : '0';
                     const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, timestamp: Date.now() };
                     try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
-                    setArbResolution(payload);
+                    updateArbResolution(payload);
+                    try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
                   }
                 }
               } else if (details?.type === 'NDA') {
@@ -258,7 +377,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     const applied = d[6] ? BigInt(d[6]).toString() : '0';
                     const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, timestamp: Date.now() };
                     try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
-                    setArbResolution(payload);
+                    updateArbResolution(payload);
+                    try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
                   }
                 }
               }
@@ -1233,6 +1353,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             {hasAppeal && (
               <button className="btn-sm" onClick={handleShowAppeal} style={{marginRight:6}}>Show Appeal</button>
             )}
+            <button className="btn-sm" onClick={() => setShowDebugState(s => !s)} style={{marginRight:6}}>Debug</button>
             <button className="modal-close" onClick={onClose}>
               <i className="fas fa-times"></i>
             </button>
@@ -1323,9 +1444,15 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                   )}
                   <div className="detail-item">
                     <span className="label">Status:</span>
-                    <span className={`status-badge ${contractDetails.isActive ? 'active' : 'inactive'}`}>
-                      {contractDetails.isActive ? 'Active' : 'Inactive'}
-                    </span>
+                    {arbResolution ? (
+                      <span className={`status-badge resolved`}>
+                        {arbResolution.decision === 'approve' ? 'Resolved: Approved' : 'Resolved: Denied'}
+                      </span>
+                    ) : (
+                      <span className={`status-badge ${contractDetails.isActive ? 'active' : 'inactive'}`}>
+                        {contractDetails.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {contractDetails.type === 'NDA' && (
@@ -1377,7 +1504,25 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       {contractDetails.cases.map((c) => (
                         <div key={c.id} className="transaction-item">
                           <div className="tx-amount">Case #{c.id}</div>
-                          <div className="tx-date">{c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending'}</div>
+                          <div className="tx-date">{
+                            (() => {
+                              try {
+                                // If we have a locally persisted arbitration resolution for this contract
+                                // and it targets this caseId, prefer that display instead of on-chain case.resolved
+                                if (arbResolution && arbResolution.caseId != null) {
+                                  // Normalize both to numbers for comparison
+                                  const rid = Number(arbResolution.caseId);
+                                  const cid = Number(c.id);
+                                  if (!Number.isNaN(rid) && rid === cid) {
+                                    return arbResolution.decision === 'approve' ? 'Resolved: Approved' : 'Resolved: Denied';
+                                  }
+                                }
+                                return c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending';
+                              } catch (_) {
+                                return c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending';
+                              }
+                            })()
+                          }</div>
                           <div className="tx-hash">Requested: {c.requestedPenalty} ETH</div>
                         </div>
                       ))}
@@ -2008,6 +2153,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               )}
             </div>
           </div>
+        </div>
+      )}
+      {showDebugState && (
+        <div style={{padding:12, borderTop:'1px solid #eee', background:'#fafafa', fontSize:12}}>
+          <h4>Debug State</h4>
+          <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>
+            {JSON.stringify({ arbResolution, contractDetails, appealLocal }, null, 2)}
+          </pre>
         </div>
       )}
     </div>

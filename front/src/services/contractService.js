@@ -454,7 +454,8 @@ export class ContractService {
       // Derive a richer status for UI
       let status = 'Active';
       if (!isActive) {
-        status = 'Cancelled';
+        // Treat inactive contracts uniformly as 'Inactive' in the UI
+        status = 'Inactive';
       } else if (cancelRequested) {
         status = 'Pending'; // cancellation initiated but not finalized
       }
@@ -832,6 +833,62 @@ export class ContractService {
       return receipt;
     } catch (error) {
       console.error('Error finalizing via arbitration service (landlord path):', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Apply an arbitrator resolution to a target contract via the ArbitrationService.
+   * Tries `applyResolutionToTarget(target, caseId, approved, appliedAmount, initiator)` first.
+   * If that fails and `approved === true`, falls back to `finalizeTargetCancellation(target)`.
+   * On success returns the mined receipt. Throws on fatal failures.
+   */
+  async applyResolutionToTargetViaService(arbitrationServiceAddress, contractAddress, caseId, approved, appliedAmountWei = 0n, initiator = '0x0000000000000000000000000000000000000000', feeWei = 0n) {
+    try {
+      if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
+
+      // Load service contract instance (prefer static helper)
+      let svc;
+      try {
+        svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
+      } catch (e) {
+        try {
+          const mod = await import('../utils/contracts/ArbitrationServiceABI.json');
+          const abi = mod?.default?.abi ?? mod?.abi ?? mod;
+          svc = new (await import('ethers')).Contract(arbitrationServiceAddress, abi, this.signer);
+        } catch (impErr) {
+          console.error('Could not load ArbitrationService ABI dynamically:', impErr);
+          throw new Error('ArbitrationService ABI not available');
+        }
+      }
+
+      const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
+
+      // Try primary entrypoint
+      try {
+        const tx = await svc.applyResolutionToTarget(contractAddress, caseId, approved, appliedAmountWei, initiator, { value });
+        const receipt = await tx.wait();
+        // record tx in local history
+        try { await ContractService.saveTransaction(contractAddress, { type: 'arb:apply', caseId, approved, appliedAmountWei: String(appliedAmountWei), date: new Date().toLocaleString(), hash: receipt?.transactionHash || receipt?.hash || null, raw: receipt }); } catch (_) {}
+        return receipt;
+      } catch (primaryErr) {
+        console.debug('applyResolutionToTarget primary call failed:', primaryErr);
+        // If approved, try finalizeTargetCancellation as fallback
+        if (approved) {
+          try {
+            const tx2 = await svc.finalizeTargetCancellation(contractAddress, { value });
+            const r2 = await tx2.wait();
+            try { await ContractService.saveTransaction(contractAddress, { type: 'arb:finalizeFallback', caseId, date: new Date().toLocaleString(), hash: r2?.transactionHash || r2?.hash || null, raw: r2 }); } catch (_) {}
+            return r2;
+          } catch (fallbackErr) {
+            console.error('finalizeTargetCancellation fallback failed:', fallbackErr);
+            throw fallbackErr;
+          }
+        }
+        throw primaryErr;
+      }
+    } catch (error) {
+      console.error('Error applying resolution via service:', error);
       throw error;
     }
   }
