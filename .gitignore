@@ -22,4 +22,11 @@ ignition/deployments/chain-31337
 
 # Frontend generated contract addresses/ABI artifacts (dev-only)
 front/src/utils/contracts/
-\n# ipfs pin-server runtime\ntools/ipfs/ipfs-data/\ntools/ipfs/store/\ntools/ipfs/pin-server.log\ntools/ipfs/pin-server.err\n
+# ipfs pin-server runtime
+tools/ipfs/ipfs-data/
+tools/ipfs/store/
+tools/ipfs/pin-server.log
+tools/ipfs/pin-server.err
+tools/ipfs/package-lock.json
+tools/ipfs/node_modules/
+tools/ipfs/.env
