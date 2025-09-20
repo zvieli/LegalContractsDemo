@@ -48,3 +48,30 @@ Security & optional production notes
 - API key: you may secure the pin-server by setting an environment variable `PIN_SERVER_API_KEY` in `tools/ipfs/.env`. When set, API requests must include an `X-API-KEY` header or `?api_key=` query parameter.
 - CORS: allowed origins are configured via `ALLOWED_ORIGINS` (comma-separated) in `tools/ipfs/.env`. By default `http://localhost:5173,http://localhost:3000` are allowed.
 - TLS: to run the server with HTTPS provide `TLS_KEY_PATH` and `TLS_CERT_PATH` in `tools/ipfs/.env` pointing at the PEM files. If provided, the server starts in HTTPS mode.
+
+Quick start (short)
+
+PowerShell:
+```powershell
+cd tools/ipfs
+docker compose up -d    # start go-ipfs daemon
+npm install             # install form-data and helpers
+npm start               # start pin-server (listens on :3002)
+npm run test-pin        # run the test harness
+```
+
+Cleanup (PowerShell):
+```powershell
+cd tools/ipfs
+docker compose down --remove-orphans
+docker rm -f local-ipfs 2>$null | Out-Null
+docker network rm ipfs_default 2>$null | Out-Null
+```
+
+Cleanup (bash):
+```bash
+cd tools/ipfs
+docker compose down --remove-orphans
+docker rm -f local-ipfs 2>/dev/null || true
+docker network rm ipfs_default 2>/dev/null || true
+```

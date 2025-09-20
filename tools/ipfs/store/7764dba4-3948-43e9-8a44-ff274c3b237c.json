@@ -1,0 +1,15 @@
+{
+  "id": "7764dba4-3948-43e9-8a44-ff274c3b237c",
+  "cid": null,
+  "meta": {
+    "note": "automated test"
+  },
+  "createdAt": 1758376903311,
+  "raw": {
+    "raw": "file argument 'path' is required\n"
+  },
+  "cipherStrLength": 226,
+  "used": "api",
+  "cipherStrSample": "e0b9d82cf03d26ae3b97daeffb415c4802916fa63c61e26a9a8e43e6aa20c7b7199a7fc18d6a4e16c7bff0c51eaaaf29b00622a57f343c7bff52fe196e06204b8791c9630b8c2289c154f503235c01ac3ddfaf650bb554d6de7319334a7cf63356307e192208a7bd195c3c3dd62c2e035a",
+  "cipherStrFull": "e0b9d82cf03d26ae3b97daeffb415c4802916fa63c61e26a9a8e43e6aa20c7b7199a7fc18d6a4e16c7bff0c51eaaaf29b00622a57f343c7bff52fe196e06204b8791c9630b8c2289c154f503235c01ac3ddfaf650bb554d6de7319334a7cf63356307e192208a7bd195c3c3dd62c2e035a"
+}

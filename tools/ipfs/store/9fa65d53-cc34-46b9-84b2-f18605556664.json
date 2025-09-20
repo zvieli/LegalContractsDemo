@@ -1,0 +1,17 @@
+{
+  "id": "9fa65d53-cc34-46b9-84b2-f18605556664",
+  "cid": "QmbPCDW7GLhDZgsi3C7M6ZL9yXtED6rD9ifHy8PfUsw78S",
+  "meta": {
+    "note": "automated test"
+  },
+  "createdAt": 1758377298514,
+  "raw": {
+    "Name": "evidence.txt",
+    "Hash": "QmbPCDW7GLhDZgsi3C7M6ZL9yXtED6rD9ifHy8PfUsw78S",
+    "Size": "237"
+  },
+  "cipherStrLength": 226,
+  "used": "api",
+  "cipherStrSample": "6e360de4f7ca62f3d41cba4774a050d902a237a3202552908320e4c811b3e1de58ce316081e4b77b7104d9229f64d77ef3064397076576b054cc345e6537f5593a5f2e3b073b806be280be46f86f900f516e39b1a340920611da5fe45a78e68be5ba29991aee2cbb714960c620afeec262",
+  "cipherStrFull": "6e360de4f7ca62f3d41cba4774a050d902a237a3202552908320e4c811b3e1de58ce316081e4b77b7104d9229f64d77ef3064397076576b054cc345e6537f5593a5f2e3b073b806be280be46f86f900f516e39b1a340920611da5fe45a78e68be5ba29991aee2cbb714960c620afeec262"
+}

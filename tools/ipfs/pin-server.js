@@ -54,11 +54,31 @@ app.post('/pin', requireApiKey, async (req, res) => {
       if (vres && vres.ok) {
         // call add endpoint
         const addUrl = `${apiBase}/api/v0/add?pin=true`;
-        // go-ipfs expects multipart; we can send plain body and parse but better to call the simple add via body
-        const resp = await fetch(addUrl, { method: 'POST', body: Buffer.from(cipherStr, 'utf8') });
-        const text = await resp.text();
-        try { parsed = JSON.parse(text.trim().split('\n').slice(-1)[0]); } catch (e) { parsed = { raw: text }; }
-        cid = parsed && parsed.Hash ? parsed.Hash : null;
+        // The go-ipfs HTTP API requires multipart/form-data with a file field.
+        // Prefer the `form-data` package if installed; otherwise construct multipart manually.
+        try {
+          let resp;
+          try {
+            const FormData = (await import('form-data')).default;
+            const form = new FormData();
+            form.append('file', Buffer.from(cipherStr, 'utf8'), { filename: 'evidence.txt' });
+            resp = await fetch(addUrl, { method: 'POST', body: form, headers: form.getHeaders() });
+          } catch (impErr) {
+            // fallback: build multipart body manually
+            const boundary = '----pinserver' + Date.now();
+            const prefix = `--${boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"evidence.txt\"\r\nContent-Type: application/octet-stream\r\n\r\n`;
+            const suffix = `\r\n--${boundary}--\r\n`;
+            const bodyBuffer = Buffer.concat([Buffer.from(prefix, 'utf8'), Buffer.from(cipherStr, 'utf8'), Buffer.from(suffix, 'utf8')]);
+            resp = await fetch(addUrl, { method: 'POST', body: bodyBuffer, headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` } });
+          }
+          const text = await resp.text();
+          try { parsed = JSON.parse(text.trim().split('\n').slice(-1)[0]); } catch (e) { parsed = { raw: text }; }
+          // go-ipfs returns 'Hash' or the last line as JSON with 'Hash'
+          cid = parsed && (parsed.Hash || parsed.Name || parsed.cid) ? (parsed.Hash || parsed.Name || parsed.cid) : null;
+        } catch (e) {
+          // if the API call failed, surface error to outer fallback logic
+          throw e;
+        }
       } else {
   used = 'ipfs-core';
   // fallback to ipfs-core in-process

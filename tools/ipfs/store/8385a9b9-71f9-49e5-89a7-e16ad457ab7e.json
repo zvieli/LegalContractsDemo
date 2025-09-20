@@ -1,0 +1,17 @@
+{
+  "id": "8385a9b9-71f9-49e5-89a7-e16ad457ab7e",
+  "cid": "QmTukVwNs8Bs5k8gdKLWnPsTvb9Zw5bSDefM2S5eiPTkpP",
+  "meta": {
+    "note": "automated test"
+  },
+  "createdAt": 1758378283382,
+  "raw": {
+    "Name": "evidence.txt",
+    "Hash": "QmTukVwNs8Bs5k8gdKLWnPsTvb9Zw5bSDefM2S5eiPTkpP",
+    "Size": "237"
+  },
+  "cipherStrLength": 226,
+  "used": "api",
+  "cipherStrSample": "ae79b9f0ef034de3241464cfaad850a203e35bb1cca8f341736e14f4d9b62ffe33067443ef192197f319c17689b72d0ffe726dd8fe6dafb6c1d68434c659257320e69d4596ff684e763c9ba57dd2ed2ff25eaea11531233d9b700af29bcb41b3fe9bdeb86deb8e065caf245fb22addaae3",
+  "cipherStrFull": "ae79b9f0ef034de3241464cfaad850a203e35bb1cca8f341736e14f4d9b62ffe33067443ef192197f319c17689b72d0ffe726dd8fe6dafb6c1d68434c659257320e69d4596ff684e763c9ba57dd2ed2ff25eaea11531233d9b700af29bcb41b3fe9bdeb86deb8e065caf245fb22addaae3"
+}

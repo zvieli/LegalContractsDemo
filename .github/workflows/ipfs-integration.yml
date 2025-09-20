@@ -1,0 +1,45 @@
+name: IPFS Integration
+
+on:
+  push:
+    paths:
+      - 'tools/ipfs/**'
+  pull_request:
+    paths:
+      - 'tools/ipfs/**'
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      docker:
+        image: docker:20-dind
+        privileged: true
+        options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Start docker compose for ipfs
+        run: |
+          cd tools/ipfs
+          docker compose up -d
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - name: Install dependencies
+        run: |
+          cd tools/ipfs
+          npm ci
+      - name: Run integration
+        run: |
+          cd tools/ipfs
+          npm run integration
+      - name: Tear down ipfs
+        if: always()
+        run: |
+          cd tools/ipfs
+          docker compose down --remove-orphans
