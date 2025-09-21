@@ -28,6 +28,9 @@ AggregatorV3Interface public immutable priceFeed;
     mapping(address => uint256) public withdrawable;
     // Reporter bond per dispute caseId (optional bond attached by reporter)
     mapping(uint256 => uint256) private _reporterBond;
+    // Track debtor per case and whether debtor has deposited required claim amount
+    mapping(uint256 => address) private _caseDebtor;
+    mapping(uint256 => bool) private _caseDepositSatisfied;
     // Track on-chain recorded debts owed by parties when a resolution exceeds available funds
     mapping(address => uint256) public debtOwed;
 
@@ -100,9 +103,10 @@ AggregatorV3Interface public immutable priceFeed;
     event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount, string evidence);
     // New event to include the bytes32 digest when available
     event DisputeReportedWithDigest(uint256 indexed caseId, bytes32 evidenceDigest, string evidenceCid);
+    event DisputeFiled(uint256 indexed caseId, address indexed debtor, uint256 requestedAmount);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
     event DebtRecorded(address indexed debtor, uint256 amount);
-    event ERC20DebtCollected(address indexed token, address indexed from, uint256 amount);
+    // ERC20 support removed: ERC20DebtCollected event intentionally omitted
     event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
     event PaymentWithdrawn(address indexed to, uint256 amount);
     /// @notice emitted when an attempted approval fails due to insufficient deposit
@@ -471,6 +475,22 @@ function getRentInEth() public view returns (uint256) {
         return (m.classification, m.rationale);
     }
 
+    /// @notice Debtor may deposit the requested claim amount to satisfy a dispute case so resolution that debits deposit can be executed.
+    function depositForCase(uint256 caseId) external payable onlyActive {
+        require(caseId < _disputes.length, "bad id");
+        address debtor = _caseDebtor[caseId];
+        require(msg.sender == debtor, "only debtor may deposit");
+        DisputeCase storage dc = _disputes[caseId];
+        uint256 req = dc.requestedAmount;
+        require(req > 0, "no requested amount");
+        if (msg.value == 0) revert DepositTooLow();
+        partyDeposit[msg.sender] += msg.value;
+        emit SecurityDepositPaid(msg.sender, msg.value, partyDeposit[msg.sender]);
+        if (partyDeposit[msg.sender] >= req) {
+            _caseDepositSatisfied[caseId] = true;
+        }
+    }
+
     function reportDispute(DisputeType dtype, uint256 requestedAmount, string calldata evidence) external payable onlyActive returns (uint256 caseId) {
         // Allow reporting disputes even when an external arbitration service is
         // not yet configured. This lets parties record evidence/claims and
@@ -490,13 +510,32 @@ function getRentInEth() public view returns (uint256) {
     // store legacy-derived digest for backwards compatibility
     dc.evidenceDigest = keccak256(bytes(evidence));
 
-        // Record optional reporter bond attached to this report
+        // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
+        uint256 requiredBond = 0;
+        if (requestedAmount > 0) {
+            requiredBond = (requestedAmount * 5) / 1000; // 0.5%
+            // ensure at least 1 wei if computed zero but request >0
+            if (requiredBond == 0) requiredBond = 1;
+        }
+        if (msg.value < requiredBond) revert InsufficientFee();
+        // store the bond (allow callers to overpay; full msg.value credited)
         if (msg.value > 0) {
             _reporterBond[caseId] = msg.value;
         }
 
-        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidence);
-        emit DisputeReportedWithDigest(caseId, dc.evidenceDigest, evidence);
+        // Track debtor for this case and whether they already have sufficient deposit
+        address debtor = msg.sender == landlord ? tenant : landlord;
+        _caseDebtor[caseId] = debtor;
+        if (partyDeposit[debtor] >= requestedAmount) {
+            _caseDepositSatisfied[caseId] = true;
+        } else {
+            _caseDepositSatisfied[caseId] = false;
+        }
+
+    emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidence);
+    emit DisputeReportedWithDigest(caseId, dc.evidenceDigest, evidence);
+    // Notify debtor off-chain via event so UI can prompt debtor to deposit requested amount
+    emit DisputeFiled(caseId, debtor, requestedAmount);
     }
 
     /// @notice New entrypoint to report a dispute attaching a precomputed bytes32 digest (CID digest)
@@ -514,13 +553,29 @@ function getRentInEth() public view returns (uint256) {
         dc.evidence = evidenceCid;
         dc.evidenceDigest = evidenceDigest;
 
-        // handle reporter bond if provided via msg.value
+        // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
+        uint256 requiredBond = 0;
+        if (requestedAmount > 0) {
+            requiredBond = (requestedAmount * 5) / 1000; // 0.5%
+            if (requiredBond == 0) requiredBond = 1;
+        }
+        if (msg.value < requiredBond) revert InsufficientFee();
         if (msg.value > 0) {
             _reporterBond[caseId] = msg.value;
         }
 
-        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
-        emit DisputeReportedWithDigest(caseId, evidenceDigest, evidenceCid);
+        // Track debtor and whether deposit already satisfied
+        address debtor = msg.sender == landlord ? tenant : landlord;
+        _caseDebtor[caseId] = debtor;
+        if (partyDeposit[debtor] >= requestedAmount) {
+            _caseDepositSatisfied[caseId] = true;
+        } else {
+            _caseDepositSatisfied[caseId] = false;
+        }
+
+    emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
+    emit DisputeReportedWithDigest(caseId, evidenceDigest, evidenceCid);
+    emit DisputeFiled(caseId, debtor, requestedAmount);
     }
 
     /// @notice Legacy helper that accepts only a CID string and computes the digest on-chain
@@ -536,12 +591,29 @@ function getRentInEth() public view returns (uint256) {
         dc.evidence = evidenceCid;
         dc.evidenceDigest = digest;
 
+        // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
+        uint256 requiredBond = 0;
+        if (requestedAmount > 0) {
+            requiredBond = (requestedAmount * 5) / 1000; // 0.5%
+            if (requiredBond == 0) requiredBond = 1;
+        }
+        if (msg.value < requiredBond) revert InsufficientFee();
         if (msg.value > 0) {
             _reporterBond[caseId] = msg.value;
         }
 
-        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
-        emit DisputeReportedWithDigest(caseId, digest, evidenceCid);
+        // Track debtor and whether deposit already satisfied
+        address debtor = msg.sender == landlord ? tenant : landlord;
+        _caseDebtor[caseId] = debtor;
+        if (partyDeposit[debtor] >= requestedAmount) {
+            _caseDepositSatisfied[caseId] = true;
+        } else {
+            _caseDepositSatisfied[caseId] = false;
+        }
+
+    emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
+    emit DisputeReportedWithDigest(caseId, digest, evidenceCid);
+    emit DisputeFiled(caseId, debtor, requestedAmount);
     }
 
     /// @notice Read the stored digest for a dispute (bytes32, zero if none)
@@ -589,32 +661,56 @@ function getRentInEth() public view returns (uint256) {
         dc.resolved = true;
         dc.approved = approve;
 
-        // Handle reporter bond (if any) before finalizing
+        // Handle reporter bond (if any) and debtor deposit movements according to the requested flow:
+        // - When approved: reporter bond returns to reporter; debtor's deposit moves to claimant (beneficiary) as compensation.
+        // - When rejected: reporter bond goes to arbitrator owner; debtor's deposit (if any reserved) returns to debtor.
         uint256 bond = _reporterBond[caseId];
         if (bond > 0) {
-            // clear stored bond immediately to prevent re-entrancy/multiple attempts
+            // clear bond storage immediately
             _reporterBond[caseId] = 0;
-            if (approve) {
-                // attempt to return bond to the initiator
+        }
+
+        uint256 applied = 0;
+        address debtor = _caseDebtor[caseId];
+        uint256 requested = dc.requestedAmount;
+
+        if (approve) {
+            // Return bond to initiator (reporter)
+            if (bond > 0) {
                 address initiator = dc.initiator;
-                (bool okBond, ) = payable(initiator).call{value: bond}('');
+                (bool okBond, ) = payable(initiator).call{value: bond}("");
                 if (!okBond) {
-                    // credit for pull-based withdrawal
                     withdrawable[initiator] += bond;
                     emit PaymentCredited(initiator, bond);
                 }
-            } else {
-                // if rejected, forward bond to arbitrationService owner if available
+            }
+
+            // Transfer debtor deposit to beneficiary as compensation (must be available)
+            if (requested > 0) {
+                uint256 available = partyDeposit[debtor];
+                if (available < requested) {
+                    revert InsufficientDepositForResolution({ available: available, required: requested });
+                }
+                partyDeposit[debtor] = available - requested;
+                emit DepositDebited(debtor, requested);
+                // Send to beneficiary
+                (bool ok, ) = payable(beneficiary).call{value: requested}("");
+                if (!ok) {
+                    withdrawable[beneficiary] += requested;
+                    emit PaymentCredited(beneficiary, requested);
+                }
+                applied = requested;
+            }
+        } else {
+            // Rejected: forward bond to arbitrator owner if possible
+            if (bond > 0) {
                 address arbOwner = address(0);
                 if (arbitrationService != address(0)) {
-                    // try to read owner() from the arbitration service (best-effort)
                     (bool ok, bytes memory data) = arbitrationService.staticcall(abi.encodeWithSignature("owner()"));
                     if (ok && data.length >= 32) {
-                        // safe to decode since data length >= 32
                         arbOwner = abi.decode(data, (address));
                     }
                 }
-
                 if (arbOwner != address(0)) {
                     (bool sentOwner, ) = payable(arbOwner).call{value: bond}("");
                     if (!sentOwner) {
@@ -622,71 +718,19 @@ function getRentInEth() public view returns (uint256) {
                         emit PaymentCredited(arbOwner, bond);
                     }
                 } else {
-                    // no owner available; credit to contract address withdrawable
                     withdrawable[address(this)] += bond;
                     emit PaymentCredited(address(this), bond);
                 }
             }
+            // If rejected, debtor deposit remains with debtor (no transfer). Nothing else to do.
         }
 
-        uint256 applied = 0;
-        if (approve && appliedAmount > 0) {
-            // debtor is the other party (not the initiator)
-            address debtor = dc.initiator == landlord ? tenant : landlord;
-            uint256 available = partyDeposit[debtor];
-            // enforce on-chain policy: approvals that move funds must be fully
-            // covered by the debtor's deposit. Revert otherwise.
-            if (available < appliedAmount) {
-                revert InsufficientDepositForResolution({ available: available, required: appliedAmount });
-            }
-            // debit full appliedAmount
-            partyDeposit[debtor] = available - appliedAmount;
-            emit DepositDebited(debtor, appliedAmount);
-            // attempt to send to beneficiary
-            (bool ok, ) = payable(beneficiary).call{value: appliedAmount}("");
-            if (!ok) {
-                withdrawable[beneficiary] += appliedAmount;
-                emit PaymentCredited(beneficiary, appliedAmount);
-                applied = appliedAmount;
-            } else {
-                applied = appliedAmount;
-            }
-        }
         dc.appliedAmount = applied;
         _disputeMeta[caseId] = DisputeMeta({classification: classification, rationale: rationale});
         emit DisputeResolved(caseId, approve, applied, beneficiary);
         emit DisputeRationale(caseId, classification, rationale);
     }
 
-    // ERC20 debt collection functions removed
+    }
 
-    // Compatibility shim `resolveByArbitrator` removed. Use `resolveDisputeFinal` via a configured `arbitrationService`.
-}
-// pragma solidity ^0.8.20;
-
-// contract TemplateRentV2 {
-//     struct Dispute {
-//         address reporter;
-//         bytes32 evidenceDigest;
-//     }
-
-//     mapping(uint256 => Dispute) public disputes;
-
-//     event DisputeReported(uint256 indexed id, bytes32 evidenceDigest, string evidenceCid);
-
-//     function reportDisputeWithCid(uint256 id, bytes32 evidenceDigest, string calldata evidenceCid) external {
-//         disputes[id] = Dispute(msg.sender, evidenceDigest);
-//         emit DisputeReported(id, evidenceDigest, evidenceCid);
-//     }
-
-//     function getDisputeWithCid(uint256 id) external view returns (bytes32) {
-//         return disputes[id].evidenceDigest;
-//     }
-
-//     // Legacy function
-//     function reportDisputeWithCidLegacy(uint256 id, string calldata evidenceCid) external {
-//         bytes32 digest = keccak256(bytes(evidenceCid));
-//         disputes[id] = Dispute(msg.sender, digest);
-//         emit DisputeReported(id, digest, evidenceCid);
-//     }
-// }
+    

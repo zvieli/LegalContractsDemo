@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 
 const EthersContext = createContext();
 

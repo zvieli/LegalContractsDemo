@@ -1,7 +1,7 @@
 import React from 'react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
-import EvidencePanel from './ResolveModal.jsx'
+import { EvidencePanel } from './ResolveModal.jsx'
 
 // NOTE: This test imports the EvidencePanel default export path. The component
 // is a named function inside ResolveModal.jsx. For test simplicity we will
@@ -28,10 +28,8 @@ describe('EvidencePanel', () => {
     // set admin API key in localStorage so admin decrypt is allowed
     localStorage.setItem('PIN_SERVER_API_KEY', 'admin')
 
-    // Render the EvidencePanel (component is default export; fallback to named)
-    const mod = await import('./ResolveModal.jsx')
-    const Comp = mod.EvidencePanel || mod.default
-    render(<Comp initialPinId="pin_test" isArbitrator={true} />)
+  // Render the EvidencePanel named export directly
+  render(<EvidencePanel initialPinId="pin_test" isArbitrator={true} />)
 
     // click Fetch
     const fetchBtn = await screen.findByText('Fetch')

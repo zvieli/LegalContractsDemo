@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
+import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
@@ -35,6 +36,37 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [disputeFileName, setDisputeFileName] = useState('');
   const [disputeFileHash, setDisputeFileHash] = useState('');
   const [disputeFile, setDisputeFile] = useState(null);
+
+  // Confirmation modal state for payable actions
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmAmountEth, setConfirmAmountEth] = useState('0');
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+
+  const openConfirm = (amountEth, action) => {
+    setConfirmAmountEth(amountEth);
+    setConfirmAction(() => action);
+    setConfirmOpen(true);
+  };
+
+  const onConfirmCancel = () => {
+    setConfirmOpen(false);
+    setConfirmAction(null);
+  };
+
+  const onConfirmProceed = async () => {
+    if (!confirmAction) return onConfirmCancel();
+    setConfirmBusy(true);
+    try {
+      await confirmAction();
+    } catch (e) {
+      alert(`Action failed: ${e?.message || e}`);
+    } finally {
+      setConfirmBusy(false);
+      setConfirmOpen(false);
+      setConfirmAction(null);
+    }
+  };
   
   // NDA report states (replace ad-hoc DOM reads)
   const [ndaReportOffender, setNdaReportOffender] = useState('');
@@ -611,89 +643,81 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     try {
       setActionLoading(true);
       const svc = new ContractService(signer, chainId);
-  const amountWei = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
-  // prefer file hash if present, otherwise use evidence text
-  const evidence = disputeFileHash || disputeForm.evidence || '';
-  // If a file was attached and user provided a web3.storage token, upload it and include CID
-  let cid = null;
-  let cidUrl = null;
-  let localIdbKey = null;
-  try {
-    if (disputeFile) {
-      // Always store file locally in IndexedDB for no-cost evidence sharing in the same browser
+      const amountWei = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
+      // prefer file hash if present, otherwise use evidence text
+      const evidence = disputeFileHash || disputeForm.evidence || '';
+      // If a file was attached and user provided a web3.storage token, upload it and include CID
+      let cid = null;
+      let cidUrl = null;
+      let localIdbKey = null;
       try {
-        const { idbPut } = await import('../../utils/idb');
-        const key = `dispute-file:${contractAddress}:${Date.now()}`;
-        const buf = await disputeFile.arrayBuffer();
-        await idbPut(key, { name: disputeFile.name || '', bytes: new Uint8Array(buf), createdAt: Date.now() });
-        localIdbKey = key;
-      } catch (e) {
-        console.error('Failed to store file locally:', e);
-      }
-    }
-
-    const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
-    // Persist the full form for the arbitrator UI and navigate to Arbitration page
-    try {
-      const incoming = {
-        contractAddress: contractAddress,
-        dtype: Number(disputeForm.dtype || 0),
-        amountEth: String(disputeForm.amountEth || '0'),
-        evidence: evidence || '',
-        fileName: disputeFileName || '',
-        cid: cid || null,
-        cidUrl: cidUrl || null,
-        localIdbKey: localIdbKey || null,
-        reporter: account || null,
-        caseId: caseId != null ? String(caseId) : null,
-        createdAt: new Date().toISOString()
-      };
-      sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
-        // Persist for global arbitration view
-        sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
-        // Also persist a per-contract appeal so reporters/participants can view it via "Show Appeal"
-        try {
-          const perKey = `incomingDispute:${contractAddress}`;
-          localStorage.setItem(perKey, JSON.stringify(incoming));
-        } catch (e) {
-          console.warn('Failed to persist per-contract incomingDispute', e);
+        if (disputeFile) {
+          try {
+            const { idbPut } = await import('../../utils/idb');
+            const key = `dispute-file:${contractAddress}:${Date.now()}`;
+            const buf = await disputeFile.arrayBuffer();
+            await idbPut(key, { name: disputeFile.name || '', bytes: new Uint8Array(buf), createdAt: Date.now() });
+            localIdbKey = key;
+          } catch (e) {
+            console.error('Failed to store file locally:', e);
+          }
         }
-    } catch (e) {
-      console.error('Failed to persist dispute for arbitration page:', e);
-    }
 
-    setShowDisputeForm(false);
-    // Redirect to arbitration page only if the connected account is the arbitrator
-    try {
-      const svc2 = new ContractService(signer, chainId);
-      const isAuthorized = await svc2.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
-      if (isAuthorized) {
-        // persist incomingDispute (already saved) and navigate arbitrator view
-        window.location.pathname = '/arbitration';
-      } else {
-        // For ordinary users (e.g. landlord/tenant) show confirmation and return to dashboard
-        alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.');
-        window.location.pathname = '/dashboard';
+        // Compute bond and open confirmation modal instead of immediate send
+        const bond = svc.computeReporterBond(amountWei);
+        const bondEth = (() => { try { return ethers.formatEther(bond); } catch { return String(bond); } })();
+
+        openConfirm(bondEth, async () => {
+          const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
+          try {
+            const incoming = {
+              contractAddress: contractAddress,
+              dtype: Number(disputeForm.dtype || 0),
+              amountEth: String(disputeForm.amountEth || '0'),
+              evidence: evidence || '',
+              fileName: disputeFileName || '',
+              cid: cid || null,
+              cidUrl: cidUrl || null,
+              localIdbKey: localIdbKey || null,
+              reporter: account || null,
+              caseId: caseId != null ? String(caseId) : null,
+              createdAt: new Date().toISOString()
+            };
+            sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
+            try { const perKey = `incomingDispute:${contractAddress}`; localStorage.setItem(perKey, JSON.stringify(incoming)); } catch (e) { console.warn('Failed to persist per-contract incomingDispute', e); }
+          } catch (e) { console.error('Failed to persist dispute for arbitration page:', e); }
+
+          setShowDisputeForm(false);
+          try {
+            const svc2 = new ContractService(signer, chainId);
+            const isAuthorized = await svc2.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
+            if (isAuthorized) window.location.pathname = '/arbitration'; else { alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.'); window.location.pathname = '/dashboard'; }
+          } catch (redirErr) { console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr); window.location.pathname = '/dashboard'; }
+          await loadContractData();
+        });
+
+      } catch (err) {
+        console.error('Submit dispute failed:', err);
+        alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
+      } finally {
+        setActionLoading(false);
       }
-    } catch (redirErr) {
-      console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr);
-      window.location.pathname = '/dashboard';
-    }
-    // still refresh data for modal (in case user navigates back)
-    await loadContractData();
-  } catch (err) {
-    console.error('Submit dispute failed:', err);
-    alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
-  } finally {
-    setActionLoading(false);
-  }
     } catch (err) {
-    // outer catch (kept for safety) — should be unreachable
-    console.error('Unexpected error in submitDisputeForm:', err);
-    alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
-    setActionLoading(false);
-  }
+      console.error('Unexpected error in submitDisputeForm:', err);
+      alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
+      setActionLoading(false);
+    }
   };
+
+  // Show computed reporter bond for the current dispute form amount
+  const computedReporterBondEth = (() => {
+    try {
+      const amt = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
+      const svc = new ContractService(signer, chainId);
+      const bond = svc.computeReporterBond(amt);
+      try { return ethers.formatEther(bond); } catch { return String(bond); }
+    } catch (_) { return '0'; }
+  })();
 
   const handleDisputeFileChange = async (evt) => {
     try {
@@ -712,6 +736,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       alert('Failed to process file for evidence.');
     }
   };
+
+  // Render: show computed bond near dispute form submission area
+  // (This UI is included in the modal's dispute section elsewhere; place near the submit button)
 
   const handleCreateDispute = async () => {
     try {
@@ -982,6 +1009,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <i className="fas fa-times"></i>
             </button>
           </div>
+
+          <ConfirmPayModal open={confirmOpen} title="Confirm dispute bond" amountEth={confirmAmountEth} details={`This will send the reporter bond to the contract (anti-spam).`} onConfirm={onConfirmProceed} onCancel={onConfirmCancel} busy={confirmBusy} />
         </div>
 
         <div className="modal-tabs">
@@ -1508,6 +1537,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               </select>
               <label>Requested Amount (ETH)</label>
               <input className="text-input" type="number" value={disputeForm.amountEth} onChange={e => setDisputeForm(s => ({...s, amountEth: e.target.value}))} />
+              <div style={{marginTop:6, marginBottom:6, fontSize:13, color:'#333'}}>
+                <strong>Reporter bond (0.5%):</strong> {computedReporterBondEth} ETH (charged when submitting appeal)
+              </div>
               <label>Evidence (short text or URL)</label>
               <textarea className="text-input" rows={4} value={disputeForm.evidence} onChange={e => setDisputeForm(s => ({...s, evidence: e.target.value}))} />
               <label>Attach Image / File (optional)</label>

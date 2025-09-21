@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import { createContractInstance, getContractAddress } from '../utils/contracts';
 
 // Minimal helper used by existing service code. This file intentionally keeps logic small

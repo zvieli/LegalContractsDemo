@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import { getContractABI } from '../../utils/contracts';
 import './MyContracts.css';
 import ContractModal from '../ContractModal/ContractModal';

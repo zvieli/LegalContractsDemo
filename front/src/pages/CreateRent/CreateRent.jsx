@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import mockContracts from '../../utils/contracts/MockContracts.json';
 import './CreateRent.css';
 import '../../styles/notAllowed.css';
@@ -176,14 +176,7 @@ function CreateRent() {
     }
   };
 
-  // Approve token from UI
-  const handleApproveToken = async () => {
-    alert('ERC20 support has been removed from this application. Token approvals are no longer supported.');
-  };
-
-  const handlePayWithToken = async () => {
-    alert('ERC20 payments are no longer supported. Please pay with ETH.');
-  };
+  // ERC20 support removed: token approval and token payment UI removed
 
   if (!isConnected) {
     return (

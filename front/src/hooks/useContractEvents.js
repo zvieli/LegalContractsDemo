@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import { useEthers } from '../contexts/EthersContext';
 
 export const useContractEvents = (contractAddress, abi, eventName, callback) => {

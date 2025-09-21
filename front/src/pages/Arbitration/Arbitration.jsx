@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import './Arbitration.css';
 import ContractModal from '../../components/ContractModal/ContractModal';
 import ResolveModal from '../../components/ResolveModal/ResolveModal';

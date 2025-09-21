@@ -5,7 +5,7 @@ import NDATemplateABI from './contracts/NDATemplateABI.json';
 import ArbitratorABI from './contracts/ArbitratorABI.json';
 import ArbitrationServiceABI from './contracts/ArbitrationServiceABI.json';
 import { CONTRACT_ADDRESSES } from '../../config/chains';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 
 // פונקציות utility לעבודה עם החוזים
 export const getContractABI = (contractName) => {

@@ -1,5 +1,5 @@
 import { createContractInstance } from '../utils/contracts';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 
 export class ArbitrationService {
   constructor(signer, chainId) {

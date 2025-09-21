@@ -1,8 +1,8 @@
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import { contract } from './contractInstance.js';
 
 export function computeCidDigest(cid) {
-    if (!cid) return ethers.constants.HashZero;
+  if (!cid) return ethers.ZeroHash;
     return ethers.keccak256(ethers.toUtf8Bytes(cid));
 }
 
@@ -604,10 +604,7 @@ export class ContractService {
     }
   }
 
-  // ERC20 support removed: keep function for compatibility but always reject
-  async approveToken() {
-    throw new Error('ERC20 support removed: token approvals are not available');
-  }
+  // ERC20 support removed: token approvals are not supported in this project
 
   /**
    * Finalize a pending cancellation by calling the ArbitrationService.finalizeTargetCancellation
@@ -868,6 +865,21 @@ export class ContractService {
   }
 
   /**
+   * Compute reporter bond (0.5% of requested amount, minimum 1 wei when requestedAmount>0)
+   */
+  computeReporterBond(requestedAmountWei) {
+    try {
+      const amt = typeof requestedAmountWei === 'bigint' ? requestedAmountWei : BigInt(requestedAmountWei || 0);
+      if (amt <= 0n) return 0n;
+      let bond = (amt * 5n) / 1000n; // 0.5% = 5/1000
+      if (bond === 0n) bond = 1n; // ensure non-zero bond for small amounts
+      return bond;
+    } catch (e) {
+      return 0n;
+    }
+  }
+
+  /**
    * Report a dispute on a Rent contract (appeal to arbitration).
    * disputeType: numeric enum matching TemplateRentContract.DisputeType (0..)
    * requestedAmount: BigInt or string in wei (use 0 for none)
@@ -895,9 +907,12 @@ export class ContractService {
         throw pfErr;
       }
       // Pass plain evidence string to the contract. Templates now accept `string evidence`.
-      const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
-      const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
-      const tx = await rent.reportDispute(disputeType, amount, evidence);
+        const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
+        const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
+        // Compute reporter bond and send as msg.value
+        const bond = this.computeReporterBond(amount);
+        const overrides = bond > 0n ? { value: bond } : {};
+        const tx = await rent.reportDispute(disputeType, amount, evidence, overrides);
       const receipt = await tx.wait();
       // Try to extract the caseId from emitted events
       let caseId = null;
@@ -915,6 +930,25 @@ export class ContractService {
       return { receipt, caseId };
     } catch (error) {
       console.error('Error reporting rent dispute:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Allow the debtor to deposit the claimed amount for a given case.
+   * amountWei: BigInt value to send as msg.value. If omitted, caller should provide value.
+   */
+  async depositForCase(contractAddress, caseId, amountWei = 0n) {
+    try {
+      if (!contractAddress) throw new Error('contractAddress required');
+      const rent = await this.getRentContract(contractAddress);
+      const value = typeof amountWei === 'bigint' ? amountWei : BigInt(amountWei || 0);
+      if (value <= 0n) throw new Error('deposit amount must be > 0');
+      const tx = await rent.depositForCase(Number(caseId), { value });
+      const receipt = await tx.wait();
+      return receipt;
+    } catch (error) {
+      console.error('Error depositing for case:', error);
       throw error;
     }
   }
@@ -970,10 +1004,7 @@ export class ContractService {
     }
   }
 
-  // ERC20 support removed: keep API shape but throw
-  async payRentWithToken() {
-    throw new Error('ERC20 support removed: token payments are not available');
-  }
+  // ERC20 support removed: token payments are not available in this project
 
   // ============ Cancellation Policy and Flow ============
   async setCancellationPolicy(contractAddress, { noticePeriodSec, feeBps, requireMutual }) {

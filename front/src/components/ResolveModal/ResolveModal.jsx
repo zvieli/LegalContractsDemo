@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ContractService } from '../../services/contractService';
+import ConfirmPayModal from '../common/ConfirmPayModal';
 import { ArbitrationService } from '../../services/arbitrationService';
 import { fetchPinnedRecord, decryptPinnedRecord } from '../../services/pinServerService';
-import { ethers } from 'ethers';
+import * as ethers from 'ethers';
 import './ResolveModal.css';
 
 function EvidencePanel({ initialPinId, isArbitrator }) {
@@ -80,6 +81,9 @@ function EvidencePanel({ initialPinId, isArbitrator }) {
   );
 }
 
+// Export EvidencePanel so tests can import and render it directly
+export { EvidencePanel }
+
 export default function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onResolved }) {
   const [decision, setDecision] = useState('approve'); // approve | deny
   const [rationale, setRationale] = useState('');
@@ -106,6 +110,12 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   // (Removed duplicate state declarations)
   const [confirmPay, setConfirmPay] = useState(false);
+
+  // Deposit confirmation modal state
+  const [depositConfirmOpen, setDepositConfirmOpen] = useState(false);
+  const [depositConfirmAmount, setDepositConfirmAmount] = useState('0');
+  const [depositConfirmAction, setDepositConfirmAction] = useState(null);
+  const [depositConfirmBusy, setDepositConfirmBusy] = useState(false);
 
   // Helper to parse ETH strings shown in UI back to wei BigInt safely
   const parseEtherSafe = (val) => {
@@ -264,6 +274,41 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
       }
     };
     loadDispute();
+    // Listen for DisputeFiled events from the contract so debtor can be notified in other UIs
+    try {
+      if (contractAddress && signer) {
+        const svc = new ContractService(signer, chainId);
+        (async () => {
+          try {
+            const rent = await svc.getRentContract(contractAddress);
+            const filter = rent.filters?.DisputeFiled?.();
+            if (filter) {
+              const onFiled = (caseId, debtor, requestedAmount) => {
+                try {
+                  const me = signer && signer.getAddress ? signer.getAddress() : null;
+                  // If I'm the debtor, show a local incomingDispute marker so UI surfaces deposit button
+                  (async () => {
+                    try {
+                      const myAddr = await (me instanceof Promise ? me : Promise.resolve(me));
+                      if (!myAddr) return;
+                      if (String(myAddr).toLowerCase() === String(debtor).toLowerCase()) {
+                        const incoming = { contractAddress, caseId: Number(caseId), requestedAmount: BigInt(requestedAmount || 0).toString(), createdAt: Date.now() };
+                        try { localStorage.setItem(`incomingDispute:${contractAddress}`, JSON.stringify(incoming)); } catch(_) {}
+                        setAppealLocal(incoming);
+                        // update disputeInfo if modal open
+                        setDisputeInfo(prev => ({ caseId: Number(caseId), requestedAmountWei: BigInt(requestedAmount || 0), initiator: prev?.initiator || null }));
+                        try { setDebtorDepositWei(BigInt(requestedAmount || 0)); setDebtorDepositEth((await import('ethers')).formatEther(BigInt(requestedAmount || 0))); } catch (_) {}
+                      }
+                    } catch (_) {}
+                  })();
+                } catch (_) {}
+              };
+              rent.on(filter, onFiled);
+            }
+          } catch (_) {}
+        })();
+      }
+    } catch (_) {}
     // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
     try {
       const key1 = `incomingDispute:${contractAddress}`;
@@ -285,6 +330,41 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     } catch (_) { setAppealLocal(null); }
     return () => { mounted = false; };
   }, [isOpen, contractAddress, signer, chainId]);
+
+  // Helper to refresh dispute-related state without reloading the page
+  const refreshDisputeState = async () => {
+    try {
+      if (!contractAddress || !signer) return;
+      const svc = new ContractService(signer, chainId);
+      const rent = await svc.getRentContract(contractAddress);
+      const count = Number(await rent.getDisputesCount().catch(() => 0));
+      if (count > 0) {
+        for (let i = count - 1; i >= 0; i--) {
+          try {
+            const d = await rent.getDispute(i);
+            const resolved = !!d[4];
+            if (!resolved) {
+              const initiator = d[0];
+              const requestedAmount = BigInt(d[2] || 0);
+              setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator });
+              try { setDisputeAmountEth(ethers.formatEther(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
+              const landlordAddr = await rent.landlord();
+              const tenantAddr = await rent.tenant();
+              const landlordDep = BigInt(await rent.partyDeposit(landlordAddr));
+              const tenantDep = BigInt(await rent.partyDeposit(tenantAddr));
+              setLandlordDepositEth(ethers.formatEther(landlordDep));
+              setTenantDepositEth(ethers.formatEther(tenantDep));
+              const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
+              const debtorDep = BigInt(await rent.partyDeposit(debtorAddr));
+              setDebtorDepositEth(ethers.formatEther(debtorDep));
+              setDebtorDepositWei(debtorDep);
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) { console.debug('refreshDisputeState failed', e); }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -472,6 +552,38 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               <div style={{marginTop:8}}>
                 <label><input type="checkbox" checked={confirmPay} onChange={e => setConfirmPay(e.target.checked)} /> I confirm approving will transfer {disputeAmountEth} ETH to {disputeInfo.initiator}</label>
               </div>
+              {/* If I'm the debtor and haven't yet deposited the requested amount, show a deposit button */}
+              {(appealLocal && appealLocal.requestedAmount && account && disputeInfo) && (String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase() || String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase()) && (
+                <div style={{marginTop:8}}>
+                  <button type="button" className="btn-sm" onClick={() => {
+                    try {
+                      const amt = BigInt(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n);
+                      const amtEth = (() => { try { return ethers.formatEther(amt); } catch { return String(amt); } })();
+                      // set the action to perform on confirm
+                      setDepositConfirmAction(() => async () => {
+                        try {
+                          setDepositConfirmBusy(true);
+                          setWithdrawing(true);
+                          const svc = new ContractService(signer, chainId);
+                          await svc.depositForCase(contractAddress, disputeInfo.caseId, amt);
+                          alert('Deposit submitted for case');
+                          await refreshDisputeState();
+                        } catch (e) {
+                          alert(`Deposit failed: ${e?.message || e}`);
+                        } finally {
+                          setWithdrawing(false);
+                          setDepositConfirmBusy(false);
+                        }
+                      });
+                      setDepositConfirmAmount(amtEth);
+                      setDepositConfirmOpen(true);
+                    } catch (e) {
+                      console.error('Failed to prepare deposit confirmation', e);
+                      alert('Failed to prepare deposit confirmation');
+                    }
+                  }}>Deposit for case</button>
+                </div>
+              )}
                 <div style={{marginTop:8}}>
                   <em style={{color:'#555'}}>If the beneficiary received funds directly, no withdrawal is necessary.</em>
                 </div>
@@ -515,6 +627,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           </div>
         </form>
       </div>
+      <ConfirmPayModal open={depositConfirmOpen} title="Confirm deposit" amountEth={depositConfirmAmount} details={`This will deposit funds for case ${disputeInfo?.caseId || ''}.`} onConfirm={async () => { if (depositConfirmAction) await depositConfirmAction(); setDepositConfirmOpen(false); }} onCancel={() => setDepositConfirmOpen(false)} busy={depositConfirmBusy} />
     </div>
   );
 }
