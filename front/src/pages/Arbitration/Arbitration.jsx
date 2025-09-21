@@ -8,8 +8,6 @@ import { ContractService } from '../../services/contractService';
 
 function Arbitration() {
   const { isConnected, account } = useEthers();
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const [disputes, setDisputes] = useState([]);
   const [loading, setLoading] = useState(true);
   // incomingDispute removed: per-contract appeals are handled in the Contract modal/card
@@ -56,32 +54,10 @@ function Arbitration() {
             const code = await rpc.getCode(addr);
             if (!code || code === '0x') continue;
             const cancelRequested = await inst.cancelRequested().catch(() => false);
-              if (cancelRequested) {
+            if (cancelRequested) {
               const initiator = await inst.cancelInitiator().catch(() => null);
               const effectiveAt = await inst.cancelEffectiveAt().catch(() => 0n);
-              // If a local arbitration resolution exists for this contract, show it as Resolved
-              try {
-                const rk = `arbResolution:${String(addr).toLowerCase()}`;
-                const rjs = localStorage.getItem(rk);
-                if (rjs) {
-                  const r = JSON.parse(rjs);
-                  results.push({ id: addr, contractAddress: addr, status: 'Resolved', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n), decision: r.decision, appliedAmount: r.appliedAmount, resolvedAt: r.timestamp });
-                } else {
-                  // Best-effort: if the contract is already inactive on-chain, treat as resolved
-                  try {
-                    const active = await inst.active().catch(() => null);
-                    if (active === false) {
-                      results.push({ id: addr, contractAddress: addr, status: 'Resolved', reason: 'CancellationFinalizedOnChain', initiator, effectiveAt: Number(effectiveAt || 0n), decision: 'onchain', appliedAmount: null, resolvedAt: Date.now() });
-                    } else {
-                      results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
-                    }
-                  } catch (innerErr) {
-                    results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
-                  }
-                }
-              } catch (e) {
-                results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
-              }
+              results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
             }
           } catch (e) { /* ignore non-rent contracts */ }
         }
@@ -95,18 +71,6 @@ function Arbitration() {
     };
     load();
     // Re-run when account changes (e.g., admin connects or switches)
-  }, [account]);
-
-  // Refresh disputes when an arbitration resolution occurs elsewhere in the app
-  useEffect(() => {
-    const handler = (ev) => {
-      try {
-        // If a resolution payload is provided, we can refresh
-        refreshDisputes();
-      } catch (_) {}
-    };
-    window.addEventListener('arb:resolved', handler);
-    return () => window.removeEventListener('arb:resolved', handler);
   }, [account]);
 
   // no-op: we intentionally do not display sessionStorage incoming appeals on this page
@@ -150,28 +114,7 @@ function Arbitration() {
           if (cancelRequested) {
             const initiator = await inst.cancelInitiator().catch(() => null);
             const effectiveAt = await inst.cancelEffectiveAt().catch(() => 0n);
-            try {
-              const rk = `arbResolution:${String(addr).toLowerCase()}`;
-              const rjs = localStorage.getItem(rk);
-              if (rjs) {
-                const r = JSON.parse(rjs);
-                results.push({ id: addr, contractAddress: addr, status: 'Resolved', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n), decision: r.decision, appliedAmount: r.appliedAmount, resolvedAt: r.timestamp });
-              } else {
-                // Best-effort: if the contract is already inactive on-chain, treat as resolved
-                try {
-                  const active = await inst.active().catch(() => null);
-                  if (active === false) {
-                    results.push({ id: addr, contractAddress: addr, status: 'Resolved', reason: 'CancellationFinalizedOnChain', initiator, effectiveAt: Number(effectiveAt || 0n), decision: 'onchain', appliedAmount: null, resolvedAt: Date.now() });
-                  } else {
-                    results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
-                  }
-                } catch (innerErr) {
-                  results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
-                }
-              }
-            } catch (e) {
-              results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
-            }
+            results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
           }
         } catch (e) { }
       }
@@ -218,19 +161,6 @@ function Arbitration() {
           <i className="fas fa-wallet"></i>
           <h2>Connect Your Wallet</h2>
           <p>Please connect your wallet to access arbitration</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Only the configured platform admin may access the Arbitration center.
-  if (!isAdmin) {
-    return (
-      <div className="arbitration-page">
-        <div className="not-authorized">
-          <i className="fas fa-user-shield"></i>
-          <h2>Not authorized</h2>
-          <p>This page is restricted to platform administrators.</p>
         </div>
       </div>
     );

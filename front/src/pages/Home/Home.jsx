@@ -45,8 +45,7 @@ function Home() {
       <section className="hero">
         <div className="container">
           <div className="hero-content">
-            <img src="/arbitrust-logo.svg" alt="ArbiTrust Logo" style={{width:80,height:80,marginBottom:16}} />
-            <h1>Welcome to ArbiTrust</h1>
+            <h1>Welcome to LegalContracts</h1>
             <p>Create and manage smart legal contracts on the blockchain - simple, secure, and transparent</p>
             <div className="cta-buttons">
               {!isAdmin && (
@@ -68,7 +67,7 @@ function Home() {
       <section className="features">
         <div className="container">
           <div className="section-header">
-            <h2>Why Choose ArbiTrust?</h2>
+            <h2>Why Choose LegalContracts?</h2>
             <p>The advanced system for managing smart contracts with all the benefits you need</p>
           </div>
           <div className="features-grid">

@@ -62,10 +62,9 @@ export class ArbitrationService {
     try {
       const svc = await this.getArbitratorForNDA(ndaAddress);
       const penaltyWei = ethers.parseEther(String(penaltyEth || '0'));
-      // The on-chain ArbitrationService exposes `applyResolutionToTarget` which
-      // tries common resolution entrypoints on the target contract. Call it
-      // with the target NDA address so the service can forward appropriately.
-      const tx = await svc.applyResolutionToTarget(ndaAddress, Number(disputeId), !!guiltyParty, penaltyWei, beneficiary, { value: 0 });
+      // Resolve via the ArbitrationService which will instruct the template
+      // to apply the resolution using the correct ABI entrypoint.
+      const tx = await svc.resolveDispute(Number(disputeId), guiltyParty, penaltyWei, beneficiary);
       const receipt = await tx.wait();
       return receipt;
     } catch (error) {

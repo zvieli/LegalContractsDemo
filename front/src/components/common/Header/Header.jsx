@@ -55,9 +55,25 @@ function Header() {
       <div className="container">
         <div className="header-content">
           <div className="logo">
-            <img src="/arbitrust-logo.svg" alt="ArbiTrust Logo" className="logo-icon" style={{width:40,height:40}} />
+            <svg width="40" height="40" viewBox="0 0 512 512" fill="currentColor" className="logo-icon">
+              <defs>
+                <linearGradient id="lcGradient" x1="64" y1="64" x2="448" y2="448" gradientUnits="userSpaceOnUse">
+                  <stop offset="0" stopColor="#7C3AED"/>
+                  <stop offset="1" stopColor="#06B6D4"/>
+                </linearGradient>
+              </defs>
+              <path d="M256 36L430 134v150c0 104-78 198-174 206-96-8-174-102-174-206V134l174-98Z" fill="url(#lcGradient)" opacity="0.12"/>
+              <path d="M256 36L430 134v150c0 104-78 198-174 206-96-8-174-102-174-206V134l174-98Z" stroke="currentColor" strokeWidth="18" strokeLinejoin="round" fill="none"/>
+              <path d="M256 124v172M164 184h184" stroke="currentColor" strokeWidth="16" strokeLinecap="round" fill="none"/>
+              <path d="M188 184c0 0-28 44-28 62a44 44 0 0 0 88 0c0-18-28-62-28-62" stroke="currentColor" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+              <path d="M324 184c0 0-28 44-28 62a44 44 0 0 0 88 0c0-18-28-62-28-62" stroke="currentColor" strokeWidth="14" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+              <path d="M232 228a28 28 0 0 1 28-28h16a28 28 0 0 1 0 56h-16" stroke="currentColor" strokeWidth="12" strokeLinecap="round" fill="none"/>
+              <path d="M280 252a28 28 0 0 1-28 28h-16a28 28 0 0 1 0-56h16" stroke="currentColor" strokeWidth="12" strokeLinecap="round" fill="none"/>
+              <path d="M164 344h184" stroke="currentColor" strokeWidth="12" strokeLinecap="round"/>
+              <circle cx="256" cy="112" r="6" fill="currentColor"/>
+            </svg>
             <div className="logo-text">
-              <h1>ArbiTrust</h1>
+              <h1>LegalContracts</h1>
               <span>On-chain Agreements</span>
             </div>
           </div>

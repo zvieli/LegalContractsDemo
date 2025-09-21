@@ -1,12 +1,15 @@
-version: '3.7'
+version: '3.8'
 services:
-  ipfs:
-    image: ipfs/go-ipfs:latest
-    container_name: local-ipfs
+  pin-server:
+    build: .
+    image: legalcontracts/pin-server:dev
+    environment:
+      - PIN_SERVER_API_KEY=dev-secret
+      - ADMIN_PRIVATE_KEY=priv
+      - PIN_SERVER_PORTS=8080,3002
     ports:
-      - "5001:5001" # API
-      - "8080:8080" # Gateway
-      - "4001:4001" # swarm
+      - "8080:8080"
+      - "3002:3002"
     volumes:
-      - ./ipfs-data:/data/ipfs
+      - ./store:/app/store
     restart: unless-stopped

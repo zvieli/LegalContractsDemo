@@ -100,15 +100,13 @@ async function main() {
       if (!signers || signers.length === 0) {
         throw new Error('No signers available from Hardhat runtime');
       }
-      // Default allocation: signer[0] = deployer/admin, signer[1] = tenant, signer[2] = landlord
-      // This avoids using the deployer/admin account as a party in sample contracts.
       deployerSigner = signers[0];
       tenantSigner = tenantSigner || signers[1] || signers[0];
-      landlordSigner = landlordSigner || signers[2] || signers[1] || signers[0];
-      partyASigner = partyASigner || signers[3] || signers[1] || signers[0];
-      partyBSigner = partyBSigner || signers[4] || tenantSigner;
-      platformOwnerSigner = platformOwnerSigner || signers[5] || deployerSigner;
-      arbitratorSigner = arbitratorSigner || signers[6] || platformOwnerSigner;
+      landlordSigner = landlordSigner || deployerSigner;
+      partyASigner = partyASigner || deployerSigner;
+      partyBSigner = partyBSigner || tenantSigner;
+      platformOwnerSigner = platformOwnerSigner || deployerSigner;
+      arbitratorSigner = arbitratorSigner || platformOwnerSigner;
     }
 
     factory = await ethers.getContractAt(abiJson.abi, factoryAddress, deployerSigner);
@@ -267,7 +265,7 @@ async function main() {
 
   try {
     if (!skipRent) {
-  const tx = await factory.connect(landlordSigner).createRentContract(tenantAddress, rentAmount, priceFeed, 0);
+      const tx = await factory.createRentContract(tenantAddress, rentAmount, priceFeed, 0);
       console.log('tx sent, hash=', tx.hash);
       const receipt = await waitForTx(tx);
       console.log('tx mined. status=', receipt.status);
@@ -399,7 +397,7 @@ async function main() {
         const clausesHash = ethers.ZeroHash;
         const minDepositWei = ethers.parseEther('0.01');
 
-  const tx2 = await factory.connect(partyASigner).createNDA(partyB, expiryTs, penaltyBps, clausesHash, minDepositWei);
+        const tx2 = await factory.createNDA(partyB, expiryTs, penaltyBps, clausesHash, minDepositWei);
         const rec2 = await waitForTx(tx2);
         let ndaAddress = null;
         const ev2 = parseReceiptForEvent(rec2, factory.interface, 'NDACreated');

@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useRef } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import { ethers } from 'ethers';
@@ -51,45 +50,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [arbResolution, setArbResolution] = useState(null);
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
-  const [appealLocal, setAppealLocal] = useState(null);
-  const [showPinnedModal, setShowPinnedModal] = useState(false);
-  const [pinnedRecord, setPinnedRecord] = useState(null);
-  const [pinnedDecrypted, setPinnedDecrypted] = useState(null);
-  const [pinnedLoading, setPinnedLoading] = useState(false);
-  const [pinnedError, setPinnedError] = useState(null);
-  const [showRationale, setShowRationale] = useState(false);
-  const [showDebugState, setShowDebugState] = useState(false);
-  const latestArbResolutionRef = useRef(null);
-  const latestArbKeyRef = useRef(null);
-
-  const arbKeyFor = (p) => {
-    try {
-      if (!p) return null;
-      const ca = String(p.contractAddress || '').toLowerCase();
-      const d = String(p.decision || '').toLowerCase();
-      const a = String(p.appliedAmount || '').toLowerCase();
-      const cid = p.caseId != null ? String(p.caseId) : '';
-      return `${ca}|${d}|${a}|${cid}`;
-    } catch (_) { return null; }
-  };
-
-  const updateArbResolution = (payload) => {
-    try {
-      setArbResolution(payload);
-    } catch (_) {}
-    try { latestArbResolutionRef.current = payload; } catch (_) {}
-    try { latestArbKeyRef.current = arbKeyFor(payload); } catch (_) {}
-  };
-  const [onchainReporterBondEth, setOnchainReporterBondEth] = useState('0');
-  const [appealRequestedWei, setAppealRequestedWei] = useState(0n);
-  const [appealReporterBondWei, setAppealReporterBondWei] = useState(0n);
-  const [appealRequiredDepositWei, setAppealRequiredDepositWei] = useState(0n);
-  const [appealTotalWei, setAppealTotalWei] = useState(0n);
-  const [appealRequestedEth, setAppealRequestedEth] = useState('0');
-  const [appealReporterBondEthLocal, setAppealReporterBondEthLocal] = useState('0');
-  const [appealRequiredDepositEth, setAppealRequiredDepositEth] = useState('0');
-  const [appealTotalEth, setAppealTotalEth] = useState('0');
-  const [appealActionLoading, setAppealActionLoading] = useState(false);
 
   const formatDuration = (sec) => {
     const s = Number(sec || 0);
@@ -114,143 +74,10 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   }, [account, contractDetails]);
 
   useEffect(() => {
-    let mounted = true;
-    const fetchOnchainBond = async () => {
-      try {
-        if (!appealLocal || !contractDetails || !signer) return;
-        if (!appealLocal.caseId) return;
-        const svc = new ContractService(signer, chainId);
-        const b = await svc.getDisputeBond(contractDetails.address, Number(appealLocal.caseId)).catch(() => 0n);
-        try { if (mounted) setOnchainReporterBondEth((await import('ethers')).formatEther(b)); } catch { if (mounted) setOnchainReporterBondEth(String(b)); }
-      } catch (e) {
-        console.debug('Could not read on-chain reporter bond for appeal', e);
-      }
-    };
-    fetchOnchainBond();
-    return () => { mounted = false; };
-  }, [appealLocal, contractDetails, signer, chainId]);
-
-  // Compute appeal breakdown amounts for display (requested, reporter bond, required deposit, total)
-  useEffect(() => {
-    let mounted = true;
-    const compute = async () => {
-      try {
-        if (!appealLocal || !contractDetails || !signer) {
-          setAppealRequestedWei(0n); setAppealReporterBondWei(0n); setAppealRequiredDepositWei(0n); setAppealTotalWei(0n);
-          setAppealRequestedEth('0'); setAppealReporterBondEthLocal('0'); setAppealRequiredDepositEth('0'); setAppealTotalEth('0');
-          return;
-        }
-        const svc = new ContractService(signer, chainId);
-        let requestedWei = 0n;
-        try {
-          if (appealLocal.amountEth) requestedWei = BigInt(ethers.parseEther(String(appealLocal.amountEth)));
-          else if (appealLocal?.caseId != null) {
-            const rent = await svc.getRentContract(contractDetails.address);
-            const d = await rent.getDispute(appealLocal.caseId).catch(() => null);
-            if (d) requestedWei = BigInt(d[2] || 0n);
-          }
-        } catch (_) { requestedWei = 0n; }
-
-        // Use fixed reporter bond (0.002 ETH) for UI calculations
-        let reporterBondWei = 0n;
-        try {
-          const fixed = BigInt(await (await import('ethers')).parseEther('0.002'));
-          reporterBondWei = fixed;
-        } catch (_) { reporterBondWei = 0n; }
-
-        let requiredDepositWei = 0n;
-        try { const rent = await svc.getRentContract(contractDetails.address); requiredDepositWei = BigInt(await rent.requiredDeposit().catch(() => 0n)); } catch (_) { requiredDepositWei = 0n; }
-
-        const total = requestedWei + reporterBondWei + requiredDepositWei;
-        if (!mounted) return;
-        setAppealRequestedWei(requestedWei);
-        setAppealReporterBondWei(reporterBondWei);
-        setAppealRequiredDepositWei(requiredDepositWei);
-        setAppealTotalWei(total);
-        try { setAppealRequestedEth(ethers.formatEther(requestedWei)); } catch { setAppealRequestedEth(String(requestedWei)); }
-        try { setAppealReporterBondEthLocal(ethers.formatEther(reporterBondWei)); } catch { setAppealReporterBondEthLocal(String(reporterBondWei)); }
-        try { setAppealRequiredDepositEth(ethers.formatEther(requiredDepositWei)); } catch { setAppealRequiredDepositEth(String(requiredDepositWei)); }
-        try { setAppealTotalEth(ethers.formatEther(total)); } catch { setAppealTotalEth(String(total)); }
-      } catch (e) {
-        console.debug('Could not compute appeal breakdown', e);
-      }
-    };
-    compute();
-    return () => { mounted = false; };
-  }, [appealLocal, contractDetails, signer, chainId]);
-
-  // Listen for transaction records emitted by other components (e.g., ResolveModal)
-  useEffect(() => {
-    const handler = (ev) => {
-      try {
-        const d = ev?.detail;
-        if (!d) return;
-        setTransactionHistory(prev => [d, ...(prev || [])]);
-      } catch (_) {}
-    };
-    window.addEventListener('transaction:record', handler);
-    return () => window.removeEventListener('transaction:record', handler);
-  }, []);
-
-  // When deposits or bonds are posted elsewhere, ContractService emits 'deposit:updated'. Reload persisted txs.
-  useEffect(() => {
-    const reload = async () => {
-      try {
-        if (!contractAddress) return;
-        const txs = await ContractService.getTransactions(contractAddress).catch(() => []);
-        if (txs && Array.isArray(txs)) setTransactionHistory(txs);
-      } catch (_) {}
-    };
-    const h = () => { reload(); };
-    const arbResolvedHandler = (ev) => {
-      try {
-        const d = ev?.detail;
-        if (!d) return;
-        // Debug log for developer to confirm handler fired and payload
-        try { console.debug('arb:resolved received in ContractModal', { payload: d, target: contractAddress }); } catch (_) {}
-        // If the event targets this contract, persist the resolution locally and refresh on-chain state
-        if (String(d.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) {
-          try {
-            const payload = d;
-            const pk = `arbResolution:${String(contractAddress).toLowerCase()}`;
-            try { localStorage.setItem(pk, JSON.stringify(payload)); } catch (_) {}
-            updateArbResolution(payload);
-            setHasAppeal(false);
-            setAppealLocal(null);
-            // After receiving the event, re-fetch on-chain details to confirm the template's `active()` state
-            (async () => {
-              try {
-                const svc = new ContractService(signer, chainId);
-                const refreshed = await svc.getRentContractDetails(contractAddress).catch(() => null);
-                if (refreshed) {
-                  setContractDetails(refreshed);
-                } else {
-                  // If we couldn't refresh details (ABI differences, etc.), fall back to optimistic UI update
-                  if (payload && payload.decision === 'approve') {
-                    setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev);
-                  }
-                }
-              } catch (refreshErr) {
-                console.debug('Could not refresh contract details after arb:resolved', refreshErr);
-                if (payload && payload.decision === 'approve') {
-                  setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev);
-                }
-              }
-            })();
-            // Persisted and updated component state; do not re-dispatch an app-wide event here to avoid read->write loops
-          } catch (err) {
-            try { console.debug('arbResolvedHandler inner error', err); } catch (_) {}
-          }
-        }
-      } catch (err) { try { console.debug('arbResolvedHandler error', err); } catch (_) {} }
-    };
-    window.addEventListener('deposit:updated', h);
-    window.addEventListener('arb:resolved', arbResolvedHandler);
-    return () => {
-      window.removeEventListener('deposit:updated', h);
-      window.removeEventListener('arb:resolved', arbResolvedHandler);
-    };
-  }, [contractAddress]);
+    if (isOpen && contractAddress && signer) {
+      loadContractData();
+    }
+  }, [isOpen, contractAddress, signer]);
 
   const loadContractData = async () => {
     try {
@@ -265,64 +92,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
       }
       setContractDetails(details);
-      // Best-effort: if there is no local incomingDispute marker but a dispute was
-      // resolved on-chain, detect it here and persist arbResolution so UI updates.
-      try {
-        if (details?.type === 'Rental') {
-          const svc = new ContractService(signer, chainId);
-          try {
-            const rent = await svc.getRentContract(contractAddress);
-            // First try to read disputes via getters
-            const count = Number(await rent.getDisputesCount().catch(() => 0));
-            if (count > 0) {
-              for (let i = count - 1; i >= 0; i--) {
-                try {
-                  const d = await rent.getDispute(i).catch(() => null);
-                  if (d && d[4]) { // resolved
-                    const approved = !!d[5];
-                    const applied = d[6] ? BigInt(d[6]).toString() : '0';
-                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, caseId: i, timestamp: Date.now() };
-                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
-                            updateArbResolution(payload);
-                            // Reflect resolved state in UI immediately
-                            try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
-                            // Persisted and updated component state; do not re-dispatch an app-wide event here to avoid read->write loops
-                            try { /* updateArbResolution already updated refs */ } catch (_) {}
-                    break;
-                  }
-                } catch (_) {}
-              }
-            } else {
-              // Fallback: scan logs for DisputeResolved events (if contract exposes events but no getters)
-              try {
-                const filters = rent.filters?.DisputeResolved?.() || [];
-                if (filters) {
-                  const evs = await rent.queryFilter(rent.filters.DisputeResolved());
-                  if (evs && evs.length) {
-                    const last = evs[evs.length - 1];
-                    const approved = last.args?.approved ?? true;
-                    const applied = last.args?.appliedAmount ? BigInt(last.args.appliedAmount).toString() : '0';
-                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, caseId: last.args?.caseId ?? null, timestamp: Date.now() };
-                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
-                    updateArbResolution(payload);
-                    try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
-                    try { /* updateArbResolution already updated refs; avoid emitting here */ } catch (_) {}
-                  }
-                }
-              } catch (_) {}
-            }
-          } catch (_) {}
-        }
-      } catch (_) {}
-      // Load persisted transactions for this contract (bond/deposit records shared across roles)
-      try {
-        const persisted = await ContractService.getTransactions(contractAddress).catch(() => []);
-        if (persisted && Array.isArray(persisted) && persisted.length) {
-          setTransactionHistory(persisted);
-        } else {
-          setTransactionHistory([]);
-        }
-      } catch (_) { setTransactionHistory([]); }
       // detect per-contract appeal in localStorage (try multiple key variants) or sessionStorage fallback
       try {
         const key1 = `incomingDispute:${contractAddress}`;
@@ -341,60 +110,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           } catch (_) { js = js; }
         }
         setHasAppeal(!!js);
-        if (js) {
-          try {
-            const parsed = JSON.parse(js);
-            setAppealLocal(parsed);
-            // If we have a local incomingDispute marker, verify on-chain whether the case was resolved.
-            try {
-              const svc = new ContractService(signer, chainId);
-              // attempt both Rent and NDA contracts depending on details.type
-              if (details?.type === 'Rental') {
-                const rent = await svc.getRentContract(contractAddress);
-                if (parsed.caseId != null) {
-                  const d = await rent.getDispute(Number(parsed.caseId)).catch(() => null);
-                  if (d && d[4]) { // resolved == true
-                    // remove local incomingDispute markers so UI won't show unresolved appeal
-                    try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
-                    try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
-                    try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
-                    setHasAppeal(false);
-                    setAppealLocal(null);
-                    // capture on-chain resolution locally for UI
-                    const approved = !!d[5];
-                    const applied = d[6] ? BigInt(d[6]).toString() : '0';
-                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, timestamp: Date.now() };
-                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
-                    updateArbResolution(payload);
-                    try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
-                  }
-                }
-              } else if (details?.type === 'NDA') {
-                const nda = await svc.getNDAContract(contractAddress);
-                if (parsed.caseId != null) {
-                  const d = await nda.getDispute(Number(parsed.caseId)).catch(() => null);
-                  if (d && d[4]) {
-                    try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
-                    try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
-                    try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
-                    setHasAppeal(false);
-                    setAppealLocal(null);
-                    const approved = !!d[5];
-                    const applied = d[6] ? BigInt(d[6]).toString() : '0';
-                    const payload = { contractAddress, decision: approved ? 'approve' : 'deny', appliedAmount: applied, timestamp: Date.now() };
-                    try { localStorage.setItem(`arbResolution:${String(contractAddress).toLowerCase()}`, JSON.stringify(payload)); } catch (_) {}
-                    updateArbResolution(payload);
-                    try { setContractDetails(prev => prev ? {...prev, isActive: false, status: 'Inactive'} : prev); } catch (_) {}
-                  }
-                }
-              }
-            } catch (checkErr) {
-              // best-effort only; ignore errors here
-            }
-          } catch (_) { setAppealLocal(null); }
-        } else {
-          setAppealLocal(null);
-        }
         // load any local arbitrator resolution for this contract
         try {
           const rk = `arbResolution:${String(contractAddress).toLowerCase()}`;
@@ -482,26 +197,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             payer: event.args.tenant
           };
         }));
-        // Merge persisted client-side txs (e.g., reporter bond saved to localStorage) with on-chain RentPaid events
-        try {
-          const persisted = await ContractService.getTransactions(contractAddress).catch(() => []);
-          const seen = new Set();
-          const merged = [];
-          if (persisted && Array.isArray(persisted)) {
-            for (const p of persisted) {
-              const h = p?.hash || p?.tx || null;
-              if (h) seen.add(String(h));
-              merged.push(p);
-            }
-          }
-          for (const ev of transactions) {
-            const h = ev.hash || ev.tx || null;
-            if (!h || !seen.has(String(h))) merged.push(ev);
-          }
-          setTransactionHistory(merged);
-        } catch (err) {
-          setTransactionHistory(transactions);
-        }
+        setTransactionHistory(transactions);
         // read withdrawable amount for connected account (if landlord)
         try {
           if (account) {
@@ -550,24 +246,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           }
           ev.sort((a, b) => (a.at || 0) - (b.at || 0));
           setNdaEvents(ev);
-          // Merge persisted client-side txs for NDA timelines so reporter bond entries appear
-          try {
-            const persisted = await ContractService.getTransactions(contractAddress).catch(() => []);
-            const merged = [];
-            const seen = new Set();
-            if (persisted && Array.isArray(persisted)) {
-              for (const p of persisted) {
-                merged.push(p);
-                if (p?.hash) seen.add(String(p.hash));
-              }
-            }
-            for (const e of ev) {
-              if (!e.tx || !seen.has(String(e.tx))) merged.push(e);
-            }
-            setTransactionHistory(merged);
-          } catch (_) {
-            setTransactionHistory(ev);
-          }
         } catch (_) {
           setNdaEvents([]);
         }
@@ -651,21 +329,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       } catch (_) {}
     };
   }, [isOpen, contractAddress, signer]);
-
-  // When the modal opens (or contract/signers change) load contract data
-  useEffect(() => {
-    if (!isOpen || !contractAddress) return;
-    let mounted = true;
-    // call loader (which manages its own loading state)
-    (async () => {
-      try {
-        await loadContractData();
-      } catch (e) {
-        // swallow - loadContractData already logs errors
-      }
-    })();
-    return () => { mounted = false; };
-  }, [isOpen, contractAddress, signer, chainId, account, provider]);
 
   // Compute fee due (ETH) from policy and requiredEthWei
   useEffect(() => {
@@ -906,20 +569,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     try {
       setActionLoading(true);
       const service = new ContractService(signer, chainId);
-      const fixedBondWei = BigInt(await (await import('ethers')).parseEther('0.002'));
-      const { receipt } = await service.ndaReportBreach(contractAddress, offender, penalty, evidence, fixedBondWei);
-      // persist the reporter bond/report transaction to tx history
-      try {
-        const ethersMod = await import('ethers');
-        const txHash = receipt?.transactionHash || receipt?.hash || null;
-        await ContractService.saveTransaction(contractAddress, {
-          type: 'bond', amountWei: String(fixedBondWei), amount: ethersMod.formatEther(fixedBondWei), date: new Date().toLocaleString(), hash: txHash, raw: receipt, payer: account || null
-        }).catch(() => null);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('transaction:record', { detail: { amount: ethersMod.formatEther(fixedBondWei), date: new Date().toLocaleString(), hash: txHash, raw: receipt } }));
-          window.dispatchEvent(new Event('deposit:updated'));
-        }
-      } catch (_) {}
+      await service.ndaReportBreach(contractAddress, offender, penalty, evidence);
       alert('Breach reported');
       await loadContractData();
     } catch (e) {
@@ -962,9 +612,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       setActionLoading(true);
       const svc = new ContractService(signer, chainId);
   const amountWei = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
-  // prefer explicit evidence text (including text file contents) if present, otherwise fall back to file hash
-  const evidence = disputeForm.evidence || disputeFileHash || '';
-  // If a file was attached and a local pin-server is available, upload it and include CID
+  // prefer file hash if present, otherwise use evidence text
+  const evidence = disputeFileHash || disputeForm.evidence || '';
+  // If a file was attached and user provided a web3.storage token, upload it and include CID
   let cid = null;
   let cidUrl = null;
   let localIdbKey = null;
@@ -981,45 +631,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         console.error('Failed to store file locally:', e);
       }
     }
-    // Attempt to pin the evidence (text or binary) to local pin-server for durable storage.
-    // If the environment provides an ADMIN_PUBLIC_KEY in localStorage we will encrypt
-    // the evidence for that recipient before pinning.
-    try {
-      const pinServer = (process.env.REACT_APP_PIN_SERVER_URL) || 'http://localhost:3002';
-      // craft payload: prefer full text evidence, otherwise use attached file bytes
-      let toPin = disputeForm.evidence || '';
-      if (!toPin && disputeFile) {
-        try { const buf = await disputeFile.arrayBuffer(); toPin = Buffer.from(buf).toString('base64'); } catch (_) { toPin = ''; }
-      }
-      if (toPin) {
-        let cipherStr = toPin;
-        try {
-          // Prefer build-time Vite env variable, otherwise allow a localStorage override
-          const envKey = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) ? import.meta.env.VITE_ADMIN_PUBLIC_KEY : null;
-          const adminKey = envKey || localStorage.getItem('ADMIN_PUBLIC_KEY');
-          if (adminKey) {
-            const { encryptForRecipient } = await import('../../utils/crypto');
-            cipherStr = await encryptForRecipient(adminKey, toPin);
-          }
-        } catch (e) { console.debug('Encryption failed, falling back to plain text pin', e); }
-        try {
-          const resp = await fetch(`${pinServer}/pin`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cipherStr, meta: { contractAddress, reporter: account || null, fileName: disputeFileName || null } }) });
-          if (resp && resp.ok) {
-            const j = await resp.json().catch(() => null);
-            if (j && j.cid) { cid = j.cid; cidUrl = `${pinServer}/pin/${j.id}` || null; }
-            // persist returned id locally for debugging
-            try { if (j && j.id) localStorage.setItem(`pin:${contractAddress}:${j.id}`, JSON.stringify(j)); } catch (_) {}
-          }
-        } catch (pinErr) { console.debug('Pin server error, continuing without CID', pinErr); }
-      }
-    } catch (pinOuter) { console.debug('Pin step failed', pinOuter); }
 
-    // Include fixed reporter bond (0.002 ETH) in the initial report transaction
-  const fixedBondWei = BigInt(await (await import('ethers')).parseEther('0.002'));
-  // If we successfully pinned evidence, send the returned CID on-chain so the contract stores a durable reference.
-  const evidenceToSend = cid || evidence || '';
-  const { caseId, receipt } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidenceToSend, fixedBondWei);
-      // Persist the full form for the arbitrator UI and navigate to Arbitration page
+    const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
+    // Persist the full form for the arbitrator UI and navigate to Arbitration page
     try {
       const incoming = {
         contractAddress: contractAddress,
@@ -1034,36 +648,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         caseId: caseId != null ? String(caseId) : null,
         createdAt: new Date().toISOString()
       };
-        sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
-        // Reporter bond was included in the report transaction above; mark incoming as paid
-        try {
-          incoming.paid = true;
-          incoming.paidAt = Date.now();
-          incoming.paidAmountEth = (await import('ethers')).formatEther(fixedBondWei);
-          // Persist the report/bond transaction into per-contract tx history so it appears immediately
-          try {
-            const ethersMod = await import('ethers');
-            const txHash = receipt?.transactionHash || receipt?.hash || null;
-            await ContractService.saveTransaction(contractAddress, {
-              type: 'bond',
-              amountWei: String(fixedBondWei),
-              amount: ethersMod.formatEther(fixedBondWei),
-              date: new Date().toLocaleString(),
-              hash: txHash,
-              raw: receipt,
-              payer: account || null
-            }).catch(() => null);
-            // notify any listeners (e.g., ContractModal transaction list)
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('transaction:record', { detail: { amount: ethersMod.formatEther(fixedBondWei), date: new Date().toLocaleString(), hash: txHash, raw: receipt } }));
-              window.dispatchEvent(new Event('deposit:updated'));
-            }
-          } catch (saveErr) {
-            console.debug('Failed to persist report tx', saveErr);
-          }
-        } catch (errOuter) {
-          console.debug('Mark incoming paid failed', errOuter);
-        }
+      sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
         // Persist for global arbitration view
         sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
         // Also persist a per-contract appeal so reporters/participants can view it via "Show Appeal"
@@ -1116,28 +701,12 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       if (!f) return;
       setDisputeFileName(f.name || '');
       setDisputeFile(f);
-      // If the attached file is textual, read it as text and store the full content
-      try {
-        const isText = (f.type && f.type.indexOf('text/') === 0) || /\.(txt|md|json|csv|html?)$/i.test(f.name || '');
-        if (isText) {
-          const txt = await f.text();
-          setDisputeForm(s => ({ ...s, evidence: txt }));
-          // compute a hash for reference but keep the full text as evidence
-          try { const buf = await f.arrayBuffer(); const bytes = new Uint8Array(buf); const hash = ethers.keccak256(bytes); setDisputeFileHash(hash); } catch (_) { setDisputeFileHash(''); }
-        } else {
-          // Non-text files: store bytes in IndexedDB and leave the human-facing evidence field
-          const buf = await f.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          const hash = ethers.keccak256(bytes);
-          setDisputeFileHash(hash);
-          // Do not place the raw binary into localStorage; keep a readable note in the evidence field
-          setDisputeForm(s => ({ ...s, evidence: `Attached file: ${f.name}` }));
-        }
-      } catch (e) {
-        console.error('Failed to process dispute file:', e);
-        // fallback: compute hash and set as evidence
-        try { const buf = await f.arrayBuffer(); const bytes = new Uint8Array(buf); const hash = ethers.keccak256(bytes); setDisputeFileHash(hash); setDisputeForm(s => ({...s, evidence: hash})); } catch (_) { setDisputeFileHash(''); }
-      }
+      const buf = await f.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const hash = ethers.keccak256(bytes);
+      setDisputeFileHash(hash);
+      // also set evidence field for visibility
+      setDisputeForm(s => ({...s, evidence: hash}));
     } catch (e) {
       console.error('Failed to hash file:', e);
       alert('Failed to process file for evidence.');
@@ -1242,50 +811,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         console.error('Copy failed', e);
         alert('Failed to copy transaction hash');
       }
-    }
-  };
-
-  // Fetch audit record from pin-server and attempt client-side decryption
-  const fetchPinnedRecord = async (id) => {
-    try {
-      setPinnedError(null);
-      setPinnedLoading(true);
-      setPinnedRecord(null);
-      setPinnedDecrypted(null);
-      const pinServer = (process.env.REACT_APP_PIN_SERVER_URL) || 'http://localhost:3002';
-      const apiKey = localStorage.getItem('PIN_SERVER_API_KEY') || null;
-      // Fetch the audit record first (may be public metadata)
-      const headers = apiKey ? { 'X-API-KEY': apiKey } : {};
-      const resp = await fetch(`${pinServer}/pin/${id}`, { headers });
-      if (!resp.ok) throw new Error(`Pin server returned ${resp.status}`);
-      const rec = await resp.json();
-      setPinnedRecord(rec);
-
-      // If admin API key is available, request server-side decryption for the record
-      if (apiKey) {
-        try {
-          const dr = await fetch(`${pinServer}/admin/decrypt/${id}`, { method: 'POST', headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-          if (dr && dr.ok) {
-            const jd = await dr.json().catch(() => null);
-            if (jd && jd.decrypted) setPinnedDecrypted(jd.decrypted);
-          } else {
-            const txt = await dr.text().catch(() => '');
-            setPinnedError(`Decrypt failed: ${dr.status} ${txt}`);
-          }
-        } catch (deErr) {
-          setPinnedError(String(deErr));
-        }
-      } else {
-        // no API key: server-side decrypt not attempted. Admins should set PIN_SERVER_API_KEY in localStorage for automatic server-side decrypt.
-        setPinnedError('Server-side decryption not performed: set PIN_SERVER_API_KEY in localStorage for admin decrypt.');
-      }
-
-      setPinnedLoading(false);
-      return rec;
-    } catch (e) {
-      setPinnedError(String(e));
-      setPinnedLoading(false);
-      throw e;
     }
   };
   const handleShowAppeal = async () => {
@@ -1453,10 +978,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             {hasAppeal && (
               <button className="btn-sm" onClick={handleShowAppeal} style={{marginRight:6}}>Show Appeal</button>
             )}
-            <button className="btn-sm" onClick={() => setShowDebugState(s => !s)} style={{marginRight:6}}>Debug</button>
-            {( (arbResolution && arbResolution.rationale) || (appealLocal && appealLocal.evidence) ) && (
-              <button className="btn-sm" onClick={() => setShowRationale(s => !s)} style={{marginRight:6}}>Show Rationale</button>
-            )}
             <button className="modal-close" onClick={onClose}>
               <i className="fas fa-times"></i>
             </button>
@@ -1547,15 +1068,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                   )}
                   <div className="detail-item">
                     <span className="label">Status:</span>
-                    {arbResolution ? (
-                      <span className={`status-badge resolved`}>
-                        {arbResolution.decision === 'approve' ? 'Resolved: Approved' : 'Resolved: Denied'}
-                      </span>
-                    ) : (
-                      <span className={`status-badge ${contractDetails.isActive ? 'active' : 'inactive'}`}>
-                        {contractDetails.isActive ? 'Active' : 'Inactive'}
-                      </span>
-                    )}
+                    <span className={`status-badge ${contractDetails.isActive ? 'active' : 'inactive'}`}>
+                      {contractDetails.isActive ? 'Active' : 'Inactive'}
+                    </span>
                   </div>
                 </div>
                 {contractDetails.type === 'NDA' && (
@@ -1587,12 +1102,12 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                   <div className="section" style={{marginTop:'8px'}}>
                     <h4>Parties</h4>
                     <div className="transactions-list">
-                          {contractDetails.parties.map((p) => (
+                      {contractDetails.parties.map((p) => (
                         <div key={p} className="transaction-item">
                           <div className="tx-amount">{contractDetails.signatures?.[p] ? 'Signed' : 'Not signed'}</div>
                           <div className="tx-date">Deposit: {contractDetails.depositsByParty?.[p] || '0'} ETH</div>
                           <div className="tx-hash">
-                            {p ? `${String(p).slice(0,10)}...${String(p).slice(-8)}` : '—'}
+                            {p.slice(0,10)}...{p.slice(-8)}
                             <button className="btn-copy" onClick={() => handleCopyTx(p)} title="Copy address" style={{marginLeft:8}}>Copy</button>
                           </div>
                         </div>
@@ -1607,25 +1122,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       {contractDetails.cases.map((c) => (
                         <div key={c.id} className="transaction-item">
                           <div className="tx-amount">Case #{c.id}</div>
-                          <div className="tx-date">{
-                            (() => {
-                              try {
-                                // If we have a locally persisted arbitration resolution for this contract
-                                // and it targets this caseId, prefer that display instead of on-chain case.resolved
-                                if (arbResolution && arbResolution.caseId != null) {
-                                  // Normalize both to numbers for comparison
-                                  const rid = Number(arbResolution.caseId);
-                                  const cid = Number(c.id);
-                                  if (!Number.isNaN(rid) && rid === cid) {
-                                    return arbResolution.decision === 'approve' ? 'Resolved: Approved' : 'Resolved: Denied';
-                                  }
-                                }
-                                return c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending';
-                              } catch (_) {
-                                return c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending';
-                              }
-                            })()
-                          }</div>
+                          <div className="tx-date">{c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending'}</div>
                           <div className="tx-hash">Requested: {c.requestedPenalty} ETH</div>
                         </div>
                       ))}
@@ -1653,9 +1150,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 )}
                 {contractDetails?.cancellation?.cancelRequested && (
                   <div className="alert warning">Cancellation is pending; payments are disabled until completion.</div>
-                )}
-                {arbResolution && (
-                  <div className="alert info">Arbitration decision: <strong>{arbResolution.decision}</strong> (saved locally at {new Date(arbResolution.timestamp).toLocaleString()})</div>
                 )}
                 {contractDetails?.type==='Rental' && !contractDetails?.signatures?.fullySigned && (
                   <div className="alert info">Both parties must sign before payments are enabled.</div>
@@ -1692,190 +1186,22 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                     </div>
                   ) : isLandlord ? (
                     <div style={{display:'flex', gap:8, alignItems:'center'}}>
-                      {/* Withdraws are handled automatically when transfers succeed; if a pull-payment exists show info */}
                       {Number(withdrawableAmt || '0') > 0 ? (
-                        <div className="alert info">You have a pull-payment available ({withdrawableAmt} ETH). Use the Owner dashboard to withdraw if needed.</div>
+                        <button
+                          onClick={handleRentWithdraw}
+                          disabled={readOnly || actionLoading}
+                          className="btn-primary"
+                        >
+                          {actionLoading ? 'Processing...' : `Withdraw ${withdrawableAmt} ETH`}
+                        </button>
                       ) : (
-                        <div className="muted">No withdrawable balance on-chain; recent arbitration transfers may have been sent directly to recipients.</div>
+                        <div className="muted">No withdrawable funds available.</div>
                       )}
                     </div>
                   ) : (
                     <div className="alert info">Only the tenant can pay this contract. Connect as the tenant to make payments.</div>
                   )}
                 </div>
-
-                {/* Appeal-specific actions (only after a complaint is filed and only for reporter/defendant) */}
-                {appealLocal && contractDetails && (
-                  <div className="appeal-actions" style={{marginTop:12, padding:12, border:'1px solid #eee', borderRadius:6, background:'#fcfcfc'}}>
-                    <h4>Appeal Actions</h4>
-                    {(() => {
-                      const reporter = (appealLocal.reporter || '').toLowerCase();
-                      const landlord = (contractDetails.landlord || '').toLowerCase();
-                      const tenant = (contractDetails.tenant || '').toLowerCase();
-                      const defendant = reporter === landlord ? tenant : landlord;
-                      const isReporterLocal = account && account.toLowerCase() === reporter;
-                      const isDefendantLocal = account && account.toLowerCase() === defendant;
-                      return (
-                        <div>
-                          {isReporterLocal ? (
-                            <p className="muted">You filed a complaint. To proceed, post the reporter bond (ANTI-SPAM) to demonstrate your claim. Press the button to post the bond.</p>
-                          ) : isDefendantLocal ? (
-                            <p className="muted">A complaint was filed against you. To appeal you must deposit the security covering the claim. Below is a breakdown of the amounts that make up the total required deposit. Press Deposit to submit the full amount.</p>
-                          ) : (
-                            <p className="muted">A complaint was filed with the arbitrator. Only the reporter and the defendant can act on this appeal.</p>
-                          )}
-                        </div>
-                      );
-                    })()}
-                    {(() => {
-                      const reporter = (appealLocal.reporter || '').toLowerCase();
-                      const landlord = (contractDetails.landlord || '').toLowerCase();
-                      const tenant = (contractDetails.tenant || '').toLowerCase();
-                      const defendant = reporter === landlord ? tenant : landlord;
-                      const isReporterLocal = account && account.toLowerCase() === reporter;
-                      const isDefendantLocal = account && account.toLowerCase() === defendant;
-                      return (
-                        <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                          {isReporterLocal && !appealLocal?.paid ? (
-                            // Bond is paid with the initial report transaction. If you filed the complaint
-                            // the bond should already be included; if you see this message, check your
-                            // transaction history to confirm the report tx completed with the bond.
-                            <div className="muted">Reporter bond is paid when you submit the appeal. Check your transaction history for the report transaction.</div>
-                          ) : null}
-
-                                {isDefendantLocal && (
-                            <div style={{display:'flex', flexDirection:'column', gap:8}}>
-                                <div style={{fontSize:13}}>
-                                <div>Requested (claim): <strong>{appealRequestedEth} ETH</strong></div>
-                                <div>Reporter bond (fixed): <strong>{appealReporterBondEthLocal} ETH</strong></div>
-                                <div>Required deposit (contract): <strong>{appealRequiredDepositEth} ETH</strong></div>
-                                <div style={{marginTop:6}}>Total required from defendant: <strong>{(() => { try { return ethers.formatEther(BigInt(appealRequestedWei||0n) + BigInt(appealRequiredDepositWei||0n)); } catch { return String(BigInt(appealRequestedWei||0n) + BigInt(appealRequiredDepositWei||0n)); } })()} ETH</strong></div>
-                              </div>
-                              {( () => {
-                                // Determine whether the current connected account has paid the defendant portion
-                                try {
-                                  const me = account ? String(account).toLowerCase() : null;
-                                  // 1) If appealLocal records a paidBy matching me
-                                  if (appealLocal && appealLocal.paid && appealLocal.paidBy && me && String(appealLocal.paidBy).toLowerCase() === me) return true;
-                                  // 2) Otherwise, check persisted transaction history for a deposit paid by me
-                                  if (Array.isArray(transactionHistory) && transactionHistory.length > 0 && me) {
-                                    for (const p of transactionHistory) {
-                                      try {
-                                        if (p && p.type === 'deposit') {
-                                          const payer = p.payer ? String(p.payer).toLowerCase() : (p.raw && p.raw.from ? String(p.raw.from).toLowerCase() : null);
-                                          if (payer && payer === me) return true;
-                                        }
-                                      } catch (_) {}
-                                    }
-                                  }
-                                } catch (_) {}
-                                return false;
-                              })() ? (
-                                <div style={{padding:8, borderRadius:6, background:'#eef8ee', border:'1px solid #cfe9cf'}}>
-                                  <strong>Deposit received</strong>
-                                  <div style={{fontSize:13, marginTop:6}}>
-                                    {(() => {
-                                      try {
-                                        if (appealLocal.paidAmountEth) return `Paid: ${appealLocal.paidAmountEth} ETH`;
-                                        if (appealLocal.paidAmountWei) return `Paid: ${(ethers.formatEther(BigInt(appealLocal.paidAmountWei)))} ETH`;
-                                        return 'Paid: —';
-                                      } catch (_) { return 'Paid: —'; }
-                                    })()}
-                                  </div>
-                                  <div style={{marginTop:6}}>
-                                    {appealLocal.paidTxHash ? (
-                                      <>
-                                        <span style={{fontSize:12}}>Tx: {String(appealLocal.paidTxHash).slice(0,10)}...{String(appealLocal.paidTxHash).slice(-8)}</span>
-                                        <button className="btn-copy" style={{marginLeft:8}} onClick={() => { navigator.clipboard?.writeText(appealLocal.paidTxHash); }}>Copy</button>
-                                      </>
-                                    ) : (
-                                      <span style={{fontSize:12}} className="muted">No tx recorded</span>
-                                    )}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div style={{display:'flex', gap:8, flexWrap:'wrap'}}>
-                                  {/* Deposit full total (excluding reporter bond) */}
-                                  <button className="btn-secondary" disabled={appealActionLoading || !(BigInt(appealRequestedWei||0n) + BigInt(appealRequiredDepositWei||0n))} onClick={async () => {
-                                    try {
-                                      setAppealActionLoading(true);
-                                      const svc = new ContractService(signer, chainId);
-                                      // Deposit only requested + required (exclude reporter bond)
-                                      const amount = BigInt(appealRequestedWei||0n) + BigInt(appealRequiredDepositWei||0n);
-                                      // Compute previous payments by this account from persisted txs (ignore reporter bond paid by others)
-                                      let prevPaid = 0n;
-                                      try {
-                                        const me = account ? account.toLowerCase() : null;
-                                        const persisted = await ContractService.getTransactions(contractDetails.address).catch(() => []);
-                                        if (persisted && Array.isArray(persisted)) {
-                                          for (const p of persisted) {
-                                            try {
-                                              let payer = p?.payer ? String(p.payer).toLowerCase() : null;
-                                              // fallback: if no explicit payer, try to detect from raw receipt fields
-                                              if (!payer) {
-                                                try {
-                                                  if (p?.raw && p.raw.from) payer = String(p.raw.from).toLowerCase();
-                                                  else if (p?.from) payer = String(p.from).toLowerCase();
-                                                } catch (_) { payer = null; }
-                                              }
-                                              if (!payer || !me) continue;
-                                              // Only sum deposits paid by me (type 'deposit'). Do not credit reporter bond paid by reporter.
-                                              if (p.type === 'deposit' && payer === me) {
-                                                prevPaid += BigInt((await import('ethers')).parseEther(String(p.amount)));
-                                              }
-                                            } catch (_) {}
-                                          }
-                                        }
-                                        // As a fallback, consider appealLocal.paidAmount only if it was paid by THIS account
-                                        try {
-                                          if (appealLocal && appealLocal.paidAmountWei) {
-                                            const paidByLocal = appealLocal.paidBy ? String(appealLocal.paidBy).toLowerCase() : null;
-                                            if (paidByLocal && me && paidByLocal === me) prevPaid = prevPaid > 0n ? prevPaid : BigInt(appealLocal.paidAmountWei);
-                                          } else if (appealLocal && appealLocal.paidAmountEth) {
-                                            const paidByLocal = appealLocal.paidBy ? String(appealLocal.paidBy).toLowerCase() : null;
-                                            if (paidByLocal && me && paidByLocal === me) prevPaid = prevPaid > 0n ? prevPaid : BigInt(ethers.parseEther(String(appealLocal.paidAmountEth)));
-                                          }
-                                        } catch (_) {}
-                                      } catch (_) { prevPaid = 0n; }
-                                      const toSend = amount > prevPaid ? amount - prevPaid : 0n;
-                                      if (toSend === 0n) {
-                                        alert('No outstanding amount to send for this selection.');
-                                      } else {
-                                        const rcpt = await svc.depositSecurity(contractDetails.address, toSend);
-                                        try {
-                                          const newPaid = prevPaid + toSend;
-                                          const paidFlag = newPaid >= (BigInt(appealRequestedWei||0n) + BigInt(appealRequiredDepositWei||0n));
-                                          const newLocal = {...(appealLocal||{}), paid: paidFlag, paidAt: Date.now(), paidTxHash: rcpt.transactionHash || rcpt.hash, paidAmountWei: String(newPaid), paidAmountEth: (await import('ethers')).formatEther(newPaid)};
-                                          setAppealLocal(newLocal);
-                                          try { localStorage.setItem(`incomingDispute:${contractDetails.address}`, JSON.stringify(newLocal)); localStorage.setItem(`incomingDispute:${String(contractDetails.address).toLowerCase()}`, JSON.stringify(newLocal)); } catch(_){ }
-                                        } catch (_) {}
-                                        try {
-                                          const ethersMod = await import('ethers');
-                                          const txHash = rcpt.transactionHash || rcpt.hash || null;
-                                          await ContractService.saveTransaction(contractDetails.address, { type: 'deposit', amountWei: String(toSend), amount: ethersMod.formatEther(toSend), date: new Date().toLocaleString(), hash: txHash, raw: rcpt, payer: account }).catch(() => null);
-                                          const persisted = await ContractService.getTransactions(contractDetails.address).catch(() => []);
-                                          if (persisted && Array.isArray(persisted)) setTransactionHistory(persisted);
-                                        } catch (_) {}
-                                      }
-                                      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
-                                    } catch (e) {
-                                      console.error('Deposit for appeal failed', e);
-                                      alert('Deposit failed: ' + (e?.message || e));
-                                    } finally { setAppealActionLoading(false); }
-                                  }}>{`Deposit full (${(() => { try { return ethers.formatEther(BigInt(appealRequestedWei||0n) + BigInt(appealRequiredDepositWei||0n)); } catch { return String(BigInt(appealRequestedWei||0n) + BigInt(appealRequiredDepositWei||0n)); } })()} ETH)`}</button>
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {!isReporterLocal && !isDefendantLocal && (
-                            <small className="muted">Appeal exists — only the reporter and defendant can act here.</small>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
 
                 <h3>Payment History</h3>
                 <div className="transactions-list">
@@ -1884,22 +1210,11 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                   ) : (
                     transactionHistory.map((tx, index) => (
                       <div key={index} className="transaction-item">
-                        <div style={{display:'flex', gap:8, alignItems:'baseline'}}>
-                          <div className="tx-amount">{tx.amount} ETH</div>
-                          <div style={{fontSize:12, color:'#666'}}>
-                            {tx.type ? (tx.type === 'deposit' ? 'Deposit' : tx.type === 'bond' ? 'Reporter bond' : tx.type) : 'Payment'}
-                          </div>
-                        </div>
+                        <div className="tx-amount">{tx.amount} ETH</div>
                         <div className="tx-date">{tx.date}</div>
                         <div className="tx-hash">
-                          {tx.hash ? (
-                            <>
-                              {String(tx.hash).slice(0, 10)}...{String(tx.hash).slice(-8)}
-                              <button className="btn-copy" onClick={() => handleCopyTx(tx.hash)} title="Copy tx hash" style={{marginLeft:8}}>Copy</button>
-                            </>
-                          ) : (
-                            <span className="muted">No tx hash</span>
-                          )}
+                          {tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}
+                          <button className="btn-copy" onClick={() => handleCopyTx(tx.hash)} title="Copy tx hash" style={{marginLeft:8}}>Copy</button>
                         </div>
                       </div>
                     ))
@@ -2012,9 +1327,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             <span className="label">Fee (bps)</span>
                             <input className="text-input" type="number" value={policyDraft.feeBps} onChange={e => setPolicyDraft(s => ({...s, feeBps: e.target.value}))} />
                           </div>
-                          <div className="detail-item checkbox-inline">
-                            <label className="label" htmlFor="policy-require-mutual">Require Mutual</label>
-                            <input id="policy-require-mutual" type="checkbox" checked={policyDraft.mutual} onChange={e => setPolicyDraft(s => ({...s, mutual: e.target.checked}))} />
+                          <div className="detail-item">
+                            <label className="label">Require Mutual</label>
+                            <input type="checkbox" checked={policyDraft.mutual} onChange={e => setPolicyDraft(s => ({...s, mutual: e.target.checked}))} />
                           </div>
                         </div>
                         <button className="btn-action" disabled={readOnly || actionLoading} onClick={handleSetPolicy}>Save Policy</button>
@@ -2043,7 +1358,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             <button className="btn-action" disabled={!feeDueEth} onClick={() => setFeeToSend(feeDueEth || '')}>Autofill Fee</button>
                             {/* New UX: allow landlord or tenant to send an appeal (report dispute) instead of immediate finalization */}
                             <button className="btn-action" disabled={actionLoading || !(isLandlord || isTenant) || !contractDetails?.cancellation?.cancelRequested} onClick={() => setShowDisputeForm(true)}>Send to arbitration (appeal)</button>
-                            {hasAppeal && <button className="btn-action" onClick={handleShowAppeal}>Show Appeal</button>}
+                            <button className="btn-action" onClick={handleShowAppeal}>Show Appeal</button>
                             {/* Platform arbitrator / factory can still finalize directly via service */}
                             <button className="btn-action" disabled={actionLoading || !canFinalize || !isAuthorizedArbitrator} onClick={handleFinalizeCancellation}>Finalize (via Arbitration Service)</button>
                             {!isAuthorizedArbitrator && (
@@ -2063,7 +1378,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                               <div className="tx-amount">{ev.type}</div>
                               <div className="tx-date">{ev.at ? new Date(Number(ev.at) * 1000).toLocaleString() : '—'}</div>
                               <div className="tx-hash">
-                                {ev?.by ? `${String(ev.by).slice(0,10)}...${String(ev.by).slice(-8)}` : (ev?.tx ? `${String(ev.tx).slice(0,10)}...${String(ev.tx).slice(-8)}` : '—')}
+                                {ev.by ? `${ev.by.slice(0,10)}...${ev.by.slice(-8)}` : (ev.tx ? `${ev.tx.slice(0,10)}...${ev.tx.slice(-8)}` : '—')}
                                 {ev.tx && <button className="btn-copy" onClick={() => handleCopyTx(ev.tx)} title="Copy tx hash" style={{marginLeft:8}}>Copy</button>}
                               </div>
                             </div>
@@ -2097,28 +1412,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
                         <input className="text-input" type="number" placeholder={`Deposit (min ${contractDetails.minDeposit})`} onChange={e => setPaymentAmount(e.target.value)} value={paymentAmount} />
                         <button className="btn-action" disabled={actionLoading || !paymentAmount} onClick={() => handleNdaDeposit(paymentAmount)}>Deposit</button>
-                        {(() => {
-                          try {
-                            const me = account ? String(account).toLowerCase() : null;
-                            if (!me) return null;
-                            // show withdraw if transactionHistory contains a deposit by this account or if on-chain indicates canWithdraw
-                            let hasDeposit = false;
-                            if (Array.isArray(transactionHistory) && transactionHistory.length > 0) {
-                              for (const p of transactionHistory) {
-                                try {
-                                  if (p && p.type === 'deposit') {
-                                    const payer = p.payer ? String(p.payer).toLowerCase() : (p.raw && p.raw.from ? String(p.raw.from).toLowerCase() : null);
-                                    if (payer && payer === me) { hasDeposit = true; break; }
-                                  }
-                                } catch (_) {}
-                              }
-                            }
-                            if (hasDeposit) {
-                              return <button className="btn-action" disabled={actionLoading || !paymentAmount} onClick={() => handleNdaWithdraw(paymentAmount)}>Withdraw</button>;
-                            }
-                          } catch (_) {}
-                          return null;
-                        })()}
+                        <button className="btn-action" disabled={actionLoading || !paymentAmount} onClick={() => handleNdaWithdraw(paymentAmount)}>Withdraw</button>
                       </div>
                       <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Report Breach</label>
@@ -2222,7 +1516,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <div style={{display:'flex', gap:'8px', marginTop: '8px'}}>
                 <button className="btn-action primary" disabled={actionLoading} onClick={submitDisputeForm}>Submit Appeal</button>
                 <button className="btn-action secondary" disabled={actionLoading} onClick={() => setShowDisputeForm(false)}>Cancel</button>
-                {/* Deposit for Appeal removed: defendants should use the Deposit flow in the contract UI. */}
               </div>
             </div>
           </div>
@@ -2246,84 +1539,16 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <p><strong>Amount:</strong> {appealData.amountEth} ETH</p>
               <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
               <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
-              <div>
-                <p style={{display:'flex', gap:8, alignItems:'center'}}>
-                  <strong>Evidence:</strong>
-                  <span style={{marginLeft:6, whiteSpace:'pre-wrap'}} className={appealData.evidence ? '' : 'muted'}>
-                    {appealData.evidence || <span className="muted">(no textual evidence provided)</span>}
-                  </span>
-                  {appealData.evidence && (
-                    <button className="btn-sm" style={{marginLeft:8}} onClick={async () => { try { await copyTextToClipboard(String(appealData.evidence)); alert('Evidence copied to clipboard'); } catch (_) { alert('Copy failed'); } }}>Copy</button>
-                  )}
-                </p>
-                {appealData.fileName && <p><strong>Attached File:</strong> {appealData.fileName}</p>}
-              </div>
+              <p><strong>Evidence:</strong> {appealData.evidence}</p>
+              {appealData.fileName && <p><strong>Attached File:</strong> {appealData.fileName}</p>}
               {appealData._localFileUrl && (
                 <p><a href={appealData._localFileUrl} target="_blank" rel="noreferrer">Open local attachment ({appealData._localFileName || 'file'})</a></p>
               )}
               {appealData.cidUrl && (
-                <p style={{display:'flex', gap:8, alignItems:'center'}}>
-                  <a href={appealData.cidUrl} target="_blank" rel="noreferrer">Open IPFS file</a>
-                  <button className="btn-sm" onClick={async () => { try { setShowPinnedModal(true); await fetchPinnedRecord(appealData.cid || appealData.cidUrl.split('/').slice(-1)[0]); } catch (e) { alert('Failed to load pinned record: ' + e?.message || e); } }}>View pinned evidence</button>
-                </p>
+                <p><a href={appealData.cidUrl} target="_blank" rel="noreferrer">Open IPFS file</a></p>
               )}
             </div>
           </div>
-        </div>
-      )}
-      {showPinnedModal && (
-        <div className="appeal-overlay" onClick={() => { setShowPinnedModal(false); setPinnedRecord(null); setPinnedDecrypted(null); }}>
-          <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-              <h3>Pinned Evidence</h3>
-              <div>
-                <button className="modal-close" onClick={() => { setShowPinnedModal(false); setPinnedRecord(null); setPinnedDecrypted(null); }}><i className="fas fa-times"></i></button>
-              </div>
-            </div>
-            <div style={{marginTop:8}}>
-              {pinnedLoading && <div>Loading...</div>}
-              {pinnedError && <div className="muted">Error: {pinnedError}</div>}
-              {pinnedRecord && (
-                <div>
-                  <p><strong>ID:</strong> {pinnedRecord.id}</p>
-                  <p><strong>CID:</strong> {pinnedRecord.cid}</p>
-                  <p><strong>Meta:</strong> <pre style={{whiteSpace:'pre-wrap'}}>{JSON.stringify(pinnedRecord.meta, null, 2)}</pre></p>
-                  <h5>Decrypted content (if local private key provided)</h5>
-                  {pinnedDecrypted ? (
-                    <div style={{whiteSpace:'pre-wrap', maxHeight:300, overflow:'auto', background:'#fff', padding:8, border:'1px solid #eee'}}>{pinnedDecrypted}</div>
-                  ) : (
-                    <div className="muted">No decrypted content available. For admin auto-decrypt, set `PIN_SERVER_API_KEY` in localStorage (the client will call server `/admin/decrypt/:id`).</div>
-                  )}
-                  <h5 style={{marginTop:12}}>Full audit record</h5>
-                  <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>{JSON.stringify(pinnedRecord, null, 2)}</pre>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      {showDebugState && (
-        <div style={{padding:12, borderTop:'1px solid #eee', background:'#fafafa', fontSize:12}}>
-          <h4>Debug State</h4>
-          <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>
-            {JSON.stringify({ arbResolution, contractDetails, appealLocal }, null, 2)}
-          </pre>
-        </div>
-      )}
-      {showRationale && (
-        <div style={{padding:12, borderTop:'1px solid #eee', background:'#fff8e6', fontSize:13}}>
-          <h4>Arbitrator Rationale</h4>
-          {arbResolution ? (
-            <div>
-              <div style={{marginBottom:8}}><strong>Decision:</strong> {arbResolution.decision}</div>
-              <div style={{whiteSpace:'pre-wrap', background:'#fff', padding:8, border:'1px solid #f0e6d6', borderRadius:4}}>{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
-              <div style={{marginTop:8, fontSize:12, color:'#666'}}>Recorded at: {arbResolution.timestamp ? new Date(Number(arbResolution.timestamp)).toLocaleString() : '—'}</div>
-              <h5 style={{marginTop:12}}>Full Debug</h5>
-              <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>{JSON.stringify({ arbResolution, contractDetails, appealLocal }, null, 2)}</pre>
-            </div>
-          ) : (
-            <div className="muted">No arbitration resolution persisted for this contract.</div>
-          )}
         </div>
       )}
     </div>

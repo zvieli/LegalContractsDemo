@@ -7,8 +7,8 @@ import "./NDA/NDATemplate.sol";
 
 // Lightweight deployer for Rent contracts (keeps large creation bytecode out of main factory runtime)
 contract _RentDeployer {
-    function deploy(address _landlord, address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId, address _arbitrationService, uint256 _requiredDeposit, uint256 _dueDate) external returns (address) {
-        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _priceFeed, _propertyId, _arbitrationService, _requiredDeposit, _dueDate);
+    function deploy(address _landlord, address _tenant, uint256 _rentAmount, uint256 _dueDate, address _priceFeed, uint256 _propertyId, address _arbitration_service, uint256 _requiredDeposit) external returns (address) {
+        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, _arbitration_service, _requiredDeposit);
         return address(c);
     }
 }
@@ -86,37 +86,49 @@ contract ContractFactory {
         defaultRequiredDeposit = _requiredDeposit;
     }
 
-        // Internal implementation used by public wrappers
-        function _createRentContractImpl(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId, uint256 _dueDate) internal returns (address) {
-            address creator = msg.sender;
-            if (_tenant == address(0)) revert ZeroTenant();
-            if (_tenant == creator) revert SameAddresses();
-            if (_rentAmount == 0) revert ZeroRentAmount();
-            if (_priceFeed == address(0)) revert ZeroPriceFeed();
-            if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
-            // Validate property if provided
-            if (_propertyId != 0) {
-                (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
-                require(active && owner == creator, "Bad property");
-            }
-            address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, _dueDate);
-            allContracts.push(newAddr);
-            contractsByCreator[creator].push(newAddr);
-            contractCreator[newAddr] = creator;
-            emit RentContractCreated(newAddr, creator, _tenant);
-            return newAddr;
-        }
+    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId) external returns (address) {
+        address creator = msg.sender;
+    if (_tenant == address(0)) revert ZeroTenant();
+    if (_tenant == creator) revert SameAddresses();
+    if (_rentAmount == 0) revert ZeroRentAmount();
+    if (_priceFeed == address(0)) revert ZeroPriceFeed();
+    if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
+    // Validate property if provided
+    if (_propertyId != 0) {
+        (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
+        require(active && owner == creator, "Bad property");
+    }
+    // pass 0 as default dueDate for backward compatibility
+    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, 0, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit);
+        allContracts.push(newAddr);
+        contractsByCreator[creator].push(newAddr);
+        contractCreator[newAddr] = creator;
+        emit RentContractCreated(newAddr, creator, _tenant);
+        return newAddr;
+    }
 
-        // External wrapper that accepts dueDate
-        function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId, uint256 _dueDate) external returns (address) {
-            return _createRentContractImpl(_tenant, _rentAmount, _priceFeed, _propertyId, _dueDate);
+    /// @notice Create a Rent contract and provide an explicit dueDate (unix timestamp).
+    /// This overload preserves backwards compatibility while allowing callers (e.g., frontend)
+    /// to compute and set the contract's `dueDate` at creation time.
+    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _dueDate, uint256 _propertyId) external returns (address) {
+        address creator = msg.sender;
+        if (_tenant == address(0)) revert ZeroTenant();
+        if (_tenant == creator) revert SameAddresses();
+        if (_rentAmount == 0) revert ZeroRentAmount();
+        if (_priceFeed == address(0)) revert ZeroPriceFeed();
+        if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
+        // Validate property if provided
+        if (_propertyId != 0) {
+            (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
+            require(active && owner == creator, "Bad property");
         }
-
-    // Backwards-compatible overload: previous callers used createRentContract with 4 args.
-        // Backwards-compatible wrapper for older callers (assumes dueDate == 0)
-        function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId) external returns (address) {
-            return _createRentContractImpl(_tenant, _rentAmount, _priceFeed, _propertyId, 0);
-        }
+        address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit);
+        allContracts.push(newAddr);
+        contractsByCreator[creator].push(newAddr);
+        contractCreator[newAddr] = creator;
+        emit RentContractCreated(newAddr, creator, _tenant);
+        return newAddr;
+    }
 
     /// @notice Register a property and return propertyId (helper passthrough)
     function registerProperty(bytes32 locationHash, string calldata metadataURI) external returns (uint256) {

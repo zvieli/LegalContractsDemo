@@ -13,10 +13,15 @@ function Footer() {
         <div className="footer-content">
           <div className="footer-section">
             <div className="footer-logo">
-              <img src="/arbitrust-logo.svg" alt="ArbiTrust Logo" style={{width:30,height:30}} />
-              <span className="footer-brand">ArbiTrust</span>
+              <svg width="30" height="30" viewBox="0 0 512 512" fill="currentColor">
+                <path d="M256 36L430 134v150c0 104-78 198-174 206-96-8-174-102-174-206V134l174-98Z" fill="url(#lcGradient)" opacity="0.12"/>
+                <path d="M256 36L430 134v150c0 104-78 198-174 206-96-8-174-102-174-206V134l174-98Z" stroke="currentColor" strokeWidth="18" strokeLinejoin="round" fill="none"/>
+                <path d="M256 124v172M164 184h184" stroke="currentColor" strokeWidth="16" strokeLinecap="round" fill="none"/>
+                <circle cx="256" cy="112" r="6" fill="currentColor"/>
+              </svg>
+              <span>LegalContracts</span>
             </div>
-            <p className="footer-desc">Advanced platform for creating and managing legal smart contracts on the blockchain.</p>
+            <p>Advanced platform for creating and managing smart contracts on blockchain</p>
           </div>
 
           <div className="footer-section">
@@ -29,21 +34,18 @@ function Footer() {
             </ul>
           </div>
 
-          <div className="footer-section developer">
+          <div className="footer-section">
             <h4>Developer</h4>
             <div className="developer-info">
-              <p className="developer-copy">Built with <span aria-hidden>❤️</span> by</p>
-              <a
-                href="https://www.linkedin.com/in/lior-zvieli-783107311/"
-                target="_blank"
+              <p>Developed with ❤️ by</p>
+              <a 
+                href="https://www.linkedin.com/in/lior-zvieli-783107311/" 
+                target="_blank" 
                 rel="noopener noreferrer"
                 className="developer-link"
-                aria-label="Lior Zvieli on LinkedIn"
               >
-                <span className="dev-icon" aria-hidden>
-                  <i className="fab fa-linkedin"></i>
-                </span>
-                <span className="dev-name">Lior Zvieli</span>
+                <i className="fab fa-linkedin"></i>
+                Lior Zvieli
               </a>
             </div>
           </div>
@@ -68,7 +70,7 @@ function Footer() {
         </div>
 
         <div className="footer-bottom">
-          <p>&copy; {currentYear} ArbiTrust. All rights reserved.</p>
+          <p>&copy; {currentYear} LegalContracts. All rights reserved.</p>
         </div>
       </div>
     </footer>

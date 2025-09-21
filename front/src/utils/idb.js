@@ -1,52 +1,64 @@
-// Minimal IndexedDB helper for storing small binary blobs for the MVP
-const DB_NAME = 'legalcontracts_demo_db';
-const STORE_FILES = 'files';
-
-function openDb() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_FILES)) {
-        db.createObjectStore(STORE_FILES);
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('IndexedDB open failed'));
-  });
-}
-
+// Minimal IndexedDB helper with localStorage fallback for test environments.
+// Exports `idbPut(key, value)` and `idbGet(key)` used by the UI to persist small files.
 export async function idbPut(key, value) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE_FILES], 'readwrite');
-    const store = tx.objectStore(STORE_FILES);
-    const req = store.put(value, key);
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => reject(req.error || new Error('idb put failed'));
-  });
+  if (typeof indexedDB !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      try {
+        const req = indexedDB.open('legalcontracts-idb', 1);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore('store');
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('store', 'readwrite');
+          const s = tx.objectStore('store');
+          s.put(value, key);
+          tx.oncomplete = () => { db.close(); resolve(true); };
+          tx.onerror = (e) => { db.close(); reject(e); };
+        };
+        req.onerror = (e) => reject(e);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+  // Fallback to localStorage for Node/test environments
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (e) {
+    throw e;
+  }
 }
 
 export async function idbGet(key) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE_FILES], 'readonly');
-    const store = tx.objectStore(STORE_FILES);
-    const req = store.get(key);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error('idb get failed'));
-  });
+  if (typeof indexedDB !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      try {
+        const req = indexedDB.open('legalcontracts-idb', 1);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore('store');
+        };
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction('store', 'readonly');
+          const s = tx.objectStore('store');
+          const getReq = s.get(key);
+          getReq.onsuccess = () => { db.close(); resolve(getReq.result); };
+          getReq.onerror = (e) => { db.close(); reject(e); };
+        };
+        req.onerror = (e) => reject(e);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : null;
+  } catch (e) {
+    throw e;
+  }
 }
 
-export async function idbDelete(key) {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction([STORE_FILES], 'readwrite');
-    const store = tx.objectStore(STORE_FILES);
-    const req = store.delete(key);
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => reject(req.error || new Error('idb delete failed'));
-  });
-}
-
-export default { idbPut, idbGet, idbDelete };
+export default { idbPut, idbGet };

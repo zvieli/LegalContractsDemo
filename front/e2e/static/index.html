@@ -1,0 +1,17 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Playwright E2E Smoke</title>
+  </head>
+  <body>
+    <button data-testid="open-resolve">Resolve</button>
+    <div data-testid="evidence-panel" style="display:none;">Evidence Panel</div>
+
+    <script>
+      const btn = document.querySelector('[data-testid="open-resolve"]');
+      const panel = document.querySelector('[data-testid="evidence-panel"]');
+      btn.addEventListener('click', () => { panel.style.display = 'block'; });
+    </script>
+  </body>
+</html>

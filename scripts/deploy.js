@@ -23,21 +23,17 @@ async function main() {
 
   console.log("✅ ContractFactory deployed to:", factoryAddress);
 
-  // === 1.5 Optionally deploy mocks: MockERC20 and MockPriceFeed ===
-  // By default we skip deploying mocks so local deployments can start minimal/empty.
-  // Set DEPLOY_MOCKS=true in env to enable mock deployment.
-  let mockTokenAddress = null;
+  // === 1.5 Optionally deploy mocks: MockPriceFeed ===
+  // Mock ERC20 support removed from project. We only deploy MockPriceFeed when needed.
+  let mockTokenAddress = null; // retained for compatibility but never set
   let mockPriceAddress = null;
-  // Allow explicit override via DEPLOY_MOCKS env var. If not set, default to
-  // deploying mocks on local networks to ensure frontend MockContracts.json
-  // contains usable mock addresses for development.
   const envDeployMocks = process.env.DEPLOY_MOCKS;
   let deployMocks = String(envDeployMocks ?? '').toLowerCase() === 'true';
   if (typeof envDeployMocks === 'undefined') {
     const localNames = ['localhost', 'hardhat'];
     if (localNames.includes(network.name) || Number(process.env.CHAIN_ID) === 31337) {
       deployMocks = true;
-      console.log('ℹ️  DEPLOY_MOCKS not set - defaulting to true on local network to populate MockContracts.json');
+      console.log('ℹ️  DEPLOY_MOCKS not set - defaulting to true on local network to populate MockContracts.json (price feed only)');
     }
   }
 
@@ -58,9 +54,8 @@ async function main() {
     if (!deployMocks && fs.existsSync(mockContractsPath)) {
       const existing = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {};
       const mp = existing?.contracts?.MockPriceFeed ?? null;
-      const me = existing?.contracts?.MockERC20 ?? null;
-      if (!mp || !me) {
-        console.log('ℹ️  MockContracts.json missing mock addresses; enabling mock deployment to populate them');
+      if (!mp) {
+        console.log('ℹ️  MockContracts.json missing MockPriceFeed address; enabling mock deployment to populate it');
         shouldDeployMocks = true;
       }
     }
@@ -69,23 +64,15 @@ async function main() {
   }
 
   if (shouldDeployMocks) {
-    console.log("📦 Deploying mock tokens and price feed...");
-    console.log("📦 Deploying mock tokens and price feed...");
-    const MockERC20 = await ethers.getContractFactory("MockERC20");
-    const mockToken = await MockERC20.deploy("Mock Token", "MCK", ethers.parseUnits("1000000", 18));
-    await mockToken.waitForDeployment();
-    mockTokenAddress = await mockToken.getAddress();
-
+    console.log("📦 Deploying mock price feed...");
     const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
     // initial price 2000
     const mockPrice = await MockPriceFeed.deploy(2000);
     await mockPrice.waitForDeployment();
     mockPriceAddress = await mockPrice.getAddress();
-
-    console.log("✅ MockERC20 deployed to:", mockTokenAddress);
     console.log("✅ MockPriceFeed deployed to:", mockPriceAddress);
   } else {
-    console.log('ℹ️  Skipping mock deployments (set DEPLOY_MOCKS=true to enable)');
+    console.log('ℹ️  Skipping mock price feed deployment (set DEPLOY_MOCKS=true to enable)');
   }
 
   // === 2. Save deployment.json ===
@@ -327,8 +314,7 @@ async function main() {
 
     existing.contracts = existing.contracts || {};
     // Only set values that are available (null means not deployed)
-    if (mockPriceAddress) existing.contracts.MockPriceFeed = mockPriceAddress;
-    if (mockTokenAddress) existing.contracts.MockERC20 = mockTokenAddress;
+  if (mockPriceAddress) existing.contracts.MockPriceFeed = mockPriceAddress;
     existing.contracts.ContractFactory = existing.contracts.ContractFactory || factoryAddress;
 
     fs.writeFileSync(mockContractsPath, JSON.stringify(existing, null, 2));

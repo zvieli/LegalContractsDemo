@@ -2,9 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "../AggregatorV3Interface.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+// ERC20 support removed: no IERC20, IERC20Permit, SafeERC20
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
@@ -22,12 +20,10 @@ contract TemplateRentContract is EIP712, ReentrancyGuard {
     bool public active;
 
 AggregatorV3Interface public immutable priceFeed;
-    using SafeERC20 for IERC20;
-
     uint256 public dueDate;
     uint8 public lateFeePercent = 5;
 
-    mapping(address => uint256) public tokenPaid; 
+    // tokenPaid removed (no ERC20 support)
     // Pull-payment ledger: credit recipients here and let them withdraw to avoid stuck transfers
     mapping(address => uint256) public withdrawable;
     // Reporter bond per dispute caseId (optional bond attached by reporter)
@@ -72,6 +68,7 @@ AggregatorV3Interface public immutable priceFeed;
         DisputeType dtype;
         uint256 requestedAmount;    // claim amount (e.g., damages or amount to release)
         string evidence;            // off-chain evidence text/URI stored directly
+        bytes32 evidenceDigest;     // keccak256 digest of the evidence CID (new)
         bool resolved;
         bool approved;
         uint256 appliedAmount;      // actual amount applied (deducted or released)
@@ -86,7 +83,7 @@ AggregatorV3Interface public immutable priceFeed;
     mapping(uint256 => DisputeMeta) private _disputeMeta; // id => meta
 
     // events
-    event RentPaid(address indexed tenant, uint256 amount, bool late, address token);
+    event RentPaid(address indexed tenant, uint256 amount, bool late);
     event PaymentCredited(address indexed to, uint256 amount);
     event ContractCancelled(address indexed by);
     event DueDateUpdated(uint256 newTimestamp);
@@ -101,6 +98,8 @@ AggregatorV3Interface public immutable priceFeed;
     event SecurityDepositPaid(address indexed by, uint256 amount, uint256 total);
     event DepositDebited(address indexed who, uint256 amount);
     event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount, string evidence);
+    // New event to include the bytes32 digest when available
+    event DisputeReportedWithDigest(uint256 indexed caseId, bytes32 evidenceDigest, string evidenceCid);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
     event DebtRecorded(address indexed debtor, uint256 amount);
     event ERC20DebtCollected(address indexed token, address indexed from, uint256 amount);
@@ -113,11 +112,11 @@ AggregatorV3Interface public immutable priceFeed;
         address _landlord,
         address _tenant,
         uint256 _rentAmount,
+        uint256 _dueDate,
         address _priceFeed,
         uint256 _propertyId,
         address _arbitration_service,
-        uint256 _requiredDeposit,
-        uint256 _dueDate
+        uint256 _requiredDeposit
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         landlord = _landlord;
         tenant = _tenant;
@@ -140,7 +139,7 @@ AggregatorV3Interface public immutable priceFeed;
     // Cast assignment below
     arbitrationService = _arbitration_service;
     requiredDeposit = _requiredDeposit;
-    // Initialize dueDate atomically from constructor param so factory can set it on create
+    // Set dueDate from constructor param so frontend/tx metadata can include it when desired
     dueDate = _dueDate;
     }
 
@@ -206,7 +205,7 @@ AggregatorV3Interface public immutable priceFeed;
         if (amount < rentAmount) revert AmountTooLow();
         rentPaid = true;
         totalPaid += amount;
-        emit RentPaid(msg.sender, amount, false, address(0));
+        emit RentPaid(msg.sender, amount, false);
     }
 
     function checkRentPrice() internal view returns (int256) {
@@ -230,7 +229,7 @@ function getRentInEth() public view returns (uint256) {
 
     function payRentInEth() external payable onlyTenant onlyActive onlyFullySigned {
         uint256 requiredEth = getRentInEth();
-    if (msg.value < requiredEth) revert AmountTooLow();
+        if (msg.value < requiredEth) revert AmountTooLow();
         rentPaid = true;
         totalPaid += msg.value;
         (bool sent, ) = payable(landlord).call{value: msg.value}("");
@@ -239,7 +238,7 @@ function getRentInEth() public view returns (uint256) {
             withdrawable[landlord] += msg.value;
             emit PaymentCredited(landlord, msg.value);
         }
-        emit RentPaid(msg.sender, msg.value, false, address(0));
+        emit RentPaid(msg.sender, msg.value, false);
     }
 
     function payRentWithLateFee() external payable onlyTenant onlyActive onlyFullySigned {
@@ -252,15 +251,15 @@ function getRentInEth() public view returns (uint256) {
             late = true;
         }
 
-    if (msg.value < requiredEth) revert AmountTooLow();
+        if (msg.value < requiredEth) revert AmountTooLow();
         totalPaid += msg.value;
         rentPaid = true;
-            (bool sent, ) = payable(landlord).call{value: msg.value}("");
-            if (!sent) {
-                withdrawable[landlord] += msg.value;
-                emit PaymentCredited(landlord, msg.value);
-            }
-            emit RentPaid(msg.sender, msg.value, late, address(0));
+        (bool sent, ) = payable(landlord).call{value: msg.value}("");
+        if (!sent) {
+            withdrawable[landlord] += msg.value;
+            emit PaymentCredited(landlord, msg.value);
+        }
+        emit RentPaid(msg.sender, msg.value, late);
     }
 
     function payRentPartial() external payable onlyTenant onlyActive onlyFullySigned {
@@ -275,20 +274,9 @@ function getRentInEth() public view returns (uint256) {
         withdrawable[landlord] += msg.value;
         emit PaymentCredited(landlord, msg.value);
     }
-        emit RentPaid(msg.sender, msg.value, late, address(0));
+        emit RentPaid(msg.sender, msg.value, late);
     }
-
-    function payRentWithToken(address tokenAddress, uint256 amount) external onlyTenant onlyActive onlyFullySigned {
-    IERC20 token = IERC20(tokenAddress);
-    // use SafeERC20 to support non-standard ERC20 tokens
-    token.safeTransferFrom(msg.sender, landlord, amount);
-        tokenPaid[tokenAddress] += amount;
-
-        bool late = false;
-        if (block.timestamp > dueDate && dueDate != 0) late = true;
-
-        emit RentPaid(msg.sender, amount, late, tokenAddress);
-    }
+    // ERC20 payment functions removed (project no longer supports ERC20 payments)
 
     function updateLateFee(uint8 newPercent) external onlyLandlord onlyActive {
         lateFeePercent = newPercent;
@@ -498,7 +486,9 @@ function getRentInEth() public view returns (uint256) {
         dc.initiator = msg.sender;
         dc.dtype = dtype;
         dc.requestedAmount = requestedAmount;
-        dc.evidence = evidence;
+    dc.evidence = evidence;
+    // store legacy-derived digest for backwards compatibility
+    dc.evidenceDigest = keccak256(bytes(evidence));
 
         // Record optional reporter bond attached to this report
         if (msg.value > 0) {
@@ -506,6 +496,58 @@ function getRentInEth() public view returns (uint256) {
         }
 
         emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidence);
+        emit DisputeReportedWithDigest(caseId, dc.evidenceDigest, evidence);
+    }
+
+    /// @notice New entrypoint to report a dispute attaching a precomputed bytes32 digest (CID digest)
+    function reportDisputeWithCid(DisputeType dtype, uint256 requestedAmount, uint256 reporterBond, bytes32 evidenceDigest, string calldata evidenceCid) external payable onlyActive returns (uint256 caseId) {
+        // mirror logic from reportDispute but accept digest directly
+        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+        if (requestedAmount == 0 && (dtype == DisputeType.Damage || dtype == DisputeType.Quality || dtype == DisputeType.DepositSplit)) revert AmountTooLow();
+
+        caseId = _disputes.length;
+        _disputes.push();
+        DisputeCase storage dc = _disputes[caseId];
+        dc.initiator = msg.sender;
+        dc.dtype = dtype;
+        dc.requestedAmount = requestedAmount;
+        dc.evidence = evidenceCid;
+        dc.evidenceDigest = evidenceDigest;
+
+        // handle reporter bond if provided via msg.value
+        if (msg.value > 0) {
+            _reporterBond[caseId] = msg.value;
+        }
+
+        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
+        emit DisputeReportedWithDigest(caseId, evidenceDigest, evidenceCid);
+    }
+
+    /// @notice Legacy helper that accepts only a CID string and computes the digest on-chain
+    function reportDisputeWithCidLegacy(DisputeType dtype, uint256 requestedAmount, string calldata evidenceCid) external payable onlyActive returns (uint256 caseId) {
+        bytes32 digest = keccak256(bytes(evidenceCid));
+        // reuse reportDisputeWithCid semantics
+        caseId = _disputes.length;
+        _disputes.push();
+        DisputeCase storage dc = _disputes[caseId];
+        dc.initiator = msg.sender;
+        dc.dtype = dtype;
+        dc.requestedAmount = requestedAmount;
+        dc.evidence = evidenceCid;
+        dc.evidenceDigest = digest;
+
+        if (msg.value > 0) {
+            _reporterBond[caseId] = msg.value;
+        }
+
+        emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
+        emit DisputeReportedWithDigest(caseId, digest, evidenceCid);
+    }
+
+    /// @notice Read the stored digest for a dispute (bytes32, zero if none)
+    function getDisputeDigest(uint256 caseId) external view returns (bytes32) {
+        require(caseId < _disputes.length, "bad id");
+        return _disputes[caseId].evidenceDigest;
     }
 
     /// @notice Final resolution used by arbitrator/oracle (single-step) similar to NDA oracle path.
@@ -616,69 +658,35 @@ function getRentInEth() public view returns (uint256) {
         emit DisputeRationale(caseId, classification, rationale);
     }
 
-    /// @notice Attempt to collect recorded ERC20 debt from debtor using allowance/transferFrom
-    /// @param tokenAddress ERC20 token address
-    /// @param from debtor address (must match recorded debt)
-    /// @param amount amount to collect (up to recorded debt)
-    function collectERC20Debt(address tokenAddress, address from, uint256 amount) external onlyActive {
-        require(from == landlord || from == tenant, "invalid debtor");
-        uint256 owed = debtOwed[from];
-        require(owed > 0, "no debt");
-        uint256 take = amount > owed ? owed : amount;
-        IERC20 token = IERC20(tokenAddress);
-        // requires prior approve(from -> this contract)
-        token.safeTransferFrom(from, address(this), take);
-        // credit withdrawable to beneficiary (assume initiator is recipient of debt collection)
-        // if last resolved dispute initiator is the beneficiary we credit them; otherwise leave in withdrawable
-        // For simplicity, credit to initiator of last dispute if exists
-        address beneficiary = address(0);
-        if (_disputes.length > 0) {
-            // use last dispute's initiator as beneficiary for collected ERC20 funds
-            beneficiary = _disputes[_disputes.length - 1].initiator;
-        }
-        if (beneficiary != address(0)) {
-            withdrawable[beneficiary] += take;
-        }
-        debtOwed[from] -= take;
-        emit ERC20DebtCollected(tokenAddress, from, take);
-    }
-
-    /// @notice Collect recorded ERC20 debt from debtor using EIP-2612 permit (single tx)
-    /// @param tokenAddress ERC20 token address (must implement IERC20Permit)
-    /// @param from debtor address (must match recorded debt)
-    /// @param amount amount to collect (up to recorded debt)
-    /// @param deadline permit deadline
-    /// @param v,r,s permit signature params
-    function collectERC20DebtWithPermit(
-        address tokenAddress,
-        address from,
-        uint256 amount,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external onlyActive {
-        require(from == landlord || from == tenant, "invalid debtor");
-        uint256 owed = debtOwed[from];
-        require(owed > 0, "no debt");
-        uint256 take = amount > owed ? owed : amount;
-
-        IERC20Permit permitToken = IERC20Permit(tokenAddress);
-        // obtain permit so we can transferFrom in same tx
-        permitToken.permit(from, address(this), take, deadline, v, r, s);
-
-        IERC20(tokenAddress).safeTransferFrom(from, address(this), take);
-
-        address beneficiary = address(0);
-        if (_disputes.length > 0) {
-            beneficiary = _disputes[_disputes.length - 1].initiator;
-        }
-        if (beneficiary != address(0)) {
-            withdrawable[beneficiary] += take;
-        }
-        debtOwed[from] -= take;
-        emit ERC20DebtCollected(tokenAddress, from, take);
-    }
+    // ERC20 debt collection functions removed
 
     // Compatibility shim `resolveByArbitrator` removed. Use `resolveDisputeFinal` via a configured `arbitrationService`.
 }
+// pragma solidity ^0.8.20;
+
+// contract TemplateRentV2 {
+//     struct Dispute {
+//         address reporter;
+//         bytes32 evidenceDigest;
+//     }
+
+//     mapping(uint256 => Dispute) public disputes;
+
+//     event DisputeReported(uint256 indexed id, bytes32 evidenceDigest, string evidenceCid);
+
+//     function reportDisputeWithCid(uint256 id, bytes32 evidenceDigest, string calldata evidenceCid) external {
+//         disputes[id] = Dispute(msg.sender, evidenceDigest);
+//         emit DisputeReported(id, evidenceDigest, evidenceCid);
+//     }
+
+//     function getDisputeWithCid(uint256 id) external view returns (bytes32) {
+//         return disputes[id].evidenceDigest;
+//     }
+
+//     // Legacy function
+//     function reportDisputeWithCidLegacy(uint256 id, string calldata evidenceCid) external {
+//         bytes32 digest = keccak256(bytes(evidenceCid));
+//         disputes[id] = Dispute(msg.sender, digest);
+//         emit DisputeReported(id, digest, evidenceCid);
+//     }
+// }

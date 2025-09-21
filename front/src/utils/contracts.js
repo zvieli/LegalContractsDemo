@@ -84,13 +84,5 @@ export const getContractAddress = async (chainId, contractName) => {
 
 export const createContractInstance = (contractName, address, signerOrProvider) => {
   const abi = getContractABI(contractName);
-  // Validate address early to provide a clearer error message rather than
-  // letting ethers.Contract throw an ambiguous 'invalid value for Contract target'.
-  if (!address) {
-    throw new Error(`No address provided for contract ${contractName}`);
-  }
-  if (!ethers.isAddress(address)) {
-    throw new Error(`Invalid address for contract ${contractName}: ${address}`);
-  }
   return new ethers.Contract(address, abi, signerOrProvider);
 };

@@ -51,11 +51,6 @@ beforeEach(async function () {
   mockPriceFeed = await MockPriceFeed.deploy(2000);
   await mockPriceFeed.waitForDeployment();
 
-  // Deploy MockERC20
-  const MockERC20 = await ethers.getContractFactory("MockERC20");
-  token = await MockERC20.deploy("TestToken", "TTK", ethers.parseUnits("1000", 18));
-  await token.waitForDeployment();
-
   // Deploy via factory (enforce factory-only policy)
   const Factory = await ethers.getContractFactory("ContractFactory");
   const factory = await Factory.deploy();
@@ -79,9 +74,7 @@ beforeEach(async function () {
   // The factory already set the default arbitration service; reuse the deployed service reference
   arbitrationService = arbsvc;
 
-  // Mint & Approve tokens for tenant
-  await token.transfer(tenant.address, ethers.parseUnits("500", 18));
-  await token.connect(tenant).approve(rentContract.target, ethers.parseUnits("500", 18));
+  // (ERC20 support removed) No token setup required
 });
 
   // Helper function for anyValue
@@ -107,7 +100,7 @@ beforeEach(async function () {
       await rentContract.connect(tenant).signRent(sigTenant);
       await expect(rentContract.connect(tenant).payRent(rentAmount))
         .to.emit(rentContract, "RentPaid")
-        .withArgs(tenant.address, rentAmount, false, ethers.ZeroAddress);
+        .withArgs(tenant.address, rentAmount, false);
       expect(await rentContract.rentPaid()).to.be.true;
       expect(await rentContract.totalPaid()).to.equal(rentAmount);
     });
@@ -146,8 +139,8 @@ describe("ETH Payment", function () {
   const sigT = await signRent(tenant, rentContract, landlord.address, tenant.address, await rentContract.rentAmount(), await rentContract.dueDate());
   await rentContract.connect(tenant).signRent(sigT);
   await expect(rentContract.connect(tenant).payRentInEth({ value: rentInEth }))
-      .to.emit(rentContract, "RentPaid")
-      .withArgs(tenant.address, rentInEth, false, ethers.ZeroAddress);
+    .to.emit(rentContract, "RentPaid")
+    .withArgs(tenant.address, rentInEth, false);
 
     expect(await rentContract.rentPaid()).to.be.true;
   });
@@ -163,33 +156,7 @@ describe("ETH Payment", function () {
   });
 });
 
-  describe("Token Payment", function () {
-    it("should allow tenant to pay rent with ERC20 token after signatures", async function () {
-      const initialLandlordBalance = await token.balanceOf(landlord.address);
-      const rentAmount = ethers.parseUnits("100", 18);
-      const sigL = await signRent(landlord, rentContract, landlord.address, tenant.address, await rentContract.rentAmount(), await rentContract.dueDate());
-      await rentContract.connect(landlord).signRent(sigL);
-      const sigT = await signRent(tenant, rentContract, landlord.address, tenant.address, await rentContract.rentAmount(), await rentContract.dueDate());
-      await rentContract.connect(tenant).signRent(sigT);
-
-      await expect(rentContract.connect(tenant).payRentWithToken(token.target, rentAmount))
-        .to.emit(rentContract, "RentPaid")
-        .withArgs(tenant.address, rentAmount, false, token.target);
-
-      expect(await token.balanceOf(landlord.address)).to.equal(initialLandlordBalance + rentAmount);
-      expect(await rentContract.tokenPaid(token.target)).to.equal(rentAmount);
-    });
-
-    it("should revert when tenant tries to pay with ERC20 without approve", async function () {
-      // revoke approval
-      await token.connect(tenant).approve(rentContract.target, 0);
-
-      const rentAmount = ethers.parseUnits("100", 18);
-
-      await expect(rentContract.connect(tenant).payRentWithToken(token.target, rentAmount))
-        .to.be.reverted; // SafeERC20 will revert if transferFrom fails
-    });
-  });
+  // Token payment tests removed: ERC20 support has been removed from the project
 
   describe("Rent Signing", function () {
     it("should allow both parties to sign via EIP712", async function () {

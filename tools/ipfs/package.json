@@ -1,18 +1,17 @@
 {
-  "name": "ipfs-pin-server",
-  "version": "1.0.0",
-  "type": "module",
-  "description": "Local pin server helpers for LegalContractsDemo",
-  "private": true,
-  "dependencies": {
-    "form-data": "^4.0.0"
-  },
-  "engines": {
-    "node": ">=16"
-  },
-  "scripts": {
-    "start": "node pin-server.js",
-    "test-pin": "node test_pin_and_decrypt.js",
-    "integration": "node test_run_all.js"
-  }
+	"name": "legalcontracts-ipfs-tools",
+	"version": "1.0.0",
+	"description": "IPFS pin server tools used by tests",
+	"main": "pin-server.js",
+	"scripts": {
+		"start": "node pin-server.js",
+		"test-run": "node test_run_all.js"
+	},
+	"dependencies": {
+		"express": "^5.1.0",
+		"body-parser": "^2.2.0",
+		"ipfs-core": "^0.18.1",
+		"dotenv": "^16.6.1",
+		"fs-extra": "^11.3.2"
+	}
 }

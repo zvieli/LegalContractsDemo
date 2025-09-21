@@ -1,5 +1,21 @@
-import { getContractABI, getContractAddress, createContractInstance } from '../utils/contracts';
 import { ethers } from 'ethers';
+import { contract } from './contractInstance.js';
+
+export function computeCidDigest(cid) {
+    if (!cid) return ethers.constants.HashZero;
+    return ethers.keccak256(ethers.toUtf8Bytes(cid));
+}
+
+export async function reportRentDispute(id, cid) {
+    const digest = computeCidDigest(cid);
+    try {
+        await contract.reportDisputeWithCid(id, digest, cid);
+    } catch (err) {
+        // fallback for older deployed contracts
+        await contract.reportDisputeWithCidLegacy(id, cid);
+    }
+}
+import { getContractABI, getContractAddress, createContractInstance } from '../utils/contracts';
 
 export class ContractService {
   constructor(signer, chainId) {
@@ -62,45 +78,141 @@ export class ContractService {
 
   async createRentContract(params) {
     try {
-      // validate addresses to avoid ENS resolution attempts
+      // ולידציה לכתובות כדי למנוע ניסיון לפתור ENS
       if (!params.tenant.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
         throw new Error('Tenant address must be a valid Ethereum address');
       }
       if (!params.priceFeed.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
         throw new Error('PriceFeed address must be a valid Ethereum address');
       }
-      if (!params.paymentToken.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
-        throw new Error('PaymentToken address must be a valid Ethereum address');
-      }
+      // ERC20 support removed: do not validate or accept `paymentToken` parameter
 
       const factoryContract = await this.getFactoryContract();
 
-      const rentAmountWei = ethers.parseEther(params.rentAmount);
-      const requiredDeposit = params.requiredDeposit || 0;
-      // compute dueDate as startDate + duration (days -> seconds)
-      // The UI passes startDate as unix seconds. Handle both seconds and ms robustly.
-      let dueDate = 0;
-      if (params.startDate) {
-        const startNum = Number(params.startDate);
-        // if the number looks like milliseconds (>1e12) convert to seconds
-        const startSeconds = startNum > 1e12 ? Math.floor(startNum / 1000) : startNum;
-        const days = Number(params.duration || 0);
-        dueDate = days > 0 ? startSeconds + days * 24 * 60 * 60 : startSeconds;
+      // Ensure the connected signer/provider is on the expected chain. A
+      // mismatched network is the most common cause of an ambiguous
+      // 'Internal JSON-RPC error' when calling eth_sendTransaction from the
+      // browser (MetaMask will try to sign/send to an address that doesn't
+      // exist on the current network). We must not swallow this error.
+      let net;
+      try {
+        net = await this.signer.provider.getNetwork();
+      } catch (err) {
+        console.warn('Could not determine provider network:', err);
+        throw new Error('Could not determine connected wallet network. Ensure your wallet is connected and try again.');
+      }
+      if (Number(net.chainId) !== Number(this.chainId)) {
+        throw new Error(`Connected wallet network mismatch: provider chainId=${net.chainId} but expected=${this.chainId}. Please switch your wallet to the correct network.`);
       }
 
-      const tx = await factoryContract.createRentContract(
-        params.tenant,
-        rentAmountWei,
-        params.priceFeed,
-        params.propertyId || 0,
-        dueDate,
-        { value: requiredDeposit }
-      );
+      // Quick balance preflight: prevent send attempts when the signer has no ETH
+      // which can lead to confusing provider errors. This is a best-effort check.
+      try {
+        const bal = await this.signer.getBalance();
+        // require at least a tiny balance (0.0001 ETH) to cover gas on most nets
+        const min = ethers.parseEther('0.0001');
+        if (bal < min) {
+          throw new Error('Connected wallet has insufficient ETH balance to create a contract. Fund the wallet and try again.');
+        }
+      } catch (balErr) {
+        // If getBalance fails, don't block the user, but present a helpful warning
+        console.warn('Could not determine signer balance:', balErr);
+      }
+
+      const rentAmountWei = ethers.parseEther(params.rentAmount);
+
+      // Preflight checks: ensure price feed exists on-chain (common localhost pitfall)
+      try {
+        const code = await this.getCodeSafe(params.priceFeed);
+        if (!code || code === '0x') {
+          const chain = Number(this.chainId);
+          throw new Error(`Selected price feed has no contract code on chain ${chain}. If you're on localhost, choose "Mock Price Feed (Local)".`);
+        }
+      } catch (pfErr) {
+        throw pfErr;
+      }
+
+      // Extra diagnostics to help debug provider errors (network/account/address mismatches)
+      try {
+        const signerAddr = await this.signer.getAddress().catch(() => null);
+        const factoryAddr = factoryContract.target || factoryContract.address || null;
+        console.debug('Preparing factory.createRentContract', { factoryAddr, signerAddr, expectedChainId: this.chainId });
+
+        // If an injected wallet is present, surface its selected account and chainId
+        try {
+          if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
+            const ethAccounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+            const ethChainId = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
+            console.debug('Injected wallet state before send', { ethAccounts, ethChainId });
+            const selected = (ethAccounts && ethAccounts[0]) || null;
+            if (selected && signerAddr && selected.toLowerCase() !== signerAddr.toLowerCase()) {
+              throw new Error(`Wallet selected account (${selected}) does not match the connected signer (${signerAddr}). Please select the correct account in your wallet and try again.`);
+            }
+            // Also check the injected chainId vs the expected chain
+            if (ethChainId) {
+              try {
+                const hexExpected = `0x${Number(this.chainId).toString(16)}`;
+                if (ethChainId !== hexExpected) {
+                  throw new Error(`Wallet network mismatch: wallet chainId=${ethChainId} but expected=${hexExpected}. Please switch your wallet to the correct network and try again.`);
+                }
+              } catch (cErr) {
+                // bubble up the chain mismatch as a friendly error
+                throw cErr;
+              }
+            }
+          }
+        } catch (walletStateErr) {
+          // Re-throw with helpful context so UI surfaces actionable advice
+          console.error('Wallet preflight check failed:', walletStateErr);
+          throw walletStateErr;
+        }
+      } catch (_) {}
+
+      let tx;
+      try {
+        // Compute dueDate from provided startDate (unix seconds) + duration (days)
+        let dueDate = 0;
+        try {
+          const start = Number(params.startDate || 0);
+          const days = Number(params.duration || 0);
+          if (start > 0 && days > 0) {
+            dueDate = Math.floor(start + days * 24 * 3600);
+          }
+        } catch (e) {
+          dueDate = 0;
+        }
+
+        const propertyId = Number(params.propertyId || 0);
+        console.debug('Sending createRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, dueDate, propertyId, factory: factoryContract.target || factoryContract.address });
+        // Call overloaded factory method that accepts dueDate: createRentContract(address,uint256,address,uint256,uint256)
+        tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256)'](
+          params.tenant,
+          rentAmountWei,
+          params.priceFeed,
+          dueDate,
+          propertyId
+        );
+      } catch (sendErr) {
+        // Try to surface the underlying RPC payload and give actionable guidance
+        try {
+          console.error('Factory createRentContract failed:', sendErr);
+          // Some providers surface the raw RPC payload under sendErr.payload
+          if (sendErr?.payload) {
+            console.error('Underlying RPC payload:', sendErr.payload);
+          }
+          if (sendErr?.error) {
+            console.error('Provider error object:', sendErr.error);
+          }
+        } catch (_) {}
+        // Friendly message for common causes
+        throw new Error('Failed to send transaction to the factory. Verify your wallet is connected to the expected network (localhost if using Hardhat), the selected account is unlocked/has ETH, and the frontend deployment addresses match the network. See console for raw RPC payload.');
+      }
 
       const receipt = await tx.wait();
 
-      // Extract contract address from the event
+      // חילוץ כתובת החוזה מה-event
       let contractAddress = null;
+
       for (const log of receipt.logs) {
         try {
           const parsedLog = factoryContract.interface.parseLog(log);
@@ -116,9 +228,9 @@ export class ContractService {
       return {
         receipt,
         contractAddress,
-        success: !!contractAddress,
-        dueDate
+        success: !!contractAddress
       };
+
     } catch (error) {
       console.error('Error creating rent contract:', error);
       // Normalize common provider error
@@ -127,11 +239,10 @@ export class ContractService {
       }
       throw error;
     }
-    }
+  }
 
   async getRentContract(contractAddress) {
     try {
-      if (!contractAddress) throw new Error('No contract address provided');
       return createContractInstance('TemplateRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
@@ -191,99 +302,6 @@ export class ContractService {
     } catch (error) {
       console.error('Error withdrawing rent payments:', error);
       throw error;
-    }
-  }
-
-  // Post reporter bond for a dispute case (best-effort). Templates may accept a payable
-  // function named `postReporterBond`, `payReporterBond`, `reportDispute` or similar.
-  // We try known candidate names and send value accordingly.
-  async postReporterBond(contractAddress, caseId, amountWei) {
-    try {
-      const rent = await this.getRentContract(contractAddress);
-      const candidates = ['postReporterBond', 'payReporterBond', 'postBond', 'depositReporterBond', 'reportDispute'];
-      for (const name of candidates) {
-        if (typeof rent[name] === 'function') {
-          // Some entrypoints take (caseId) and are payable; others create new disputes and accept more args.
-            try {
-            // Try simple call signature first
-            const tx = await rent[name](caseId, { value: amountWei });
-            const receipt = await tx.wait();
-            // Normalize return: include transactionHash and hash fields for UI compatibility
-            const norm = { ...(receipt || {}), receipt, transactionHash: receipt?.transactionHash || receipt?.hash || tx?.hash || null, hash: receipt?.transactionHash || receipt?.hash || tx?.hash || null };
-            try {
-              const payer = (await this.signer.getAddress?.()) || null;
-              await ContractService.saveTransaction(contractAddress, { type: 'bond', amountWei: String(amountWei), amount: (await import('ethers')).formatEther(BigInt(amountWei)), date: new Date().toLocaleString(), hash: norm.transactionHash, raw: norm, payer });
-            } catch (_) {}
-            if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
-            return norm;
-          } catch (e) {
-            // try without caseId (some functions create the dispute and accept calldata)
-            try {
-              const tx2 = await rent[name]({ value: amountWei });
-              const receipt2 = await tx2.wait();
-              const norm2 = { ...(receipt2 || {}), receipt: receipt2, transactionHash: receipt2?.transactionHash || receipt2?.hash || tx2?.hash || null, hash: receipt2?.transactionHash || receipt2?.hash || tx2?.hash || null };
-              try {
-                const payer2 = (await this.signer.getAddress?.()) || null;
-                await ContractService.saveTransaction(contractAddress, { type: 'bond', amountWei: String(amountWei), amount: (await import('ethers')).formatEther(BigInt(amountWei)), date: new Date().toLocaleString(), hash: norm2.transactionHash, raw: norm2, payer: payer2 });
-              } catch (_) {}
-              if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
-              return norm2;
-            } catch (_) {
-              // ignore and try next candidate
-            }
-          }
-        }
-      }
-      // last resort: attempt low-level send to the contract (no function) — not recommended
-      throw new Error('No known reporter bond entrypoint found on target contract');
-    } catch (err) {
-      console.error('postReporterBond failed', err);
-      throw err;
-    }
-  }
-
-  // Deposit security (appeal deposit / party deposit) to a Rent contract
-  async depositSecurity(contractAddress, amountWei) {
-    try {
-      const rent = await this.getRentContract(contractAddress);
-      const tx = await rent.depositSecurity({ value: amountWei });
-      const receipt = await tx.wait();
-      try {
-        const payer = (await this.signer.getAddress?.()) || null;
-        await ContractService.saveTransaction(contractAddress, { type: 'deposit', amountWei: String(amountWei), amount: (await import('ethers')).formatEther(BigInt(amountWei)), date: new Date().toLocaleString(), hash: receipt?.transactionHash || receipt?.hash || tx?.hash || null, raw: receipt, payer });
-      } catch (_) {}
-      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('deposit:updated'));
-      return receipt;
-    } catch (err) {
-      console.error('depositSecurity failed', err);
-      throw err;
-    }
-  }
-
-  // Simple localStorage-backed transaction list per contract to mirror on-chain payments across roles
-  static async saveTransaction(contractAddress, entry) {
-    try {
-      const key = `txs:${String(contractAddress).toLowerCase()}`;
-      const raw = localStorage.getItem(key);
-      const arr = raw ? JSON.parse(raw) : [];
-      arr.unshift(entry);
-      try { localStorage.setItem(key, JSON.stringify(arr)); } catch (_) {}
-      return true;
-    } catch (e) {
-      console.warn('saveTransaction failed', e);
-      return false;
-    }
-  }
-
-  static async getTransactions(contractAddress) {
-    try {
-      const key = `txs:${String(contractAddress).toLowerCase()}`;
-      const raw = localStorage.getItem(key);
-      if (!raw) return [];
-      return JSON.parse(raw);
-    } catch (e) {
-      console.warn('getTransactions failed', e);
-      return [];
     }
   }
 
@@ -371,8 +389,7 @@ export class ContractService {
       // Derive a richer status for UI
       let status = 'Active';
       if (!isActive) {
-        // Treat inactive contracts uniformly as 'Inactive' in the UI
-        status = 'Inactive';
+        status = 'Cancelled';
       } else if (cancelRequested) {
         status = 'Pending'; // cancellation initiated but not finalized
       }
@@ -587,18 +604,9 @@ export class ContractService {
     }
   }
 
-  async approveToken(tokenAddress, spender, amount) {
-    try {
-      const tokenAbiName = 'MockERC20';
-      const tokenContract = createContractInstance(tokenAbiName, tokenAddress, this.signer);
-      // amount should be in token base units (e.g., wei for 18 decimals)
-      const tx = await tokenContract.approve(spender, amount);
-      const receipt = await tx.wait();
-      return receipt;
-    } catch (error) {
-      console.error('Error approving token:', error);
-      throw error;
-    }
+  // ERC20 support removed: keep function for compatibility but always reject
+  async approveToken() {
+    throw new Error('ERC20 support removed: token approvals are not available');
   }
 
   /**
@@ -755,16 +763,18 @@ export class ContractService {
   }
 
   /**
-   * Apply an arbitrator resolution to a target contract via the ArbitrationService.
-   * Tries `applyResolutionToTarget(target, caseId, approved, appliedAmount, initiator)` first.
-   * If that fails and `approved === true`, falls back to `finalizeTargetCancellation(target)`.
-   * On success returns the mined receipt. Throws on fatal failures.
+   * Apply a full resolution to a target contract via the ArbitrationService.
+   * This is a thin wrapper around ArbitrationService.applyResolutionToTarget with ABI fallback.
+   * Parameters mirror the on-chain signature: (targetContract, caseId, approve, appliedAmount, beneficiary)
    */
-  async applyResolutionToTargetViaService(arbitrationServiceAddress, contractAddress, caseId, approved, appliedAmountWei = 0n, initiator = '0x0000000000000000000000000000000000000000', feeWei = 0n) {
+  async applyResolutionToTargetViaService(arbitrationServiceAddress, targetContract, caseId, approve, appliedAmount = 0n, beneficiary = ethers.ZeroAddress) {
     try {
-      if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
+      if (!arbitrationServiceAddress) throw new Error('Arbitration service address required');
+      // Normalize types
+      const cid = typeof caseId === 'number' || typeof caseId === 'string' ? Number(caseId) : Number(caseId || 0);
+      const appAmt = typeof appliedAmount === 'bigint' ? appliedAmount : BigInt(appliedAmount || 0);
 
-      // Load service contract instance (prefer static helper)
+      // Prepare service contract with ABI fallback
       let svc;
       try {
         svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
@@ -779,33 +789,80 @@ export class ContractService {
         }
       }
 
-      const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
-
-      // Try primary entrypoint
+      // Authorization preflight: ensure connected signer is owner or the configured factory
       try {
-        const tx = await svc.applyResolutionToTarget(contractAddress, caseId, approved, appliedAmountWei, initiator, { value });
-        const receipt = await tx.wait();
-        // record tx in local history
-        try { await ContractService.saveTransaction(contractAddress, { type: 'arb:apply', caseId, approved, appliedAmountWei: String(appliedAmountWei), date: new Date().toLocaleString(), hash: receipt?.transactionHash || receipt?.hash || null, raw: receipt }); } catch (_) {}
-        return receipt;
-      } catch (primaryErr) {
-        console.debug('applyResolutionToTarget primary call failed:', primaryErr);
-        // If approved, try finalizeTargetCancellation as fallback
-        if (approved) {
-          try {
-            const tx2 = await svc.finalizeTargetCancellation(contractAddress, { value });
-            const r2 = await tx2.wait();
-            try { await ContractService.saveTransaction(contractAddress, { type: 'arb:finalizeFallback', caseId, date: new Date().toLocaleString(), hash: r2?.transactionHash || r2?.hash || null, raw: r2 }); } catch (_) {}
-            return r2;
-          } catch (fallbackErr) {
-            console.error('finalizeTargetCancellation fallback failed:', fallbackErr);
-            throw fallbackErr;
-          }
+        const signerAddr = (await this.signer.getAddress()).toLowerCase();
+        const ownerAddr = (await svc.owner?.().catch(() => null) || null);
+        const factoryAddr = (await svc.factory?.().catch(() => null) || null);
+        const isOwner = ownerAddr && signerAddr === String(ownerAddr).toLowerCase();
+        const isFactory = factoryAddr && signerAddr === String(factoryAddr).toLowerCase();
+        if (!isOwner && !isFactory) {
+          throw new Error('Connected wallet is not authorized to call ArbitrationService (must be service owner or factory). Switch to the arbitrator account.');
         }
-        throw primaryErr;
+      } catch (authErr) {
+        // Bubble up as friendly error
+        console.error('Authorization preflight failed for applyResolutionToTargetViaService:', authErr);
+        throw authErr;
+      }
+
+      // Target preflight: ensure the target contract has this arbitration service configured
+      try {
+        const target = createContractInstance('TemplateRentContract', targetContract, this.signer);
+        const targetArb = await target.arbitrationService().catch(() => null);
+        if (!targetArb || targetArb === ethers.ZeroAddress) {
+          throw new Error(`Target contract ${targetContract} has no arbitrationService configured`);
+        }
+        if (String(targetArb).toLowerCase() !== String(arbitrationServiceAddress).toLowerCase()) {
+          throw new Error(`Target arbitrationService mismatch: contract=${targetArb} but you supplied ${arbitrationServiceAddress}`);
+        }
+
+        // Best-effort: clamp appliedAmount to the debtor's available deposit to avoid target revert
+        try {
+          // beneficiary param is the recipient (initiator). Debtor is the other party
+          const landlordAddr = await target.landlord().catch(() => null);
+          const tenantAddr = await target.tenant().catch(() => null);
+          const beneficiaryLower = String(beneficiary || '').toLowerCase();
+          let debtorAddr = null;
+          if (beneficiaryLower && landlordAddr && beneficiaryLower === String(landlordAddr).toLowerCase()) {
+            debtorAddr = tenantAddr;
+          } else {
+            debtorAddr = landlordAddr;
+          }
+          if (debtorAddr) {
+            const dep = BigInt(await target.partyDeposit(debtorAddr).catch(() => 0n) || 0n);
+            if (dep < appAmt) {
+              console.warn(`Clamping appliedAmount ${appAmt} to debtor deposit ${dep} to avoid revert`);
+              // mutate appAmt used below
+              // eslint-disable-next-line no-param-reassign
+              appAmt = dep;
+            }
+          }
+        } catch (clampErr) {
+          // non-fatal; proceed without clamping
+          console.debug('Could not compute debtor deposit for clamping:', clampErr);
+        }
+      } catch (tErr) {
+        console.error('Target preflight failed for applyResolutionToTargetViaService:', tErr);
+        throw tErr;
+      }
+
+      // Call applyResolutionToTarget on the service; ensure applied amount is passed as uint256
+      try {
+        const tx = await svc.applyResolutionToTarget(targetContract, cid, !!approve, appAmt, beneficiary);
+        const receipt = await tx.wait();
+        return receipt;
+      } catch (callErr) {
+        // Attempt to decode revert reason for friendlier messaging
+        try {
+          // Ethers error may contain `error` or `data` with revert payload
+          const msg = callErr?.error?.message || callErr?.message || String(callErr);
+          throw new Error(`ArbitrationService call failed: ${msg}`);
+        } catch (decodeErr) {
+          throw callErr;
+        }
       }
     } catch (error) {
-      console.error('Error applying resolution via service:', error);
+      console.error('Error applying resolution via ArbitrationService:', error);
       throw error;
     }
   }
@@ -816,7 +873,7 @@ export class ContractService {
    * requestedAmount: BigInt or string in wei (use 0 for none)
    * evidenceText: optional plain text or URL to store on-chain as string
    */
-  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '', bondWei = 0n) {
+  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '') {
     try {
       const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
       // Ensure caller is one of the parties recorded on-chain
@@ -840,10 +897,7 @@ export class ContractService {
       // Pass plain evidence string to the contract. Templates now accept `string evidence`.
       const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
       const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
-  // Include bond (if provided) in the same transaction so reporter pays it when
-  // creating the dispute. Default bondWei is 0n for backwards compatibility.
-  const value = typeof bondWei === 'bigint' ? bondWei : BigInt(bondWei || 0);
-  const tx = await rent.reportDispute(disputeType, amount, evidence, { value });
+      const tx = await rent.reportDispute(disputeType, amount, evidence);
       const receipt = await tx.wait();
       // Try to extract the caseId from emitted events
       let caseId = null;
@@ -916,33 +970,9 @@ export class ContractService {
     }
   }
 
-  async payRentWithToken(contractAddress, tokenAddress, amount) {
-    try {
-      const rentContract = await this.getRentContract(contractAddress);
-      // Preflight: ensure connected signer is the tenant
-      try {
-        const [chainTenant, current] = await Promise.all([
-          rentContract.tenant(),
-          this.signer.getAddress()
-        ]);
-        if (chainTenant?.toLowerCase?.() !== current?.toLowerCase?.()) {
-          const msg = `Connected wallet is not the tenant. Expected ${chainTenant}, got ${current}`;
-          const err = new Error(msg);
-          err.reason = msg;
-          throw err;
-        }
-      } catch (addrErr) {
-        if (addrErr?.reason) throw addrErr;
-        throw new Error('Could not verify tenant address on-chain. Check network and contract address.');
-      }
-      // amount expected in token base units (BigInt or string)
-      const tx = await rentContract.payRentWithToken(tokenAddress, amount);
-      const receipt = await tx.wait();
-      return receipt;
-    } catch (error) {
-      console.error('Error paying rent with token:', error);
-      throw error;
-    }
+  // ERC20 support removed: keep API shape but throw
+  async payRentWithToken() {
+    throw new Error('ERC20 support removed: token payments are not available');
   }
 
   // ============ Cancellation Policy and Flow ============
@@ -1389,18 +1419,16 @@ async ndaWithdraw(contractAddress, amountEth) {
   }
 }
 
-async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceText, bondWei = 0n) {
+async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceText) {
   try {
     const nda = await this.getNDAContract(contractAddress);
     const requested = requestedPenaltyEth ? ethers.parseEther(String(requestedPenaltyEth)) : 0n;
     // Pass plain evidence string to the NDA template (was previously a bytes32 hash)
     const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
-  // include on-chain dispute fee if present, plus any reporter bond value
-  let disputeFee = 0n;
-  try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
-  const bond = typeof bondWei === 'bigint' ? bondWei : BigInt(bondWei || 0);
-  const value = disputeFee + bond;
-  const tx = await nda.reportBreach(offender, requested, evidence, { value });
+    // include on-chain dispute fee if present
+    let disputeFee = 0n;
+    try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
+    const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
     return await tx.wait();
   } catch (error) {
     console.error('Error reporting breach:', error);

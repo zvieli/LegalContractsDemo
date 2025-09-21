@@ -189,6 +189,16 @@ npm test
 - Never commit real secrets. `.env` is git-ignored.
 - The NDA contract clamps penalties to an offender’s available deposit to avoid overdrafts.
 
+## ABI / Evidence digest change (2025-09)
+
+- New contracts store off-chain evidence as a `bytes32` digest (keccak256 of the CID) instead of relying on raw string CIDs on-chain. This reduces gas and standardizes verification.
+- Smart-contract entrypoints:
+	- `reportDisputeWithCid(...)` accepts a `bytes32 evidenceDigest` and an `evidenceCid` for off-chain storage metadata.
+	- `reportDisputeWithCidLegacy(...)` computes the digest on-chain from a provided CID to preserve compatibility with older frontends.
+- Frontend `contractService` will attempt to call `reportDisputeWithCid(...)` and fall back to `reportDisputeWithCidLegacy(...)` if the new ABI is not present on a deployed contract.
+
+If you maintain integrations or UIs, update your contract ABIs and prefer providing the digest precomputed by the frontend (see `front/src/services/contractService.js`).
+
 ## License
 
 This is a demo. Add your preferred license file if you plan to distribute.

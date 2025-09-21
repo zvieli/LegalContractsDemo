@@ -24,6 +24,11 @@ module.exports = {
       accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : []
     }
   },
+  gasReporter: {
+    enabled: true,
+    currency: 'USD',
+    showTimeSpent: true
+  },
   etherscan: process.env.ETHERSCAN_API_KEY ? { apiKey: process.env.ETHERSCAN_API_KEY } : undefined,
   contractSizer: {
     alphaSort: true,

@@ -83,6 +83,7 @@ export class DocumentGenerator {
   .badge.active { background: #dcfce7; color: #166534; }
   .badge.inactive { background: #fee2e2; color: #991b1b; }
   .badge.pending { background: #fff7ed; color: #9a3412; }
+  .badge.cancelled { background: #fdecec; color: #b91c1c; }
     .footer { margin-top: 32px; color: var(--muted); font-size: 12px; }
   .rtl { direction: rtl; text-align: right; }
   </style>

@@ -1,62 +1,81 @@
-# IPFS pin-server (dev)
+# Pin-server (local dev) — tools/ipfs
 
-Short developer notes for the local IPFS pin-server used by LegalContractsDemo.
+This small pin-server is used by tests and the frontend to store "pinned" evidence blobs and (in dev mode) perform a deterministic symmetric decrypt via an admin endpoint.
 
-Prerequisites
-- Node.js (>=16)
-- npm
-- Docker (optional, recommended for deterministic CID pinning)
-- PowerShell (examples below use PowerShell on Windows)
+This README explains how to run the server locally (Node), run it inside Docker (useful for CI), and how to run the included test harness `test_run_all.js`.
 
-Quick start (use dockerized go-ipfs)
+## Files
 
-1. Start go-ipfs (from repo root):
+- `pin-server.js` — Express server that accepts `POST /pin` and `POST /admin/decrypt/:id`.
+- `store/` — directory where pin records are written. When run in Docker, `docker-compose.yml` mounts this directory.
+- `test_run_all.js` — small node script that posts a pin and requests admin decrypt to validate behavior.
+- `Dockerfile` & `docker-compose.yml` — containerization files for local/CI usage.
 
-    ```powershell
-    cd tools/ipfs
-    docker compose up -d
-    ```
+## Environment variables
 
-2. Start the pin-server (from repo root):
+- `PIN_SERVER_API_KEY` — Admin API key used by `POST /admin/*` endpoints. (Default: `admin` in dev/test only.)
+- `PIN_SERVER_SYMM_KEY` — Symmetric key for dev-mode deterministic encryption/decryption. The server uses XOR+base64 in dev mode. Default: `devkey`.
+- `PIN_SERVER_PORTS` — Optional comma-separated ports the server should try to listen on. The server will attempt each in order and continue if a port is already in use. Example: `8080,3002`.
+- `ADMIN_PRIVATE_KEY` — (Optional) placeholder private key used by some scripts; not required to run the pin-server itself.
 
-    ```powershell
-    # from repo root
-    node tools/ipfs/pin-server.js
-    # or from tools/ipfs
-    npm run start
-    ```
+Note: Defaults are chosen for local development. Do not use the deterministic XOR mode in production.
 
-3. Run the test/integration harness (from repo root):
+## Run locally (Node)
 
-    ```powershell
-    node tools/ipfs/test_run_all.js
-    # or from tools/ipfs
-    npm run integration
-    ```
-
-Behavior
-- The pin-server prefers the go-ipfs HTTP API at `http://127.0.0.1:5001` when available and falls back to an in-process `ipfs-core` add operation if the daemon is unreachable.
-- Encrypted evidence payloads are persisted as audit records under `tools/ipfs/store/` (this directory is ignored by git).
-- Admin decrypt endpoint exists at `POST /admin/decrypt/:id` and requires the API key defined in `tools/ipfs/.env`.
-
-Cleanup / stop (PowerShell)
+1. Install dependencies (if you haven't already):
 
 ```powershell
-# stop and remove the go-ipfs container and network
-cd tools/ipfs
-docker compose down --remove-orphans
-
-# stop a locally running pin-server (if started in foreground)
-# Find pid by process name or Ctrl+C if started in the current shell
-Get-Process -Name node | Where-Object { $_.Path -like '*pin-server.js' } | Stop-Process -Force
+cd tools/ipfs; npm ci
 ```
 
-Security notes
-- Do NOT commit `tools/ipfs/.env` to the repository. The file contains `ADMIN_PRIVATE_KEY` and `PIN_SERVER_API_KEY` for local dev only.
-- The server implements a simple API key gate for the admin decrypt endpoint; for production use you should secure it behind proper auth and avoid storing private keys on disk.
+2. Run the server:
 
-Troubleshooting
-- If `ipfs-core` reports repo locks, ensure there are no other `js-ipfs` processes running and prefer running the docker go-ipfs daemon.
-- The go-ipfs HTTP API requires multipart/form-data `file` uploads for `api/v0/add`.
+```powershell
+# Recommended: set env variables as needed
+$env:PIN_SERVER_SYMM_KEY = 'devkey'; $env:PIN_SERVER_API_KEY = 'admin'; node pin-server.js
+```
 
-If you want me to expand this README with example HTTP requests or a sample `.env` template, tell me and I will add it.
+3. The server will try to bind to ports from `PIN_SERVER_PORTS` or fallback defaults. Check the console output to see which port it bound to.
+
+## Run with Docker (recommended for CI)
+
+Build and run using the included `docker-compose.yml`:
+
+```powershell
+# Build image and start container
+docker compose -f tools/ipfs/docker-compose.yml build --no-cache; docker compose -f tools/ipfs/docker-compose.yml up -d
+
+# Stop and remove
+docker compose -f tools/ipfs/docker-compose.yml down --volumes --remove-orphans
+```
+
+By default the compose file maps ports `8080` and `3002` from the container to the host. The `store/` directory is mounted so pinned data is persisted on the host.
+
+## Run the test harness
+
+The `test_run_all.js` script posts a pin with a deterministic payload and immediately calls the admin decrypt endpoint to verify the decrypted value matches the original plaintext.
+
+```powershell
+cd tools/ipfs; node test_run_all.js
+```
+
+If running against the Docker container, ensure the container is up first (see Docker commands above).
+
+## Notes for CI
+
+- The test harness exits with a nonzero code on failure, so it can be used directly in CI.
+- The GitHub Actions workflow should build the image, run the container, execute the test script, and then tear down the container.
+
+## Security
+
+This server intentionally includes a deterministic, insecure symmetric encrypt/decrypt (XOR+base64) for local development only. Do not use this for production secrets or on public networks.
+
+If you need a production-ready pinning or encryption service, replace the dev-mode cryptography with a proper KMS or HSM-backed solution and remove the `PIN_SERVER_SYMM_KEY` behavior.
+
+## Troubleshooting
+
+- If a port is already in use, the server will attempt the next port in `PIN_SERVER_PORTS`. Check the log to see the port selected.
+- If admin decrypt fails, verify `PIN_SERVER_API_KEY` and `PIN_SERVER_SYMM_KEY` are identical between the poster and the admin client.
+
+---
+Generated by automation as part of repository maintenance.

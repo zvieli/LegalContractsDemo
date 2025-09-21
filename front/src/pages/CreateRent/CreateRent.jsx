@@ -18,8 +18,6 @@ function CreateRent() {
   const [formData, setFormData] = useState({
     tenantAddress: '',
     rentAmount: '',
-  paymentToken: '0x0000000000000000000000000000000000000000',
-  paymentMethod: 'eth',
     // Default to mock price feed on localhost when available; otherwise use Sepolia by default
     priceFeed: mockPriceFeedAddress || '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
     duration: '',
@@ -145,7 +143,6 @@ function CreateRent() {
       const params = {
         tenant: formData.tenantAddress,
         rentAmount: formData.rentAmount,
-        paymentToken: formData.paymentToken,
         priceFeed: effectivePriceFeed,
         duration: formData.duration,
         startDate: Math.floor(new Date(formData.startDate).getTime() / 1000),
@@ -181,86 +178,11 @@ function CreateRent() {
 
   // Approve token from UI
   const handleApproveToken = async () => {
-    if (!signer) {
-      alert('Connect your wallet first');
-      return;
-    }
-
-    if (!formData.paymentToken || formData.paymentToken === ethers.ZeroAddress) {
-      alert('Select a token to approve');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const svc = new ContractService(signer, resolveSelectedNetworkChainId());
-
-      // If we have a recently created contract, use it automatically
-      const target = createdContractAddress || prompt('Enter the rent contract address to approve for (contract must be deployed)');
-      if (!target || !target.match(/^0x[a-fA-F0-9]{40}$/)) {
-        alert('Invalid contract address');
-        setLoading(false);
-        return;
-      }
-
-      // Ask for amount (if previously set, you could auto-calc; here we ask)
-      const amountInput = prompt('Enter amount to approve (in tokens, e.g., 100.0)');
-      if (!amountInput || isNaN(Number(amountInput))) {
-        alert('Invalid amount');
-        setLoading(false);
-        return;
-      }
-
-      // Convert amount to wei (18 decimals)
-      const amountWei = ethers.parseUnits(amountInput, 18);
-      const receipt = await svc.approveToken(formData.paymentToken, target, amountWei);
-      alert(`Approve tx sent: ${receipt.transactionHash}`);
-    } catch (err) {
-      console.error('Approve failed', err);
-      alert('Approve failed: ' + (err?.message || err));
-    } finally {
-      setLoading(false);
-    }
+    alert('ERC20 support has been removed from this application. Token approvals are no longer supported.');
   };
 
   const handlePayWithToken = async () => {
-    if (!signer) {
-      alert('Connect your wallet first');
-      return;
-    }
-
-    if (!formData.paymentToken || formData.paymentToken === ethers.ZeroAddress) {
-      alert('Select a token to pay with');
-      return;
-    }
-
-    const contractAddress = createdContractAddress || prompt('Enter rent contract address to pay to');
-    if (!contractAddress || !contractAddress.match(/^0x[a-fA-F0-9]{40}$/)) {
-      alert('Invalid contract address');
-      return;
-    }
-
-    // Ask for amount to pay
-    const amountInput = prompt('Enter amount to pay (in tokens, e.g., 100.0)');
-    if (!amountInput || isNaN(Number(amountInput))) {
-      alert('Invalid amount');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const svc = new ContractService(signer, resolveSelectedNetworkChainId());
-      const amountWei = ethers.parseUnits(amountInput, 18);
-      const receipt = await svc.payRentWithToken(contractAddress, formData.paymentToken, amountWei);
-      alert(`Payment tx: ${receipt.transactionHash}`);
-  // After successful payment, clear created address so user can create a new one
-  setCreatedContractAddress('');
-    } catch (err) {
-      console.error('Payment failed', err);
-      alert('Payment failed: ' + (err?.message || err));
-    } finally {
-      setLoading(false);
-    }
+    alert('ERC20 payments are no longer supported. Please pay with ETH.');
   };
 
   if (!isConnected) {
@@ -359,42 +281,7 @@ function CreateRent() {
             <small>Monthly rent amount in ETH</small>
           </div>
 
-          {/* Payment Token */}
-          <div className="form-group">
-            <label>Payment Method</label>
-            <div className="payment-methods">
-              <label>
-                <input type="radio" name="paymentMethod" value="eth" checked={formData.paymentMethod === 'eth'} onChange={handleInputChange} />
-                ETH (native)
-              </label>
-              <label>
-                <input type="radio" name="paymentMethod" value="erc20" checked={formData.paymentMethod === 'erc20'} onChange={handleInputChange} />
-                ERC20 Token
-              </label>
-            </div>
-            <small>Choose how tenants will pay rent</small>
-          </div>
-
-          {formData.paymentMethod === 'erc20' && (
-            <div className="form-group">
-              <label htmlFor="paymentToken">Payment Token</label>
-              <select
-                id="paymentToken"
-                name="paymentToken"
-                value={formData.paymentToken}
-                onChange={handleInputChange}
-              >
-                <option value="0x0000000000000000000000000000000000000000">Select token...</option>
-                {mockContracts?.contracts && Object.entries(mockContracts.contracts).map(([name, addrObj]) => (
-                  // addrObj may be a string or an object; handle both
-                  <option key={name} value={(typeof addrObj === 'string' ? addrObj : addrObj?.trim?.() || String(addrObj))}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-              <small>Token to be used for rent payments (local mocks)</small>
-            </div>
-          )}
+          {/* Payment method: ETH only (ERC20 support removed) */}
 
           {/* Price Feed */}
           <div className="form-group">
@@ -462,12 +349,7 @@ function CreateRent() {
                 </>
               )}
             </button>
-            <button type="button" className="btn-secondary" onClick={handleApproveToken} disabled={loading}>
-              Approve Token
-            </button>
-            <button type="button" className="btn-primary" onClick={handlePayWithToken} disabled={loading}>
-              Pay with Token
-            </button>
+            {/* ERC20 approve/pay removed - payments use ETH only */}
           </div>
         </form>
 
