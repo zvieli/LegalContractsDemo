@@ -4,6 +4,7 @@ import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
 import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
+import { getContractAddress } from '../../utils/contracts';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 
@@ -14,6 +15,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [actionLoading, setActionLoading] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [transactionHistory, setTransactionHistory] = useState([]);
+  const [pendingDeposit, setPendingDeposit] = useState(null);
   const [activeTab, setActiveTab] = useState('details');
   const [requiredEth, setRequiredEth] = useState(null);
   const [requiredEthWei, setRequiredEthWei] = useState(null);
@@ -229,7 +231,59 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             payer: event.args.tenant
           };
         }));
-        setTransactionHistory(transactions);
+
+        // Also include dispute/appeal events (so reporter bond / appeal TXs show in history)
+        try {
+          const disputeEvents = await rentContract.queryFilter(rentContract.filters.DisputeReported?.());
+          const disputeTxs = await Promise.all(disputeEvents.map(async (ev) => {
+            const blk = await (signer?.provider || provider).getBlock(ev.blockNumber);
+            const cid = Number(ev.args?.caseId ?? ev.args?.[0] ?? 0);
+            const req = ev.args?.requestedAmount ?? ev.args?.[3] ?? 0n;
+            const amt = (() => { try { return ethers.formatEther(req); } catch { return String(req); } })();
+            return {
+              hash: ev.transactionHash,
+              amount: amt,
+              date: blk?.timestamp ? new Date(Number(blk.timestamp) * 1000).toLocaleDateString() : '—',
+              payer: ev.args?.initiator || ev.args?.[1],
+              note: `Appeal (case #${cid})`,
+              caseId: cid,
+            };
+          }));
+
+          // merge and sort by date (newest first)
+          const merged = [...transactions, ...disputeTxs].sort((a,b) => {
+            const da = a.date === '—' ? 0 : new Date(a.date).getTime();
+            const db = b.date === '—' ? 0 : new Date(b.date).getTime();
+            return db - da;
+          });
+          setTransactionHistory(merged);
+
+          // Find unresolved disputes and if current account is debtor, set pendingDeposit
+          try {
+            let found = null;
+            for (const d of disputeTxs) {
+              try {
+                const disc = await rentContract.getDispute(Number(d.caseId));
+                const resolved = !!disc[4];
+                if (!resolved) {
+                  const initiator = disc[0];
+                  const landlordAddr = await rentContract.landlord();
+                  const tenantAddr = await rentContract.tenant();
+                  const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
+                  const requested = BigInt(disc[2] || 0);
+                  if (account && String(account).toLowerCase() === String(debtorAddr).toLowerCase()) {
+                    found = { caseId: Number(d.caseId), requestedAmountWei: requested, requestedAmountEth: (() => { try { return ethers.formatEther(requested); } catch { return String(requested); } })(), debtor: debtorAddr };
+                    break;
+                  }
+                }
+              } catch (_) {}
+            }
+            setPendingDeposit(found);
+          } catch (e) { console.debug('pending deposit detection failed', e); }
+        } catch (e) {
+          // ignore dispute merge failures
+          setTransactionHistory(transactions);
+        }
         // read withdrawable amount for connected account (if landlord)
         try {
           if (account) {
@@ -514,20 +568,21 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       const arbAddress = contractDetails?.arbitrationService || null;
       let arbAddr = arbAddress;
       // If not configured on contract, attempt frontend global artifacts
-      if (!arbAddr) {
-        try {
-          const cfMod = await import('../../utils/contracts/ContractFactory.json');
-          const cf = cfMod?.default ?? cfMod;
-          arbAddr = cf?.contracts?.ArbitrationService || null;
-        } catch (_) { arbAddr = null; }
         if (!arbAddr) {
           try {
-            const mcMod = await import('../../utils/contracts/MockContracts.json');
-            const mc = mcMod?.default ?? mcMod;
-            arbAddr = mc?.contracts?.ArbitrationService || null;
+            // Try local deployment metadata first
+            const cfMod = await import('../../utils/contracts/ContractFactory.json');
+            const cf = cfMod?.default ?? cfMod;
+            arbAddr = cf?.contracts?.ArbitrationService || null;
           } catch (_) { arbAddr = null; }
         }
-      }
+        // If still not found, attempt configured addresses via utils/contracts getContractAddress
+        if (!arbAddr) {
+          try {
+            const maybe = await getContractAddress(chainId, 'ArbitrationService');
+            if (maybe) arbAddr = maybe;
+          } catch (_) {}
+        }
 
       if (!arbAddr || arbAddr === 'MISSING_ARBITRATION_SERVICE' || arbAddr === ethers.ZeroAddress) {
         alert('No ArbitrationService configured for this contract or frontend. Run the deploy script with DEPLOY_ARBITRATION=true to add one.');
@@ -1231,6 +1286,35 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                     <div className="alert info">Only the tenant can pay this contract. Connect as the tenant to make payments.</div>
                   )}
                 </div>
+
+                {/* Pending deposit prompt for debtor when an unresolved dispute exists */}
+                {pendingDeposit && (
+                  <div style={{marginTop:12, padding:10, border:'1px solid #f0c', borderRadius:6, background:'#fff7fb'}}>
+                    <div style={{marginBottom:8}}><strong>Notice:</strong> A dispute (case #{pendingDeposit.caseId}) has been filed requesting {pendingDeposit.requestedAmountEth} ETH. As the debtor you must deposit the claimed amount or part of it.</div>
+                    <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                      <button className="btn-primary" onClick={async () => {
+                        // open confirm modal and call depositForCase
+                        try {
+                          const amt = BigInt(pendingDeposit.requestedAmountWei || 0n);
+                          const amtEth = (() => { try { return ethers.formatEther(amt); } catch { return String(amt); } })();
+                          setConfirmAmountEth(amtEth);
+                          setConfirmAction(() => async () => {
+                            try {
+                              setActionLoading(true);
+                              const svc = new ContractService(signer, chainId);
+                              await svc.depositForCase(contractAddress, pendingDeposit.caseId, amt);
+                              alert('Deposit submitted');
+                              // refresh contract data
+                              await loadContractData();
+                            } catch (err) { alert(`Deposit failed: ${err?.message || err}`); } finally { setActionLoading(false); }
+                          });
+                          setConfirmOpen(true);
+                        } catch (e) { console.error('Failed to prepare deposit', e); alert('Failed to prepare deposit'); }
+                      }}>Deposit required amount</button>
+                      <div className="muted">Or deposit a smaller amount using the input field above.</div>
+                    </div>
+                  </div>
+                )}
 
                 <h3>Payment History</h3>
                 <div className="transactions-list">

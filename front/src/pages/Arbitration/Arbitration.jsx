@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import * as ethers from 'ethers';
+import { getContractABI } from '../../utils/contracts';
 import './Arbitration.css';
 import ContractModal from '../../components/ContractModal/ContractModal';
 import ResolveModal from '../../components/ResolveModal/ResolveModal';
@@ -29,24 +30,24 @@ function Arbitration() {
         // Use the local JSON-RPC provider for admin-wide reads
         const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
         // load factory address from frontend artifact
-        const mod = await import('../../utils/contracts/ContractFactory.json');
-        const local = mod?.default ?? mod;
-        const factoryAddr = local?.contracts?.ContractFactory;
+  // Prefer to read local deployment metadata if available (via helper)
+  const { getLocalDeploymentAddresses, getContractAddress } = await import('../../utils/contracts');
+  const local = await getLocalDeploymentAddresses();
+  const factoryAddr = local?.ContractFactory || (await getContractAddress(Number(31337), 'ContractFactory'));
         if (!factoryAddr) {
           setDisputes([]);
           setLoading(false);
           return;
         }
-        const factoryAbiMod = await import('../../utils/contracts/ContractFactoryABI.json');
-        const factoryAbi = factoryAbiMod?.default?.abi ?? factoryAbiMod?.abi ?? factoryAbiMod;
+        // Use static ABI helper to avoid dynamic JSON import
+        const factoryAbi = getContractABI('ContractFactory');
         const factory = new ethers.Contract(factoryAddr, factoryAbi, rpc);
         const total = Number(await factory.getAllContractsCount());
         const pageSize = Math.min(total, 100);
         const page = pageSize > 0 ? await factory.getAllContractsPaged(0, pageSize) : [];
         const unique = Array.from(new Set((page || []).map(a => String(a).toLowerCase()).filter(Boolean)));
         const results = [];
-        const rentAbiMod = await import('../../utils/contracts/TemplateRentContractABI.json');
-        const rentAbi = rentAbiMod?.default?.abi ?? rentAbiMod?.abi ?? rentAbiMod;
+        const rentAbi = getContractABI('TemplateRentContract');
         for (const addr of unique) {
           try {
             const inst = new ethers.Contract(addr, rentAbi, rpc);
@@ -95,16 +96,15 @@ function Arbitration() {
         setLoading(false);
         return;
       }
-      const factoryAbiMod = await import('../../utils/contracts/ContractFactoryABI.json');
-      const factoryAbi = factoryAbiMod?.default?.abi ?? factoryAbiMod?.abi ?? factoryAbiMod;
-      const factory = new ethers.Contract(factoryAddr, factoryAbi, rpc);
+  // Use static ABI helper from utils/contracts
+  const factoryAbi = getContractABI('ContractFactory');
+  const factory = new ethers.Contract(factoryAddr, factoryAbi, rpc);
       const total = Number(await factory.getAllContractsCount());
       const pageSize = Math.min(total, 100);
       const page = pageSize > 0 ? await factory.getAllContractsPaged(0, pageSize) : [];
       const unique = Array.from(new Set((page || []).map(a => String(a).toLowerCase()).filter(Boolean)));
       const results = [];
-      const rentAbiMod = await import('../../utils/contracts/TemplateRentContractABI.json');
-      const rentAbi = rentAbiMod?.default?.abi ?? rentAbiMod?.abi ?? rentAbiMod;
+    const rentAbi = getContractABI('TemplateRentContract');
       for (const addr of unique) {
         try {
           const inst = new ethers.Contract(addr, rentAbi, rpc);

@@ -7,6 +7,21 @@ import ArbitrationServiceABI from './contracts/ArbitrationServiceABI.json';
 import { CONTRACT_ADDRESSES } from '../../config/chains';
 import * as ethers from 'ethers';
 
+let _localDeployCache = null;
+
+export const getLocalDeploymentAddresses = async () => {
+  if (_localDeployCache) return _localDeployCache;
+  try {
+    const mod = await import('./contracts/ContractFactory.json');
+    const local = mod?.default ?? mod;
+    _localDeployCache = local?.contracts || null;
+    return _localDeployCache;
+  } catch (e) {
+    _localDeployCache = null;
+    return null;
+  }
+};
+
 // פונקציות utility לעבודה עם החוזים
 export const getContractABI = (contractName) => {
   switch (contractName) {
@@ -48,22 +63,22 @@ export const getContractAddress = async (chainId, contractName) => {
 
   // 1) Prefer localhost address when running locally AND targeting a local chain
   if (isLocalHostEnv && isLocalChain) {
-      // Vite/ESM dynamic JSON imports expose data under `default`
-      const mod = await import('./contracts/ContractFactory.json');
-      const local = mod?.default ?? mod;
-      if (contractName.toLowerCase() === 'factory' || contractName === 'ContractFactory') {
-        const addr = local?.contracts?.ContractFactory || null;
-        if (addr && ethers.isAddress(addr)) return addr;
+      // Attempt to read cached local deployment metadata
+      const localContracts = await getLocalDeploymentAddresses();
+      if (localContracts) {
+        if (contractName.toLowerCase() === 'factory' || contractName === 'ContractFactory') {
+          const addr = localContracts?.ContractFactory || null;
+          if (addr && ethers.isAddress(addr)) return addr;
+        }
       }
       // fall through to configured addresses if not found
     }
 
   // 2) Explicit localhost chainIds support via generated JSON
   if (isLocalChain) {
-      const mod = await import('./contracts/ContractFactory.json');
-      const local = mod?.default ?? mod;
+      const localContracts = await getLocalDeploymentAddresses();
       if (contractName.toLowerCase() === 'factory') {
-        const addr = local?.contracts?.ContractFactory || null;
+        const addr = localContracts?.ContractFactory || null;
         return addr && ethers.isAddress(addr) ? addr : null;
       }
       return null;

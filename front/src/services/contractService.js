@@ -658,22 +658,13 @@ export class ContractService {
         throw preErr;
       }
 
-      // Prefer the registered helper but gracefully fallback to a dynamic ABI import
+      // Use the frontend static ABI helper to create the ArbitrationService instance
       let svc;
       try {
-        const abiName = 'ArbitrationService';
-        // Try helper that uses static imports
-        svc = createContractInstance(abiName, arbitrationServiceAddress, this.signer);
+        svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
       } catch (e) {
-        // Fallback: dynamic import of ABI JSON produced by deploy script
-        try {
-          const mod = await import('../utils/contracts/ArbitrationServiceABI.json');
-          const abi = mod?.default?.abi ?? mod?.abi ?? mod;
-          svc = new (await import('ethers')).Contract(arbitrationServiceAddress, abi, this.signer);
-        } catch (impErr) {
-          console.error('Could not load ArbitrationService ABI dynamically:', impErr);
-          throw new Error('ArbitrationService ABI not available');
-        }
+        console.error('Could not create ArbitrationService instance via static ABI helper:', e);
+        throw new Error('ArbitrationService ABI not available');
       }
       // feeWei may be BigInt or string; normalize
       const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
@@ -727,19 +718,13 @@ export class ContractService {
       const landlordAddr = (await target.landlord()).toLowerCase();
       const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
 
-      // Prepare service instance (ABI fallback like earlier)
+      // Create service instance using static ABI helper
       let svc;
       try {
         svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
       } catch (e) {
-        try {
-          const mod = await import('../utils/contracts/ArbitrationServiceABI.json');
-          const abi = mod?.default?.abi ?? mod?.abi ?? mod;
-          svc = new (await import('ethers')).Contract(arbitrationServiceAddress, abi, this.signer);
-        } catch (impErr) {
-          console.error('Could not load ArbitrationService ABI dynamically:', impErr);
-          throw new Error('ArbitrationService ABI not available');
-        }
+        console.error('Could not create ArbitrationService instance via static ABI helper:', e);
+        throw new Error('ArbitrationService ABI not available');
       }
 
       // If signer is landlord, call finalizeByLandlord; otherwise attempt finalizeTargetCancellation
@@ -769,21 +754,16 @@ export class ContractService {
       if (!arbitrationServiceAddress) throw new Error('Arbitration service address required');
       // Normalize types
       const cid = typeof caseId === 'number' || typeof caseId === 'string' ? Number(caseId) : Number(caseId || 0);
-      const appAmt = typeof appliedAmount === 'bigint' ? appliedAmount : BigInt(appliedAmount || 0);
+  // allow clamping below when debtor deposit is smaller than requested apply amount
+  let appAmt = typeof appliedAmount === 'bigint' ? appliedAmount : BigInt(appliedAmount || 0);
 
-      // Prepare service contract with ABI fallback
+      // Create service contract using static ABI helper
       let svc;
       try {
         svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
       } catch (e) {
-        try {
-          const mod = await import('../utils/contracts/ArbitrationServiceABI.json');
-          const abi = mod?.default?.abi ?? mod?.abi ?? mod;
-          svc = new (await import('ethers')).Contract(arbitrationServiceAddress, abi, this.signer);
-        } catch (impErr) {
-          console.error('Could not load ArbitrationService ABI dynamically:', impErr);
-          throw new Error('ArbitrationService ABI not available');
-        }
+        console.error('Could not create ArbitrationService instance via static ABI helper:', e);
+        throw new Error('ArbitrationService ABI not available');
       }
 
       // Authorization preflight: ensure connected signer is owner or the configured factory

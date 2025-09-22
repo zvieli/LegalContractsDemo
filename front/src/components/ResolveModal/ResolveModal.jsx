@@ -4,6 +4,8 @@ import ConfirmPayModal from '../common/ConfirmPayModal';
 import { ArbitrationService } from '../../services/arbitrationService';
 import { fetchPinnedRecord, decryptPinnedRecord } from '../../services/pinServerService';
 import * as ethers from 'ethers';
+import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
+import { createContractInstance } from '../../utils/contracts';
 import './ResolveModal.css';
 
 function EvidencePanel({ initialPinId, isArbitrator }) {
@@ -117,16 +119,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [depositConfirmAction, setDepositConfirmAction] = useState(null);
   const [depositConfirmBusy, setDepositConfirmBusy] = useState(false);
 
-  // Helper to parse ETH strings shown in UI back to wei BigInt safely
-  const parseEtherSafe = (val) => {
-    try {
-      if (!val) return '0';
-      return ethers.parseEther(String(val));
-    } catch {
-      // If formatting fails (already wei string), try to coerce
-      try { return BigInt(val); } catch { return 0n; }
-    }
-  };
+  // ... use imported parseEtherSafe and formatEtherSafe from utils/eth
 
   useEffect(() => {
     // When modal opens, attempt to compute required early-termination fee (if any)
@@ -144,7 +137,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           const required = (rentWei * BigInt(feeBps)) / 10000n;
           if (mounted) {
             setRequiredFeeWei(required);
-            try { setRequiredFeeEth((await import('ethers')).formatEther(required)); } catch { setRequiredFeeEth(String(required)); }
+            try { setRequiredFeeEth(ethers.formatEther(required)); } catch { setRequiredFeeEth(String(required)); }
           }
         } else {
           if (mounted) {
@@ -188,12 +181,12 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               const requestedAmount = BigInt(d[2] || 0);
               const resolved = !!d[4];
               if (!resolved) {
-                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator });
-                try {
-                  setDisputeAmountEth(ethers.formatEther(requestedAmount));
-                } catch {
-                  setDisputeAmountEth(String(requestedAmount));
-                }
+                // compute debtor address (the counterparty) and store it on disputeInfo
+                const landlordAddr = await rent.landlord();
+                const tenantAddr = await rent.tenant();
+                const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
+                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, debtor: debtorAddr });
+                try { setDisputeAmountEth(formatEtherSafe(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
 
                 // Try to fetch per-party deposit balances so the arbitrator
                 // can see available funds and any remainder that will become debt.
@@ -202,33 +195,33 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                   const tenantAddr = await rent.tenant();
                   const landlordDep = BigInt(await rent.partyDeposit(landlordAddr));
                   const tenantDep = BigInt(await rent.partyDeposit(tenantAddr));
-                  setLandlordDepositEth(ethers.formatEther(landlordDep));
-                  setTenantDepositEth(ethers.formatEther(tenantDep));
+                  setLandlordDepositEth(formatEtherSafe(landlordDep));
+                  setTenantDepositEth(formatEtherSafe(tenantDep));
 
                   const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
                   const debtorDep = BigInt(await rent.partyDeposit(debtorAddr));
-                  setDebtorDepositEth(ethers.formatEther(debtorDep));
+                  setDebtorDepositEth(formatEtherSafe(debtorDep));
                   setDebtorDepositWei(debtorDep);
 
                   const toApply = requestedAmount > debtorDep ? debtorDep : requestedAmount;
                   const remainder = requestedAmount > debtorDep ? requestedAmount - debtorDep : 0n;
-                  setWillBeDebitedEth(ethers.formatEther(toApply));
-                  setDebtRemainderEth(ethers.formatEther(remainder));
+                  setWillBeDebitedEth(formatEtherSafe(toApply));
+                  setDebtRemainderEth(formatEtherSafe(remainder));
                   // Read reporter bond and withdrawable balances (best-effort via service helpers)
                     try {
                       const svc2 = new ContractService(signer, chainId);
-                      const bond = await svc2.getDisputeBond(contractAddress, i).catch(() => 0n);
-                      setReporterBondEth(ethers.formatEther(bond));
-                      const initW = await svc2.getWithdrawable(contractAddress, initiator).catch(() => 0n);
-                      setInitiatorWithdrawableEth(ethers.formatEther(initW));
+                      const bond = BigInt(await svc2.getDisputeBond(contractAddress, i).catch(() => 0n));
+                      setReporterBondEth(formatEtherSafe(bond));
+                      const initW = BigInt(await svc2.getWithdrawable(contractAddress, initiator).catch(() => 0n));
+                      setInitiatorWithdrawableEth(formatEtherSafe(initW));
                       // Also read withdrawable for arbitration owner (best-effort via arbitrationService lookup)
                       try {
                         const arbSvc = new ArbitrationService(signer, chainId);
                         const owner = await arbSvc.getArbitrationServiceOwnerByNDA(contractAddress).catch(() => null);
                         if (owner) {
                           setArbOwnerAddr(owner);
-                          const arbW = await svc2.getWithdrawable(contractAddress, owner).catch(() => 0n);
-                          setArbOwnerWithdrawableEth(ethers.formatEther(arbW));
+                          const arbW = BigInt(await svc2.getWithdrawable(contractAddress, owner).catch(() => 0n));
+                          setArbOwnerWithdrawableEth(formatEtherSafe(arbW));
                         }
                       } catch (_) { /* ignore */ }
                     } catch (bondErr) {
@@ -239,12 +232,12 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                 }
 
                 // Try to fetch reporter bond and withdrawable balances
-                try {
-                  const svc = new ContractService(signer, chainId);
-                  const bond = BigInt(await svc.getDisputeBond(contractAddress, i));
-                  setReporterBondEth((await import('ethers')).formatEther(bond));
-                  const initW = BigInt(await svc.getWithdrawable(contractAddress, initiator));
-                  setInitiatorWithdrawableEth((await import('ethers')).formatEther(initW));
+                  try {
+                    const svc = new ContractService(signer, chainId);
+                    const bond = BigInt(await svc.getDisputeBond(contractAddress, i));
+                    setReporterBondEth(ethers.formatEther(bond));
+                    const initW = BigInt(await svc.getWithdrawable(contractAddress, initiator));
+                    setInitiatorWithdrawableEth(ethers.formatEther(initW));
                   // arbitration owner withdrawable - best-effort: read arbitrationService owner then withdrawable
                   try {
                     const rent = await svc.getRentContract(contractAddress);
@@ -252,9 +245,9 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                     if (svcAddr && svcAddr !== '0x0000000000000000000000000000000000000000') {
                       const arbSvc = createContractInstance('ArbitrationService', svcAddr, signer);
                       const owner = await arbSvc.owner().catch(() => null);
-                      if (owner) {
+                        if (owner) {
                         const ownersW = BigInt(await svc.getWithdrawable(contractAddress, owner));
-                        setArbOwnerWithdrawableEth((await import('ethers')).formatEther(ownersW));
+                        setArbOwnerWithdrawableEth(ethers.formatEther(ownersW));
                       }
                     }
                   } catch (_) {}
@@ -275,6 +268,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     };
     loadDispute();
     // Listen for DisputeFiled events from the contract so debtor can be notified in other UIs
+    let cleanupFn = null;
     try {
       if (contractAddress && signer) {
         const svc = new ContractService(signer, chainId);
@@ -297,13 +291,14 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                         setAppealLocal(incoming);
                         // update disputeInfo if modal open
                         setDisputeInfo(prev => ({ caseId: Number(caseId), requestedAmountWei: BigInt(requestedAmount || 0), initiator: prev?.initiator || null }));
-                        try { setDebtorDepositWei(BigInt(requestedAmount || 0)); setDebtorDepositEth((await import('ethers')).formatEther(BigInt(requestedAmount || 0))); } catch (_) {}
+                        try { setDebtorDepositWei(BigInt(requestedAmount || 0)); setDebtorDepositEth(ethers.formatEther(BigInt(requestedAmount || 0))); } catch (_) {}
                       }
                     } catch (_) {}
                   })();
                 } catch (_) {}
               };
               rent.on(filter, onFiled);
+              cleanupFn = () => { try { rent.off(filter, onFiled); } catch (_) {} };
             }
           } catch (_) {}
         })();
@@ -328,7 +323,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
         try { setAppealLocal(JSON.parse(js)); } catch { setAppealLocal(null); }
       } else setAppealLocal(null);
     } catch (_) { setAppealLocal(null); }
-    return () => { mounted = false; };
+    return () => { mounted = false; if (cleanupFn) cleanupFn(); };
   }, [isOpen, contractAddress, signer, chainId]);
 
   // Helper to refresh dispute-related state without reloading the page
@@ -400,9 +395,9 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
 
         if (!arbAddr || arbAddr === '0x0000000000000000000000000000000000000000') {
           try {
-            const cfMod = await import('../../utils/contracts/ContractFactory.json');
-            const cf = cfMod?.default ?? cfMod;
-            arbAddr = cf?.contracts?.ArbitrationService || null;
+            const { getLocalDeploymentAddresses } = await import('../../utils/contracts');
+            const local = await getLocalDeploymentAddresses();
+            arbAddr = local?.ArbitrationService || local?.ArbitrationService || null;
           } catch (_) { arbAddr = null; }
         }
 
@@ -415,28 +410,25 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           const svc2 = new ContractService(signer, chainId);
           // Authorization preflight: ensure connected signer is owner or factory allowed by ArbitrationService
           try {
-            const arbContract = (await import('../../utils/contracts/ArbitrationServiceABI.json')).default?.abi ? null : null;
             // create instance via ContractService helper
             const svcInst = await (async () => {
               try { return await svc2.getRentContract(contractAddress).catch(() => null); } catch (_) { return null; }
             })();
             // Instead of relying on target, create a direct ArbitrationService contract to read owner/factory
-            try {
-              const mod = await import('../../utils/contracts/ArbitrationServiceABI.json');
-              const abi = mod?.default?.abi ?? mod?.abi ?? mod;
-              const ethersMod = await import('ethers');
-              const arbRead = new ethersMod.Contract(arbAddr, abi, signer.provider || signer);
-              const ownerAddr = await arbRead.owner().catch(() => null);
-              const factoryAddr = await arbRead.factory().catch(() => null);
-              const me = (await signer.getAddress?.()).toLowerCase();
-              const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
-              if (!allowed) {
-                throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
+              try {
+                // Use the frontend static ABI helper to create the contract instance (avoids dynamic ABI imports)
+                const arbRead = createContractInstance('ArbitrationService', arbAddr, signer.provider || signer);
+                const ownerAddr = await arbRead.owner().catch(() => null);
+                const factoryAddr = await arbRead.factory().catch(() => null);
+                const me = (await signer.getAddress?.()).toLowerCase();
+                const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
+                if (!allowed) {
+                  throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
+                }
+              } catch (authErr) {
+                // Bubble up authorization error to user
+                throw authErr;
               }
-            } catch (authErr) {
-              // Bubble up authorization error to user
-              throw authErr;
-            }
           } catch (authCheckErr) {
             alert(`Authorization check failed: ${authCheckErr?.message || authCheckErr}`);
             setSubmitting(false);
