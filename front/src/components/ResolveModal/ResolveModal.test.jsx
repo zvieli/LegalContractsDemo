@@ -26,7 +26,7 @@ describe('EvidencePanel', () => {
 
   it('fetches pinned record and decrypts when admin key set', async () => {
     // set admin API key in localStorage so admin decrypt is allowed
-    localStorage.setItem('PIN_SERVER_API_KEY', 'admin')
+  // admin key removed; tests should use signed reveal flows or mock server responses
 
     // Dummy signer that exposes signMessage returning a stable signature string
     const dummySigner = { signMessage: async (msg) => '0x' + Buffer.from('dummy').toString('hex') };

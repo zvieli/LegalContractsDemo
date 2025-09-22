@@ -16,7 +16,9 @@ describe('Appeal decrypt integration', function () {
   let factory, rentContract, arbsvc, mockPriceFeed;
 
   const PIN_SERVER = process.env.PIN_SERVER_URL || 'http://127.0.0.1:3002';
-  const ADMIN_KEY = process.env.PIN_SERVER_ADMIN_KEY || 'dev-secret';
+  // Use ADMIN_PRIVATE_KEY and sign admin typedData in the test
+  const ADMIN_PRIV = process.env.ADMIN_PRIVATE_KEY || process.env.PIN_SERVER_ADMIN_PRIVATE_KEY;
+  if (!ADMIN_PRIV) throw new Error('ADMIN_PRIVATE_KEY must be set for AppealDecryptIntegration.test');
 
   beforeEach(async function () {
     [landlord, tenant] = await ethers.getSigners();
@@ -94,9 +96,19 @@ describe('Appeal decrypt integration', function () {
 
     const id = json.id;
     // Now call admin decrypt
-    const res3 = await axios.post(`${PIN_SERVER}/admin/decrypt/${id}`, {}, { headers: { 'X-API-KEY': ADMIN_KEY } });
-    const j2 = res3.data;
-    expect(j2.decrypted).to.exist;
+  // build admin typedData and sign with ADMIN_PRIV
+  const { TypedDataEncoder, SigningKey } = await import('ethers');
+  const adminTypedData = { domain: { name: 'PinServerAdmin', version: '1' }, types: { AdminReveal: [{ name: 'pinId', type: 'string' }] }, value: { pinId: id } };
+  const digest = TypedDataEncoder.hash(adminTypedData.domain, adminTypedData.types, adminTypedData.value);
+  const sk = new SigningKey(ADMIN_PRIV);
+  const sigObj = sk.sign(digest);
+  const r = sigObj.r.replace(/^0x/, '');
+  const s = sigObj.s.replace(/^0x/, '');
+  const v = (typeof sigObj.yParity === 'number') ? (sigObj.yParity ? 28 : 27) : (sigObj.networkV || 27);
+  const signature = '0x' + r + s + v.toString(16).padStart(2, '0');
+  const res3 = await axios.post(`${PIN_SERVER}/admin/decrypt/${id}`, { adminTypedData, adminSignature: signature }, { headers: { 'Content-Type': 'application/json' } });
+  const j2 = res3.data;
+  expect(j2.decrypted).to.exist;
     // tolerate older dev pin-servers that return `decrypted(<cipher>)` wrapper
     const plain = j2.decrypted;
     if (plain !== message) {

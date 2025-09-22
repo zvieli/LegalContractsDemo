@@ -15,8 +15,11 @@ describe('Pin server integration', function () {
         const rec = { id: testId, cipherStr: 'cipher123', meta: { filename: 'evidence.pdf' } };
         fs.writeFileSync(path.join(storeDir, `${testId}.json`), JSON.stringify(rec));
 
-        // start the pin-server process with a known API key and poll the HTTP endpoint until available
-        serverProc = spawn(process.execPath, ['tools/ipfs/pin-server.js'], { env: Object.assign({}, process.env, { PIN_SERVER_API_KEY: 'dev-secret', ADMIN_PRIVATE_KEY: 'priv' }), stdio: ['ignore', 'pipe', 'pipe'] });
+    // start the pin-server process with ADMIN_PRIVATE_KEY set for admin signature auth
+    // The test environment must provide ADMIN_PRIVATE_KEY; inherit from process.env if present
+    const spawnEnv = Object.assign({}, process.env);
+    if (!spawnEnv.ADMIN_PRIVATE_KEY) throw new Error('ADMIN_PRIVATE_KEY must be set for pin-server integration test');
+    serverProc = spawn(process.execPath, ['tools/ipfs/pin-server.js'], { env: spawnEnv, stdio: ['ignore', 'pipe', 'pipe'] });
         serverProc.stdout.on('data', (d) => console.log('pin-server-out:', d.toString().trim()));
         serverProc.stderr.on('data', (d) => console.error('pin-server-err:', d.toString().trim()));
 
@@ -49,9 +52,20 @@ describe('Pin server integration', function () {
         const rec = await res.json();
         expect(rec.id).to.equal(testId);
 
-        const res2 = await nodeFetch(`http://localhost:8080/admin/decrypt/${testId}`, { method: 'POST', headers: { 'X-API-KEY': 'dev-secret' } });
-        expect(res2.ok).to.be.true;
-        const body = await res2.json();
-        expect(body.decrypted).to.equal('decrypted(cipher123)');
+    // perform admin decrypt by signing admin typedData with ADMIN_PRIVATE_KEY
+    if (!process.env.ADMIN_PRIVATE_KEY) throw new Error('ADMIN_PRIVATE_KEY must be set for this test');
+    const { TypedDataEncoder, SigningKey } = (await import('ethers'));
+    const adminTypedData = { domain: { name: 'PinServerAdmin', version: '1' }, types: { AdminReveal: [{ name: 'pinId', type: 'string' }] }, value: { pinId: testId } };
+    const digest = TypedDataEncoder.hash(adminTypedData.domain, adminTypedData.types, adminTypedData.value);
+    const sk = new SigningKey(process.env.ADMIN_PRIVATE_KEY);
+    const sigObj = sk.sign(digest);
+    const r = sigObj.r.replace(/^0x/, '');
+    const s = sigObj.s.replace(/^0x/, '');
+    const v = (typeof sigObj.yParity === 'number') ? (sigObj.yParity ? 28 : 27) : (sigObj.networkV || 27);
+    const signature = '0x' + r + s + v.toString(16).padStart(2, '0');
+    const res2 = await nodeFetch(`http://localhost:8080/admin/decrypt/${testId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adminTypedData, adminSignature: signature }) });
+    expect(res2.ok).to.be.true;
+    const body = await res2.json();
+    expect(body.decrypted).to.equal('decrypted(cipher123)');
     });
 });

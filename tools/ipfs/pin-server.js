@@ -1,17 +1,56 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+// Load .env for local dev/tests if present (do this after path is available)
+try { require('dotenv').config({ path: path.join(__dirname, '.env') }); } catch (e) { /* ignore if dotenv not installed */ }
 const { ethers } = require('ethers');
 const crypto = require('crypto');
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+
+// Global error hooks to aid debugging (kept minimal and safe for dev)
+process.on('uncaughtException', (err) => {
+	console.error('UNCAUGHT_EXCEPTION in pin-server:', err && (err.stack || err.message || err));
+});
+process.on('unhandledRejection', (reason) => {
+	console.error('UNHANDLED_REJECTION in pin-server:', reason && (reason.stack || reason.message || reason));
+});
+
+// Admin auth: require an admin private key or explicit admin address via env (no fallback)
+const ADMIN_PRIVATE_KEY = process.env.ADMIN_PRIVATE_KEY || process.env.PIN_SERVER_ADMIN_PRIVATE_KEY || null;
+let PIN_SERVER_ADMIN_ADDRESS = process.env.PIN_SERVER_ADMIN_ADDRESS || process.env.PIN_SERVER_ADMIN_ADDR || null;
+if (!PIN_SERVER_ADMIN_ADDRESS && ADMIN_PRIVATE_KEY) {
+	try {
+		// derive address from private key
+		PIN_SERVER_ADMIN_ADDRESS = (new ethers.Wallet(ADMIN_PRIVATE_KEY)).address;
+	} catch (e) {
+		console.error('Failed to derive admin address from ADMIN_PRIVATE_KEY:', e && e.message);
+		process.exit(1);
+	}
+}
+if (!PIN_SERVER_ADMIN_ADDRESS) {
+	console.error('Pin server requires ADMIN_PRIVATE_KEY or PIN_SERVER_ADMIN_ADDRESS environment variable. Exiting.');
+	process.exit(1);
+}
+PIN_SERVER_ADMIN_ADDRESS = String(PIN_SERVER_ADMIN_ADDRESS).toLowerCase();
+// PIN_SERVER_PORTS or PORT must be provided
+const PORTS_ENV = process.env.PIN_SERVER_PORTS || process.env.PORT || null;
+if (!PORTS_ENV) {
+	console.error('Pin server requires PIN_SERVER_PORTS or PORT environment variable to be set. Exiting.');
+	process.exit(1);
+}
+console.log('Pin server startup - config: ', {
+	PIN_SERVER_ADMIN_ADDRESS: PIN_SERVER_ADMIN_ADDRESS,
+	hasAdminPrivKey: !!ADMIN_PRIVATE_KEY,
+	PIN_SERVER_PORTS: PORTS_ENV
+});
 
 // Helper to set CORS headers on responses (kept permissive for local dev)
 function setCorsHeaders(req, res) {
 	const origin = req.headers.origin || '*';
 	res.setHeader('Access-Control-Allow-Origin', origin);
 	res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-	res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-API-KEY');
+	res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 	res.setHeader('Access-Control-Expose-Headers', 'Content-Type');
 }
 
@@ -76,38 +115,79 @@ app.post('/admin/decrypt/:id', async (req, res) => {
 		} catch (e) { console.warn('Failed to write audit log', e && e.message); }
 	}
 
-	// Reject legacy client API-key flow from browser by checking origin header.
-	// If a valid server-side admin key exists, it may be used by server operators (not browsers).
-	const apiKey = req.header('X-API-KEY');
-	const requiredKey = process.env.PIN_SERVER_API_KEY || process.env.PIN_SERVER_ADMIN_KEY || null;
-	if (apiKey && requiredKey && apiKey === requiredKey) {
-		// Only allow API key usage from non-browser origins (simple heuristic)
-		const origin = req.headers.origin || '';
-		if (origin && (origin.startsWith('http://') || origin.startsWith('https://'))) {
-			// If API key is sent from a browser origin, refuse (to avoid accidental exposure)
-			auditLog({ action: 'admin-decrypt-rejected-api-from-browser', id: req.params.id, origin, remote: req.ip });
-			return res.status(403).json({ error: 'API key usage from browser not allowed' });
-		}
-		// Server operator allowed: decrypt and return (admin path)
-		try {
-			const keyBuf = getAesKeyFromEnv();
-			const stored = record.cipherStr;
-			let decrypted = null;
-			if (stored) {
-				try {
-					// try AES-GCM JSON format
-					decrypted = decryptAesGcm(stored, keyBuf);
-				} catch (e) {
-					// fallback: if stored is raw plaintext, return as-is
-					decrypted = stored;
+	// Admin signature path: verify admin EIP-712 typedData + signature instead of API key
+	// Request may include `adminTypedData` and `adminSignature`. When present and valid
+	// the server will treat the request as an admin operator request.
+	try {
+		const adminTyped = req.body && req.body.adminTypedData;
+		const adminSig = req.body && req.body.adminSignature;
+		if (adminTyped && adminSig) {
+			// Verify admin signature
+			try {
+				const verifyFn = (ethers && ethers.verifyTypedData) ? ethers.verifyTypedData : (ethers.utils && ethers.utils.verifyTypedData);
+				if (!verifyFn) throw new Error('verifyTypedData unavailable');
+				const recovered = verifyFn(adminTyped.domain, adminTyped.types, adminTyped.value, adminSig);
+				if (!recovered) throw new Error('Failed to recover admin signer');
+				if (!PIN_SERVER_ADMIN_ADDRESS) {
+					auditLog({ action: 'admin-decrypt-rejected-no-admin-config', id: req.params.id, recovered: recovered, remote: req.ip });
+					return res.status(500).json({ error: 'Server admin not configured' });
 				}
+				if (String(recovered).toLowerCase() !== PIN_SERVER_ADMIN_ADDRESS) {
+					auditLog({ action: 'admin-decrypt-rejected-admin-mismatch', id: req.params.id, recovered: recovered, expected: PIN_SERVER_ADMIN_ADDRESS, remote: req.ip });
+					return res.status(403).json({ error: 'Admin signature not valid' });
+				}
+				// Validate adminTypedData includes nonce/expiry and enforce replay protection
+				try {
+					const value = adminTyped.value || {};
+					const nonce = Number(value.nonce || 0);
+					const expiry = Number(value.expiry || 0);
+					if (!nonce || !expiry) {
+						auditLog({ action: 'admin-decrypt-rejected-bad-typed', id: req.params.id, reason: 'missing nonce/expiry', remote: req.ip });
+						return res.status(400).json({ error: 'adminTypedData must include nonce and expiry' });
+					}
+					if (Date.now() > expiry * 1000) {
+						auditLog({ action: 'admin-decrypt-rejected-expired', id: req.params.id, nonce, expiry, remote: req.ip });
+						return res.status(403).json({ error: 'Admin signature expired' });
+					}
+					// Admin nonce replay protection: store used admin nonces per pin id
+					const adminNonceFile = path.join(__dirname, 'store', `${req.params.id}.admin_nonces.json`);
+					let usedAdmin = [];
+					try { if (fs.existsSync(adminNonceFile)) usedAdmin = JSON.parse(fs.readFileSync(adminNonceFile)); } catch (e) { usedAdmin = []; }
+					if (usedAdmin.includes(nonce)) {
+						auditLog({ action: 'admin-decrypt-rejected-nonce-replay', id: req.params.id, nonce, remote: req.ip });
+						return res.status(403).json({ error: 'Admin nonce already used' });
+					}
+					// Authorized as admin — decrypt and return
+					try {
+						const keyBuf = getAesKeyFromEnv();
+						const stored = record.cipherStr;
+						let decrypted = null;
+						let usedPlaintextFallback = false;
+						if (stored) {
+							try { decrypted = decryptAesGcm(stored, keyBuf); } catch (e) { decrypted = stored; usedPlaintextFallback = true; }
+						}
+						// mark admin nonce used
+						usedAdmin.push(nonce);
+						try { fs.writeFileSync(adminNonceFile, JSON.stringify(usedAdmin)); } catch (e) { /* ignore */ }
+						auditLog({ action: 'admin-decrypt', id: req.params.id, operator: 'admin-sig', remote: req.ip, admin: recovered, nonce, expiry });
+						if (usedPlaintextFallback && typeof decrypted === 'string') return res.json({ decrypted: `decrypted(${decrypted})` });
+						return res.json({ decrypted });
+					} catch (err) {
+						console.error('Decrypt failed (admin sig):', err && err.message);
+						return res.status(500).json({ error: 'Decrypt failed' });
+					}
+				} catch (err2) {
+					auditLog({ action: 'admin-decrypt-error', id: req.params.id, err: err2 && err2.message, remote: req.ip });
+					return res.status(500).json({ error: 'Admin typedData processing failed' });
+				}
+			} catch (e) {
+				auditLog({ action: 'admin-decrypt-rejected-admin-sig', id: req.params.id, err: e && e.message, remote: req.ip });
+				return res.status(403).json({ error: 'Invalid admin signature' });
 			}
-			auditLog({ action: 'admin-decrypt', id: req.params.id, operator: 'api-key', remote: req.ip });
-			return res.json({ decrypted });
-		} catch (err) {
-			console.error('Decrypt failed:', err && err.message);
-			return res.status(500).json({ error: 'Decrypt failed' });
 		}
+	} catch (e) {
+		console.error('Admin signature verification error:', e && e.message);
+		return res.status(500).json({ error: 'Admin signature verification failed' });
 	}
 
 	// Require EIP-712 typedData + signature(s) for all browser/client reveals. Reject legacy plain signature or no-signature requests.
@@ -276,9 +356,22 @@ app.post('/admin/decrypt/:id', async (req, res) => {
 
 // AES-GCM encryption/decryption helpers
 function getAesKeyFromEnv() {
-	const secret = process.env.PIN_SERVER_AES_KEY || process.env.PIN_SERVER_SYMM_KEY || 'dev-secret-key';
-	// Derive 32-byte key via SHA-256 of secret (so env can be passphrase)
-	return crypto.createHash('sha256').update(String(secret)).digest();
+	const secret = process.env.PIN_SERVER_AES_KEY || process.env.PIN_SERVER_SYMM_KEY;
+	if (!secret) {
+		console.error('Pin server requires PIN_SERVER_AES_KEY or PIN_SERVER_SYMM_KEY environment variable. Exiting.');
+		process.exit(1);
+	}
+	const s = String(secret).trim();
+	// Accept hex (64 chars) or base64; otherwise fall back to interpreting as passphrase and derive via sha256
+	if (/^[0-9a-fA-F]{64}$/.test(s)) {
+		return Buffer.from(s, 'hex');
+	}
+	try {
+		const b = Buffer.from(s, 'base64');
+		if (b.length === 32) return b;
+	} catch (e) { /* not base64 */ }
+	// fallback: treat as passphrase and derive 32-byte key via sha256
+	return crypto.createHash('sha256').update(s).digest();
 }
 
 function encryptAesGcm(plain, keyBuf) {
@@ -304,6 +397,7 @@ function decryptAesGcm(encJsonStr, keyBuf) {
 }
 
 const ports = [];
+const _startedServers = [];
 // support environment PORTS like "8080,3002" or single PORT
 if (process.env.PIN_SERVER_PORTS) {
 	ports.push(...process.env.PIN_SERVER_PORTS.split(',').map(p => parseInt(p.trim(), 10)));
@@ -315,7 +409,10 @@ if (process.env.PIN_SERVER_PORTS) {
 
 ports.forEach(p => {
 	try {
-		const server = app.listen(p, () => console.log(`Pin server running on ${p}`));
+		const server = app.listen(p, () => {
+			console.log(`Pin server running on ${p}`);
+		});
+		_startedServers.push(server);
 		server.on('error', (err) => {
 			if (err && err.code === 'EADDRINUSE') {
 				console.warn(`Port ${p} already in use; skipping bind`);
@@ -327,4 +424,21 @@ ports.forEach(p => {
 		console.error('Failed to listen on', p, e.message);
 	}
 });
+
+// Small safeguard for test environments: prevent process from exiting immediately
+// when servers are listening to ensure child-process tests can connect.
+// This keeps stdin open which prevents Node from exiting in some CI/child contexts.
+console.log('Pin server: startup complete, keeping process alive for test connections');
+process.stdin.resume();
+
+// Exported helper for tests to shut down the in-process server
+module.exports = {
+	shutdown: () => {
+		try {
+			_startedServers.forEach(s => {
+				try { s.close(); } catch (e) { /* ignore */ }
+			});
+		} catch (e) { /* ignore */ }
+	}
+};
 

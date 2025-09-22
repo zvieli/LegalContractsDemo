@@ -16,13 +16,7 @@ export async function decryptPinnedRecord(pinId, apiKey) {
     }
     // Resolve API key: explicit param only. Do not read localStorage to avoid storing keys in browser.
     let key = apiKey || undefined;
-    try {
-        const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
-        // For local development, if no apiKey is provided assume dev-secret so admin decrypt still works when running locally.
-        if (!key && (hostname === 'localhost' || hostname === '127.0.0.1')) {
-            key = 'dev-secret';
-        }
-    } catch (_) {}
+    // No implicit local dev API key fallback — admin actions must provide a signature or the key explicitly.
     const headers = {};
     if (key) headers['X-API-KEY'] = key;
     const res = await fetch(`http://localhost:8080/admin/decrypt/${pinId}`, {

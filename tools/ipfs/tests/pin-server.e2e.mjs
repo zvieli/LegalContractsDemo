@@ -11,16 +11,14 @@ function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 async function run() {
   console.log('Starting pin-server for E2E test...');
   const env = Object.assign({}, process.env, {
-    PIN_SERVER_PORTS: '4003',
-    PIN_SERVER_API_KEY: 'test-key',
-    PIN_SERVER_AES_KEY: 'test-aes-key',
+    PIN_SERVER_PORTS: '5003',
     PIN_SERVER_TEST_ALLOW_SIGNER: 'true'
   });
   const server = spawn(process.execPath, [path.join('tools','ipfs','pin-server.js')], { env, stdio: 'inherit' });
 
   try {
     await wait(600);
-    const base = 'http://127.0.0.1:4003';
+  const base = 'http://127.0.0.1:5003';
     // create a test wallet (private key ephemeral)
     const wallet = Wallet.createRandom();
     const address = await wallet.getAddress();

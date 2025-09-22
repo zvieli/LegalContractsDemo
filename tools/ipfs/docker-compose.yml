@@ -4,8 +4,7 @@ services:
     build: .
     image: legalcontracts/pin-server:dev
     environment:
-      - PIN_SERVER_API_KEY=dev-secret
-      - ADMIN_PRIVATE_KEY=priv
+  # Set ADMIN_PRIVATE_KEY in your environment or secrets; do NOT store it in source
       - PIN_SERVER_PORTS=8080,3002
     ports:
       - "8080:8080"
