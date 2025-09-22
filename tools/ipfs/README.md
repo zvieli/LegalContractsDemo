@@ -68,9 +68,25 @@ If running against the Docker container, ensure the container is up first (see D
 
 ## Security
 
-This server intentionally includes a deterministic, insecure symmetric encrypt/decrypt (XOR+base64) for local development only. Do not use this for production secrets or on public networks.
+This repository and the included pin-server are intended for educational and local development use only. For that reason we intentionally keep the design simple and do NOT use production features such as Additional Authenticated Data (AAD) binding or Key Management Service (KMS) integrations.
 
-If you need a production-ready pinning or encryption service, replace the dev-mode cryptography with a proper KMS or HSM-backed solution and remove the `PIN_SERVER_SYMM_KEY` behavior.
+Current dev security posture:
+- The server uses an AES-GCM symmetric key derived from the env var `PIN_SERVER_AES_KEY` (or `PIN_SERVER_SYMM_KEY`) for encrypting stored `cipherStr` values. The key is derived by hashing the provided passphrase via SHA-256.
+- Nonces and audit logs are stored as local JSON files under `tools/ipfs/store/` and `tools/ipfs/store/audit.log` for simplicity.
+- There is an admin API key mode (set `PIN_SERVER_API_KEY`) for operator-style access; the server rejects API-key usage originating from browser origins to reduce accidental exposure.
+
+Why we avoid AAD / KMS here
+- This is an educational demo: adding AAD or integrating a KMS would increase complexity and add operational dependencies that are out of scope. If you want to experiment with those features, the codebase is structured so you can add AAD or KMS later (see "Next steps").
+
+Recommended caution
+- Do not run this pin-server in production or on the public internet with the default environment variables.
+- Keep `PIN_SERVER_AES_KEY` secret in your local environment when running tests that include sensitive data.
+
+Optional next steps (not required for learning)
+- Use AAD with AES-GCM to bind ciphertext to `pinId` and `contract` for stronger integrity.
+- Move AES keys to a KMS or seed them from a secure secret store if you plan to operate this service in a shared environment.
+
+Note: For this educational project we intentionally keep nonces and audit as simple file-based storage under `tools/ipfs/store/`. We do not use SQLite/Postgres here to avoid adding operational dependencies — file-based storage is chosen for clarity and ease of local testing.
 
 ## Troubleshooting
 

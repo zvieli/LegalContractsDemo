@@ -82,6 +82,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [rentCanSign, setRentCanSign] = useState(true);
   const [hasAppeal, setHasAppeal] = useState(false);
   const [arbResolution, setArbResolution] = useState(null);
+  const [rationaleRevealed, setRationaleRevealed] = useState(false);
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
 
@@ -126,7 +127,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         details = await contractService.getNDAContractDetails(contractAddress, { silent: true });
       }
       setContractDetails(details);
-      // detect per-contract appeal in localStorage (try multiple key variants) or sessionStorage fallback
+  // detect per-contract appeal in localStorage (try multiple key variants) or sessionStorage fallback
       try {
         const key1 = `incomingDispute:${contractAddress}`;
         const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
@@ -144,14 +145,54 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           } catch (_) { js = js; }
         }
         setHasAppeal(!!js);
-        // load any local arbitrator resolution for this contract
+        // Prefer reading arbitrator rationale on-chain (getDisputeMeta) if the rent contract exposes it.
         try {
-          const rk = `arbResolution:${String(contractAddress).toLowerCase()}`;
-          const rjs = localStorage.getItem(rk);
-          if (rjs) {
-            setArbResolution(JSON.parse(rjs));
+          if (details?.type === 'Rental') {
+            try {
+              const svc = new ContractService(signer, chainId);
+              // Attempt to find most recent resolved dispute meta if any
+              const rent = await svc.getRentContract(contractAddress);
+              const count = Number(await rent.getDisputesCount().catch(() => 0));
+              let foundMeta = null;
+              for (let i = count - 1; i >= 0; i--) {
+                try {
+                  const d = await rent.getDispute(i);
+                  const resolved = !!d[4];
+                  if (resolved) {
+                    // read on-chain meta
+                    const meta = await svc.getDisputeMeta(contractAddress, i).catch(() => null);
+                    if (meta && (meta.classification || meta.rationale)) {
+                      foundMeta = { contractAddress, decision: d[5] ? 'approve' : 'deny', rationale: meta.rationale || '', timestamp: Date.now(), classification: meta.classification || '' };
+                      break;
+                    }
+                  }
+                } catch (_) {}
+              }
+              if (foundMeta) {
+                setArbResolution(foundMeta);
+              } else {
+                // fallback to localStorage for older persisted decisions
+                try {
+                  const rk = `arbResolution:${String(contractAddress).toLowerCase()}`;
+                  const rjs = localStorage.getItem(rk);
+                  if (rjs) setArbResolution(JSON.parse(rjs)); else setArbResolution(null);
+                } catch (e) { setArbResolution(null); }
+              }
+            } catch (e) {
+              // On any failure reading on-chain, fall back to localStorage
+              try {
+                const rk = `arbResolution:${String(contractAddress).toLowerCase()}`;
+                const rjs = localStorage.getItem(rk);
+                if (rjs) setArbResolution(JSON.parse(rjs)); else setArbResolution(null);
+              } catch (_) { setArbResolution(null); }
+            }
           } else {
-            setArbResolution(null);
+            // Non-rental types - keep legacy localStorage behaviour
+            try {
+              const rk = `arbResolution:${String(contractAddress).toLowerCase()}`;
+              const rjs = localStorage.getItem(rk);
+              if (rjs) setArbResolution(JSON.parse(rjs)); else setArbResolution(null);
+            } catch (e) { setArbResolution(null); }
           }
         } catch (e) { setArbResolution(null); }
       } catch (e) {
@@ -718,38 +759,37 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
           }
         }
 
-        // Compute bond and open confirmation modal instead of immediate send
+        // Compute bond (for display/record) but send the report tx immediately via the user's wallet
         const bond = svc.computeReporterBond(amountWei);
         const bondEth = (() => { try { return ethers.formatEther(bond); } catch { return String(bond); } })();
 
-        openConfirm(bondEth, async () => {
-          const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
-          try {
-            const incoming = {
-              contractAddress: contractAddress,
-              dtype: Number(disputeForm.dtype || 0),
-              amountEth: String(disputeForm.amountEth || '0'),
-              evidence: evidence || '',
-              fileName: disputeFileName || '',
-              cid: cid || null,
-              cidUrl: cidUrl || null,
-              localIdbKey: localIdbKey || null,
-              reporter: account || null,
-              caseId: caseId != null ? String(caseId) : null,
-              createdAt: new Date().toISOString()
-            };
-            sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
-            try { const perKey = `incomingDispute:${contractAddress}`; localStorage.setItem(perKey, JSON.stringify(incoming)); } catch (e) { console.warn('Failed to persist per-contract incomingDispute', e); }
-          } catch (e) { console.error('Failed to persist dispute for arbitration page:', e); }
+        // Directly submit dispute - this will prompt MetaMask and send the bond as msg.value
+        const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
+        try {
+          const incoming = {
+            contractAddress: contractAddress,
+            dtype: Number(disputeForm.dtype || 0),
+            amountEth: String(disputeForm.amountEth || '0'),
+            evidence: evidence || '',
+            fileName: disputeFileName || '',
+            cid: cid || null,
+            cidUrl: cidUrl || null,
+            localIdbKey: localIdbKey || null,
+            reporter: account || null,
+            caseId: caseId != null ? String(caseId) : null,
+            createdAt: new Date().toISOString()
+          };
+          sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
+          try { const perKey = `incomingDispute:${contractAddress}`; localStorage.setItem(perKey, JSON.stringify(incoming)); } catch (e) { console.warn('Failed to persist per-contract incomingDispute', e); }
+        } catch (e) { console.error('Failed to persist dispute for arbitration page:', e); }
 
-          setShowDisputeForm(false);
-          try {
-            const svc2 = new ContractService(signer, chainId);
-            const isAuthorized = await svc2.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
-            if (isAuthorized) window.location.pathname = '/arbitration'; else { alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.'); window.location.pathname = '/dashboard'; }
-          } catch (redirErr) { console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr); window.location.pathname = '/dashboard'; }
-          await loadContractData();
-        });
+        setShowDisputeForm(false);
+        try {
+          const svc2 = new ContractService(signer, chainId);
+          const isAuthorized = await svc2.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
+          if (isAuthorized) window.location.pathname = '/arbitration'; else { alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.'); window.location.pathname = '/dashboard'; }
+        } catch (redirErr) { console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr); window.location.pathname = '/dashboard'; }
+        await loadContractData();
 
       } catch (err) {
         console.error('Submit dispute failed:', err);
@@ -1292,17 +1332,18 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                   <div style={{marginTop:12, padding:10, border:'1px solid #f0c', borderRadius:6, background:'#fff7fb'}}>
                     <div style={{marginBottom:8}}><strong>Notice:</strong> A dispute (case #{pendingDeposit.caseId}) has been filed requesting {pendingDeposit.requestedAmountEth} ETH. As the debtor you must deposit the claimed amount or part of it.</div>
                     <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                      <input className="text-input" type="number" step="0.000000000000000001" placeholder={`Amount to deposit (ETH) up to ${pendingDeposit.requestedAmountEth}`} value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} />
                       <button className="btn-primary" onClick={async () => {
-                        // open confirm modal and call depositForCase
                         try {
-                          const amt = BigInt(pendingDeposit.requestedAmountWei || 0n);
-                          const amtEth = (() => { try { return ethers.formatEther(amt); } catch { return String(amt); } })();
+                          const toSendEth = paymentAmount && String(paymentAmount).trim() !== '' ? paymentAmount : pendingDeposit.requestedAmountEth;
+                          const amtWei = toSendEth ? ethers.parseEther(String(toSendEth)) : 0n;
+                          const amtEth = (() => { try { return ethers.formatEther(amtWei); } catch { return String(amtWei); } })();
                           setConfirmAmountEth(amtEth);
                           setConfirmAction(() => async () => {
                             try {
                               setActionLoading(true);
                               const svc = new ContractService(signer, chainId);
-                              await svc.depositForCase(contractAddress, pendingDeposit.caseId, amt);
+                              await svc.depositForCase(contractAddress, pendingDeposit.caseId, amtWei);
                               alert('Deposit submitted');
                               // refresh contract data
                               await loadContractData();
@@ -1310,8 +1351,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           });
                           setConfirmOpen(true);
                         } catch (e) { console.error('Failed to prepare deposit', e); alert('Failed to prepare deposit'); }
-                      }}>Deposit required amount</button>
-                      <div className="muted">Or deposit a smaller amount using the input field above.</div>
+                      }}>Deposit</button>
+                      <div className="muted">Or leave input empty to deposit the full requested amount.</div>
                     </div>
                   </div>
                 )}
@@ -1458,7 +1499,18 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       const bothApproved = !!cxl.approvals?.landlord && !!cxl.approvals?.tenant;
                       const nowSec = Math.floor(Date.now()/1000);
                       const canInitiate = contractDetails.isActive && !alreadyRequested && (isLandlord || isTenant);
-                      const canApprove = contractDetails.isActive && alreadyRequested && !myApproved && !iAmInitiator && (isLandlord || isTenant);
+                      // If an arbitration decision was recorded locally for this contract indicating cancellation,
+                      // do not allow manual approve flow — the arbitrator finalization supersedes manual approval.
+                      let hasArbCancel = false;
+                      try {
+                        const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
+                        const raw = localStorage.getItem(key);
+                        if (raw) {
+                          const parsed = JSON.parse(raw);
+                          if (parsed && parsed.decision === 'approve') hasArbCancel = true;
+                        }
+                      } catch (_) { hasArbCancel = false; }
+                      const canApprove = contractDetails.isActive && alreadyRequested && !myApproved && !iAmInitiator && (isLandlord || isTenant) && !hasArbCancel;
                       const canFinalize = contractDetails.isActive && alreadyRequested && (
                         cxl.requireMutualCancel ? bothApproved : (cxl.cancelEffectiveAt ? nowSec >= cxl.cancelEffectiveAt : false)
                       );
@@ -1499,7 +1551,29 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           {arbResolution && (
                             <div className="transaction-item" style={{borderTop:'1px solid #eee', marginTop:8, paddingTop:8}}>
                               <div style={{fontWeight:600}}>Arbitrator decision: {arbResolution.decision === 'approve' ? 'Approved (finalized)' : 'Denied (left active)'}</div>
-                              <div style={{marginTop:6}}>{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
+                              <div style={{marginTop:6}}>
+                                {rationaleRevealed ? (
+                                  <div>{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
+                                ) : (
+                                  <div>
+                                    <div className="muted">Rationale is hidden. Click reveal to view (must be landlord or tenant).</div>
+                                    <div style={{marginTop:6}}>
+                                      <button className="btn-sm" onClick={() => {
+                                        try {
+                                          const me = account && account.toLowerCase();
+                                          const landlord = contractDetails?.landlord && contractDetails.landlord.toLowerCase();
+                                          const tenant = contractDetails?.tenant && contractDetails.tenant.toLowerCase();
+                                          if (me && (me === landlord || me === tenant)) {
+                                            setRationaleRevealed(true);
+                                          } else {
+                                            alert('Reveal requires connecting as landlord or tenant (their private key)');
+                                          }
+                                        } catch (e) { console.error('Reveal failed', e); alert('Failed to reveal rationale'); }
+                                      }}>Reveal rationale</button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                               <div style={{marginTop:6}} className="muted">Recorded at: {new Date(Number(arbResolution.timestamp || 0)).toLocaleString()}</div>
                             </div>
                           )}

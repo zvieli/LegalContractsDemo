@@ -2,13 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { ContractService } from '../../services/contractService';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import { ArbitrationService } from '../../services/arbitrationService';
-import { fetchPinnedRecord, decryptPinnedRecord } from '../../services/pinServerService';
+import { fetchPinnedRecord, decryptPinnedRecord, decryptPinnedRecordWithSignature } from '../../services/pinServerService';
 import * as ethers from 'ethers';
 import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
 import { createContractInstance } from '../../utils/contracts';
 import './ResolveModal.css';
 
-function EvidencePanel({ initialPinId, isArbitrator }) {
+function EvidencePanel({ initialPinId, isArbitrator, signer, contractAddress }) {
   const [pinId, setPinId] = useState(initialPinId || '');
   const [pinnedLoading, setPinnedLoading] = useState(false);
   const [pinnedError, setPinnedError] = useState(null);
@@ -33,12 +33,19 @@ function EvidencePanel({ initialPinId, isArbitrator }) {
 
   const handleAdminDecrypt = async () => {
     if (!pinId) return setPinnedError('Enter a pin ID');
-    if (!localStorage.PIN_SERVER_API_KEY) return setPinnedError('Set PIN_SERVER_API_KEY in localStorage for admin decrypt.');
     setPinnedLoading(true);
     setPinnedError(null);
     try {
-      const dec = await decryptPinnedRecord(pinId, localStorage.PIN_SERVER_API_KEY);
-      setPinnedDecrypted(dec.decrypted || dec);
+      // Prefer a signer-based reveal when we have a connected signer and the contract context
+      if (signer && contractAddress) {
+        const dec = await decryptPinnedRecordWithSignature(pinId, signer, contractAddress, false, []);
+        setPinnedDecrypted(dec || null);
+      } else {
+        // Call decryptPinnedRecord without relying on localStorage-stored API keys.
+        // The UI enforces that only an authorized arbitrator can see this button.
+        const dec = await decryptPinnedRecord(pinId);
+        setPinnedDecrypted(dec.decrypted || dec);
+      }
     } catch (err) { setPinnedError(err?.message || String(err)); } finally { setPinnedLoading(false); }
   };
 
@@ -442,18 +449,28 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             await svc2.finalizeCancellationViaService(arbAddr, contractAddress, feeToSend);
           }
 
-          // After on-chain confirmation, persist the decision locally and clear incoming markers
+          // After on-chain confirmation, attempt to read the canonical on-chain rationale via getDisputeMeta
           try {
+            const svc3 = new ContractService(signer, chainId);
+            let onChainMeta = null;
+            try {
+              if (disputeInfo && typeof disputeInfo.caseId !== 'undefined' && disputeInfo.caseId !== null) {
+                onChainMeta = await svc3.getDisputeMeta(contractAddress, disputeInfo.caseId).catch(() => null);
+              }
+            } catch (_) { onChainMeta = null; }
+
             const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
-            // Use existing appealLocal.rationale if available, otherwise the rationale state (kept for backward compat)
-            const resolvedRationale = (appealLocal && appealLocal.evidence) ? appealLocal.evidence : rationale;
-            const payload = { contractAddress, decision, rationale: resolvedRationale, timestamp: Date.now() };
-            localStorage.setItem(key, JSON.stringify(payload));
-            sessionStorage.setItem('lastArbResolution', JSON.stringify(payload));
+            // Prefer on-chain rationale when available; fall back to local appeal/evidence or typed rationale
+            const resolvedRationale = (onChainMeta && onChainMeta.rationale) ? onChainMeta.rationale : ((appealLocal && appealLocal.evidence) ? appealLocal.evidence : rationale);
+            const resolvedClassification = (onChainMeta && onChainMeta.classification) ? onChainMeta.classification : (decision === 'approve' ? 'approve' : 'deny');
+            const payload = { contractAddress, decision: resolvedClassification, rationale: resolvedRationale, timestamp: Date.now(), onChain: !!onChainMeta };
+            try { localStorage.setItem(key, JSON.stringify(payload)); } catch (_) {}
+            try { sessionStorage.setItem('lastArbResolution', JSON.stringify(payload)); } catch (_) {}
             try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
             try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
             try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
             if (typeof window !== 'undefined' && window.dispatchEvent) {
+              // Dispatch the canonical on-chain payload when available so other UIs can update
               window.dispatchEvent(new CustomEvent('arb:resolved', { detail: payload }));
             }
           } catch (e) {
@@ -547,33 +564,35 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               {/* If I'm the debtor and haven't yet deposited the requested amount, show a deposit button */}
               {(appealLocal && appealLocal.requestedAmount && account && disputeInfo) && (String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase() || String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase()) && (
                 <div style={{marginTop:8}}>
-                  <button type="button" className="btn-sm" onClick={() => {
-                    try {
-                      const amt = BigInt(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n);
-                      const amtEth = (() => { try { return ethers.formatEther(amt); } catch { return String(amt); } })();
-                      // set the action to perform on confirm
-                      setDepositConfirmAction(() => async () => {
-                        try {
-                          setDepositConfirmBusy(true);
-                          setWithdrawing(true);
-                          const svc = new ContractService(signer, chainId);
-                          await svc.depositForCase(contractAddress, disputeInfo.caseId, amt);
-                          alert('Deposit submitted for case');
-                          await refreshDisputeState();
-                        } catch (e) {
-                          alert(`Deposit failed: ${e?.message || e}`);
-                        } finally {
-                          setWithdrawing(false);
-                          setDepositConfirmBusy(false);
-                        }
-                      });
-                      setDepositConfirmAmount(amtEth);
-                      setDepositConfirmOpen(true);
-                    } catch (e) {
-                      console.error('Failed to prepare deposit confirmation', e);
-                      alert('Failed to prepare deposit confirmation');
-                    }
-                  }}>Deposit for case</button>
+                  <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                    <input className="text-input" type="number" step="0.000000000000000001" placeholder={`Amount to deposit (ETH) up to ${(() => { try { return ethers.formatEther(BigInt(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n)); } catch { return String(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n); } })()}`} onChange={e => setDepositConfirmAmount(e.target.value)} value={depositConfirmAmount} />
+                    <button type="button" className="btn-sm" onClick={() => {
+                      try {
+                        // compute wei from entered ETH amount
+                        const amtEthStr = depositConfirmAmount || '0';
+                        const amtWei = amtEthStr && Number(amtEthStr) > 0 ? ethers.parseEther(String(amtEthStr)) : 0n;
+                        const amtEth = (() => { try { return ethers.formatEther(amtWei); } catch { return String(amtWei); } })();
+                        setDepositConfirmAction(() => async () => {
+                          try {
+                            setDepositConfirmBusy(true);
+                            const svc = new ContractService(signer, chainId);
+                            await svc.depositForCase(contractAddress, disputeInfo.caseId, amtWei);
+                            alert('Deposit submitted for case');
+                            await refreshDisputeState();
+                          } catch (e) {
+                            alert(`Deposit failed: ${e?.message || e}`);
+                          } finally {
+                            setDepositConfirmBusy(false);
+                          }
+                        });
+                        setDepositConfirmAmount(amtEth);
+                        setDepositConfirmOpen(true);
+                      } catch (e) {
+                        console.error('Failed to prepare deposit confirmation', e);
+                        alert('Failed to prepare deposit confirmation');
+                      }
+                    }}>Deposit</button>
+                  </div>
                 </div>
               )}
                 <div style={{marginTop:8}}>
@@ -583,7 +602,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           )}
 
       {/* Evidence panel: fetch/decrypt/preview/download pinned evidence (arbitrator-only decrypt) */}
-      <EvidencePanel initialPinId={disputeInfo?.evidencePinId || disputeInfo?.pinId || ''} isArbitrator={isAuthorizedArbitrator} />
+  <EvidencePanel initialPinId={disputeInfo?.evidencePinId || disputeInfo?.pinId || ''} isArbitrator={isAuthorizedArbitrator} signer={signer} contractAddress={contractAddress} />
 
           {/* Reporter bond and withdrawable info */}
               {disputeInfo && (

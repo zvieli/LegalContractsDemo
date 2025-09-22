@@ -28,8 +28,11 @@ describe('EvidencePanel', () => {
     // set admin API key in localStorage so admin decrypt is allowed
     localStorage.setItem('PIN_SERVER_API_KEY', 'admin')
 
-  // Render the EvidencePanel named export directly
-  render(<EvidencePanel initialPinId="pin_test" isArbitrator={true} />)
+    // Dummy signer that exposes signMessage returning a stable signature string
+    const dummySigner = { signMessage: async (msg) => '0x' + Buffer.from('dummy').toString('hex') };
+
+    // Render the EvidencePanel named export directly with dummy signer and contract address
+    render(<EvidencePanel initialPinId="pin_test" isArbitrator={true} signer={dummySigner} contractAddress={'0x0000000000000000000000000000000000000000'} />)
 
     // click Fetch
     const fetchBtn = await screen.findByText('Fetch')

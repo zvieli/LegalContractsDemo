@@ -342,6 +342,31 @@ export class ContractService {
     }
   }
 
+  /**
+   * Read dispute metadata (classification, rationale) for a given rent contract caseId.
+   * Returns { classification, rationale } or null on failure.
+   */
+  async getDisputeMeta(contractAddress, caseId) {
+    try {
+      const rent = await this.getRentContract(contractAddress);
+      const res = await rent.getDisputeMeta(Number(caseId));
+      // res is [classification, rationale]
+      return { classification: res[0] || '', rationale: res[1] || '' };
+    } catch (e) {
+      try {
+        // fallback: low-level call decode
+        const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+        const data = rent.interface.encodeFunctionData('getDisputeMeta', [Number(caseId)]);
+        const ret = await this.signer.provider.call({ to: contractAddress, data });
+        const decoded = rent.interface.decodeFunctionResult('getDisputeMeta', ret);
+        return { classification: decoded[0] || '', rationale: decoded[1] || '' };
+      } catch (err) {
+        console.debug('getDisputeMeta failed', err);
+        return null;
+      }
+    }
+  }
+
   async getRentContractDetails(contractAddress, options = {}) {
     const { silent = false } = options || {};
     try {
