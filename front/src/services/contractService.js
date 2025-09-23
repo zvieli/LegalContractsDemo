@@ -783,7 +783,7 @@ export class ContractService {
    * This is a thin wrapper around ArbitrationService.applyResolutionToTarget with ABI fallback.
    * Parameters mirror the on-chain signature: (targetContract, caseId, approve, appliedAmount, beneficiary)
    */
-  async applyResolutionToTargetViaService(arbitrationServiceAddress, targetContract, caseId, approve, appliedAmount = 0n, beneficiary = ethers.ZeroAddress) {
+  async applyResolutionToTargetViaService(arbitrationServiceAddress, targetContract, caseId, approve, appliedAmount = 0n, beneficiary = ethers.ZeroAddress, forwardedEth = 0n) {
     try {
       if (!arbitrationServiceAddress) throw new Error('Arbitration service address required');
       // Normalize types
@@ -859,7 +859,10 @@ export class ContractService {
 
       // Call applyResolutionToTarget on the service; ensure applied amount is passed as uint256
       try {
-        const tx = await svc.applyResolutionToTarget(targetContract, cid, !!approve, appAmt, beneficiary);
+  // Attach forwarded ETH if provided so the arbitration service can top-up
+  // debtor deposits atomically when calling into the target.
+  const overrides = (forwardedEth && typeof forwardedEth === 'bigint' && forwardedEth > 0n) ? { value: forwardedEth } : {};
+  const tx = await svc.applyResolutionToTarget(targetContract, cid, !!approve, appAmt, beneficiary, overrides);
         const receipt = await tx.wait();
         return receipt;
       } catch (callErr) {

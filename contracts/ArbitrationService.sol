@@ -48,7 +48,9 @@ contract ArbitrationService {
         require(targetContract != address(0), "bad target");
 
     // Try NDA-style serviceResolve(uint256,bool,uint256,address)
-    (bool ok, bytes memory returned) = targetContract.call(abi.encodeWithSignature("serviceResolve(uint256,bool,uint256,address)", caseId, approve, appliedAmount, beneficiary));
+    // Forward any ETH sent to the service into the target call so arbitrators
+    // can top-up debtor deposits in the same transaction when necessary.
+    (bool ok, bytes memory returned) = targetContract.call{value: msg.value}(abi.encodeWithSignature("serviceResolve(uint256,bool,uint256,address)", caseId, approve, appliedAmount, beneficiary));
         if (ok) return;
         // If the target reverted with a reason, bubble it up — this indicates
         // the target recognized the entrypoint but failed (e.g. insufficient deposit).
@@ -57,7 +59,7 @@ contract ArbitrationService {
         }
 
     // Try Rent-style resolveDisputeFinal(uint256,bool,uint256,address,string,string)
-    (ok, returned) = targetContract.call(abi.encodeWithSignature("resolveDisputeFinal(uint256,bool,uint256,address,string,string)", caseId, approve, appliedAmount, beneficiary, "", ""));
+    (ok, returned) = targetContract.call{value: msg.value}(abi.encodeWithSignature("resolveDisputeFinal(uint256,bool,uint256,address,string,string)", caseId, approve, appliedAmount, beneficiary, "", ""));
         if (ok) return;
         if (returned.length > 0) {
             assembly { revert(add(returned, 32), mload(returned)) }

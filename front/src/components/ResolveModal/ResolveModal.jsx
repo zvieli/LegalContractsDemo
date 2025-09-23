@@ -54,6 +54,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   // (Removed duplicate state declarations)
   const [confirmPay, setConfirmPay] = useState(false);
+  const [forwardEth, setForwardEth] = useState('0');
 
   // Deposit confirmation modal state
   const [depositConfirmOpen, setDepositConfirmOpen] = useState(false);
@@ -376,7 +377,12 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             return;
           }
           if (disputeInfo && disputeInfo.requestedAmountWei > 0n) {
-            await svc2.applyResolutionToTargetViaService(arbAddr, contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, 0n);
+            // Convert forwardEth to wei bigint if provided
+            let forwardWei = 0n;
+            try {
+              forwardWei = forwardEth && Number(forwardEth) > 0 ? ethers.parseEther(String(forwardEth)) : 0n;
+            } catch (_) { forwardWei = 0n; }
+            await svc2.applyResolutionToTargetViaService(arbAddr, contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
           } else {
             // Otherwise treat as cancellation finalize and forward early-termination fee if required
             const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
@@ -395,7 +401,9 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
 
             const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
             // Prefer on-chain rationale when available; fall back to local appeal/evidence or typed rationale
-            const resolvedRationale = (onChainMeta && onChainMeta.rationale) ? onChainMeta.rationale : ((appealLocal && appealLocal.evidence) ? appealLocal.evidence : rationale);
+            // Do NOT show raw plaintext evidence stored locally. Prefer on-chain rationale.
+            // If no on-chain rationale is available, show the evidence DIGEST only and explanatory text.
+            const resolvedRationale = (onChainMeta && onChainMeta.rationale) ? onChainMeta.rationale : ( (appealLocal && appealLocal.evidenceDigest) ? `Evidence digest: ${appealLocal.evidenceDigest}` : rationale );
             const resolvedClassification = (onChainMeta && onChainMeta.classification) ? onChainMeta.classification : (decision === 'approve' ? 'approve' : 'deny');
             const payload = { contractAddress, decision: resolvedClassification, rationale: resolvedRationale, timestamp: Date.now(), onChain: !!onChainMeta };
             try { localStorage.setItem(key, JSON.stringify(payload)); } catch (_) {}
@@ -416,7 +424,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
       // Persist the arbitrator decision and rationale locally per-contract so it can be shown in UI
       try {
         const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
-        const resolvedRationale = (appealLocal && appealLocal.evidence) ? appealLocal.evidence : rationale;
+            const resolvedRationale = (appealLocal && appealLocal.evidenceDigest) ? `Evidence digest: ${appealLocal.evidenceDigest}` : rationale;
         const payload = { contractAddress, decision, rationale: resolvedRationale, timestamp: Date.now() };
         localStorage.setItem(key, JSON.stringify(payload));
         // Also save a summary to sessionStorage for immediate visibility elsewhere
@@ -473,7 +481,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               </div>
             ) : (
               <div style={{padding:8, background:'#fafafa', border:'1px solid #eee', borderRadius:4, minHeight:48}}>
-                {(appealLocal && appealLocal.evidence) ? appealLocal.evidence : (rationale || <span style={{color:'#888'}}>No rationale provided</span>)}
+                {(appealLocal && appealLocal.evidenceDigest) ? (<div><div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence DIGEST (on-chain):</div><pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8}}>{appealLocal.evidenceDigest}</pre><div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain encrypted to the platform admin and is not available in this browser. Contact the platform administrator to request decryption if you are authorized.</div></div>) : (rationale || <span style={{color:'#888'}}>No rationale provided</span>)}
                 <div style={{marginTop:8, color:'#a33'}}>Note: your connected wallet is not authorized to perform arbitration actions for this contract. To finalize disputes via the ArbitrationService, connect the ArbitrationService owner or the ContractFactory creator account (the account that deployed this contract).</div>
               </div>
             )}
@@ -495,6 +503,16 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               <div style={{marginTop:8}}>
                 <label><input type="checkbox" checked={confirmPay} onChange={e => setConfirmPay(e.target.checked)} /> I confirm approving will transfer {disputeAmountEth} ETH to {disputeInfo.initiator}</label>
               </div>
+              {/* If depositor shortfall exists, allow authorized arbitrator to attach ETH to cover it in the same transaction */}
+              {isAuthorizedArbitrator && debtorDepositWei != null && disputeInfo && disputeInfo.requestedAmountWei > debtorDepositWei && (
+                <div style={{marginTop:12}}>
+                  <div style={{marginBottom:6, color:'#a33'}}><strong>Debtor deposit shortfall:</strong> {(() => { try { const short = BigInt(disputeInfo.requestedAmountWei) - BigInt(debtorDepositWei || 0n); return ethers.formatEther(short); } catch { return '0'; } })()} ETH</div>
+                  <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                    <input className="text-input" type="number" step="0.000000000000000001" value={forwardEth} onChange={e => setForwardEth(e.target.value)} placeholder="ETH to attach (optional)" />
+                    <div style={{fontSize:12, color:'#555'}}>If you provide ETH here, it will be forwarded to the target in the same transaction to cover the shortfall.</div>
+                  </div>
+                </div>
+              )}
               {/* If I'm the debtor and haven't yet deposited the requested amount, show a deposit button */}
               {(appealLocal && appealLocal.requestedAmount && account && disputeInfo) && (String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase() || String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase()) && (
                 <div style={{marginTop:8}}>

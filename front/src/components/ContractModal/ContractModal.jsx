@@ -803,12 +803,11 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             contractAddress: contractAddress,
             dtype: Number(disputeForm.dtype || 0),
             amountEth: String(disputeForm.amountEth || '0'),
+            // Persist only the canonical evidence digest. Do NOT store plaintext evidence here.
             evidenceDigest: evidenceToSend || ethers.ZeroHash,
             reporter: account || null,
             caseId: caseId != null ? String(caseId) : null,
             createdAt: new Date().toISOString(),
-            // If the user entered plain evidence (not a 0x64 hex digest), store it as `evidence` for UI display.
-            evidence: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? String(disputeForm.evidence) : null
           };
           sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
           try { const perKey = `incomingDispute:${contractAddress}`; localStorage.setItem(perKey, JSON.stringify(incoming)); } catch (e) { console.warn('Failed to persist per-contract incomingDispute', e); }
