@@ -1,3 +1,26 @@
+const ethersLib = require('ethers');
+
+const hash = process.argv[2];
+if (!hash) {
+  console.error('Usage: node scripts/checkTxSimple.cjs <txHash>');
+  process.exit(1);
+}
+
+const RPC = process.env.ETH_RPC || 'https://cloudflare-eth.com';
+const provider = new ethersLib.providers.JsonRpcProvider(RPC);
+
+(async () => {
+  try {
+    const tx = await provider.getTransaction(hash);
+    if (!tx) return console.error('Transaction not found');
+    console.log('txHash:', tx.hash);
+  console.log('value (wei):', tx.value.toString());
+  console.log('value (ETH):', ethersLib.utils.formatEther(tx.value));
+  } catch (err) {
+    console.error('Error:', err && err.message ? err.message : err);
+    process.exit(2);
+  }
+})();
 const { ethers } = require('ethers');
 const path = require('path');
 

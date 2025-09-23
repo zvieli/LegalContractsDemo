@@ -476,20 +476,13 @@ describe("NDATemplate - reveal & appeal windows", function () {
     await expect(ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), evidenceHash))
       .to.emit(ndaR, 'BreachReported');
 
-    const dl = await ndaR.getRevealDeadline(0);
-    expect(dl).to.be.gt(0);
+  const dl = await ndaR.getRevealDeadline(0);
+  expect(dl).to.be.gt(0);
 
-    // wrong reveal should revert
-    await expect(ndaR.connect(adminR).revealEvidence(0, "ipfs://wrong"))
-      .to.be.revertedWith('Evidence hash mismatch');
-
-    // proper reveal works
-    await expect(ndaR.connect(adminR).revealEvidence(0, uri))
-      .to.emit(ndaR, 'EvidenceRevealed')
-      .withArgs(0, uri);
-
-    const stored = await ndaR.getEvidenceURI(0);
-    expect(stored).to.equal(uri);
+  // Reveal flow removed: contract now stores only the evidence hash (digest) and does not accept URI reveals.
+  // For compatibility, ensure the stored hash matches expectation
+    const caseInfo = await ndaR.getCase(0);
+    expect(caseInfo[3]).to.equal(evidenceHash);
   });
 
   it("rejects reveal after reveal window expires", async function () {
@@ -503,11 +496,13 @@ describe("NDATemplate - reveal & appeal windows", function () {
 
     await ndaR.connect(adminR).reportBreach(partyBR.address, ethers.parseEther('0.1'), evidenceHash);
 
-    // advance time beyond window
-    await ethers.provider.send('evm_increaseTime', [20]);
-    await ethers.provider.send('evm_mine');
+  // advance time beyond window
+  await ethers.provider.send('evm_increaseTime', [20]);
+  await ethers.provider.send('evm_mine');
 
-    await expect(ndaR.connect(adminR).revealEvidence(0, uri)).to.be.revertedWith('Reveal window closed');
+  // revealEvidence was removed; ensure reveal deadline is in the past and any reveal attempt would be invalid off-chain
+  const dl2 = await ndaR.getRevealDeadline(0);
+  expect(dl2).to.be.lt((await ethers.provider.getBlock('latest')).timestamp);
   });
 
   it("defers enforcement when appeal window set and finalizes after expiry", async function () {

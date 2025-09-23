@@ -1,19 +1,40 @@
 import * as ethers from 'ethers';
 import { contract } from './contractInstance.js';
+import EthCrypto from 'eth-crypto';
 
+// New flow: we no longer rely on local IPFS pin-server.
+// Instead, the client encrypts the evidence string with the Admin public key
+// and the client computes and submits a `bytes32` keccak256 digest of the
+// encrypted payload to the contract. The encrypted blob itself is stored
+// off-chain (client-side or another secure store) and the admin/private key
+// is used offline to decrypt when needed.
 export function computeCidDigest(cid) {
   if (!cid) return ethers.ZeroHash;
-    return ethers.keccak256(ethers.toUtf8Bytes(cid));
+  return ethers.keccak256(ethers.toUtf8Bytes(cid));
 }
 
-export async function reportRentDispute(id, cid) {
-    const digest = computeCidDigest(cid);
-    try {
-        await contract.reportDisputeWithCid(id, digest, cid);
-    } catch (err) {
-        // fallback for older deployed contracts
-        await contract.reportDisputeWithCidLegacy(id, cid);
-    }
+export async function reportRentDispute(id, evidencePlaintext, adminPublicKey, overrides = {}) {
+  // adminPublicKey: hex string (e.g., '0x04....' uncompressed public key) or null to read from env
+  try {
+    const adminKey = adminPublicKey || (typeof process !== 'undefined' && process.env && process.env.REACT_APP_ADMIN_PUBKEY) || null;
+    if (!adminKey) throw new Error('Admin public key not provided for encrypting evidence');
+
+    // We will encrypt the plaintext using EthCrypto util (ECIES-like flow)
+    // EthCrypto expects publicKey without 0x04 prefix in some functions; use `encryptWithPublicKey` which accepts hex string
+    // Normalize public key: EthCrypto expects a 128-character hex public key without 0x04 prefix for some helpers.
+    const normalized = adminKey.startsWith('0x') ? adminKey.slice(2) : adminKey;
+
+    // Use EthCrypto.encryptWithPublicKey which expects the raw public key (without 0x04) due to underlying elliptic lib
+    const pubRaw = normalized.startsWith('04') ? normalized.slice(2) : normalized;
+    const encrypted = await EthCrypto.encryptWithPublicKey(pubRaw, String(evidencePlaintext));
+    // Store as JSON string so it can be transported in a single string argument to the contract
+    const payloadStr = JSON.stringify(encrypted);
+    const digest = computeCidDigest(payloadStr);
+    // Call new digest-only API. Reporter bond (msg.value) can be supplied via overrides.value
+    await contract.reportDispute(id, digest, overrides);
+  } catch (e) {
+    throw e;
+  }
 }
 import { getContractABI, getContractAddress, createContractInstance } from '../utils/contracts';
 
@@ -917,7 +938,16 @@ export class ContractService {
         // Compute reporter bond and send as msg.value
         const bond = this.computeReporterBond(amount);
         const overrides = bond > 0n ? { value: bond } : {};
-        const tx = await rent.reportDispute(disputeType, amount, evidence, overrides);
+        // The contract now accepts a bytes32 evidence digest. If caller passed a plain string,
+        // compute keccak256 digest of its UTF-8 bytes. If caller already passed a 0x-prefixed
+        // 32-byte hex digest, use it as-is.
+        let digestArg = '0x' + '0'.repeat(64);
+        if (evidence && /^0x[0-9a-fA-F]{64}$/.test(evidence)) {
+          digestArg = evidence;
+        } else if (evidence) {
+          digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+        }
+        const tx = await rent.reportDispute(disputeType, amount, digestArg, overrides);
       const receipt = await tx.wait();
       // Try to extract the caseId from emitted events
       let caseId = null;
@@ -1459,12 +1489,14 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
   try {
     const nda = await this.getNDAContract(contractAddress);
     const requested = requestedPenaltyEth ? ethers.parseEther(String(requestedPenaltyEth)) : 0n;
-    // Pass plain evidence string to the NDA template (was previously a bytes32 hash)
-    const evidence = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
+  // The NDA template now expects a bytes32 evidence digest. If a plain string is provided,
+  // compute keccak256(evidenceText) and pass that as the digest.
+  const evidenceRaw = evidenceText && String(evidenceText).trim().length > 0 ? String(evidenceText).trim() : '';
+  const evidence = evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw) ? evidenceRaw : (evidenceRaw ? ethers.keccak256(ethers.toUtf8Bytes(evidenceRaw)) : ethers.ZeroHash);
     // include on-chain dispute fee if present
     let disputeFee = 0n;
     try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
-    const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
+  const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
     return await tx.wait();
   } catch (error) {
     console.error('Error reporting breach:', error);

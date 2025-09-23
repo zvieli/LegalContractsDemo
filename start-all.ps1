@@ -24,11 +24,7 @@ function Start-Terminal($title, $command, $workdir) {
 
 $root = $PSScriptRoot
 
-# A - Pin-server (docker-compose in tools/ipfs)
-# Try docker compose first; if Docker is not available or the compose command fails,
-# fall back to running the Node-based pin-server script directly so tests and
-# the frontend can still run in environments without Docker Desktop.
-Start-Terminal "PinServer" "if (Get-Command docker -ErrorAction SilentlyContinue) { try { docker compose -f docker-compose.yml up } catch { Write-Host 'Docker compose failed - falling back to node pin-server'; node pin-server.js } } else { Write-Host 'Docker not found - starting node pin-server'; node pin-server.js }" "$root\tools\ipfs"
+# A - Pin-server: removed in this scale-down. If you still need a pin-server, restore scripts/tools/ipfs manually.
 
 # B - Hardhat node
 Start-Terminal "Hardhat" "npx hardhat node" "$root"

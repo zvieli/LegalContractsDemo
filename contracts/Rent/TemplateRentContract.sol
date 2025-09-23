@@ -70,8 +70,7 @@ AggregatorV3Interface public immutable priceFeed;
         address initiator;
         DisputeType dtype;
         uint256 requestedAmount;    // claim amount (e.g., damages or amount to release)
-        string evidence;            // off-chain evidence text/URI stored directly
-        bytes32 evidenceDigest;     // keccak256 digest of the evidence CID (new)
+        bytes32 evidenceDigest;     // keccak256 digest of the evidence or ciphertext
         bool resolved;
         bool approved;
         uint256 appliedAmount;      // actual amount applied (deducted or released)
@@ -100,9 +99,9 @@ AggregatorV3Interface public immutable priceFeed;
     event ArbitrationConfigured(address indexed arbitrator, uint256 requiredDeposit);
     event SecurityDepositPaid(address indexed by, uint256 amount, uint256 total);
     event DepositDebited(address indexed who, uint256 amount);
-    event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount, string evidence);
-    // New event to include the bytes32 digest when available
-    event DisputeReportedWithDigest(uint256 indexed caseId, bytes32 evidenceDigest, string evidenceCid);
+    event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount);
+    // Event to include the bytes32 digest when available
+    event DisputeReportedWithDigest(uint256 indexed caseId, bytes32 evidenceDigest);
     event DisputeFiled(uint256 indexed caseId, address indexed debtor, uint256 requestedAmount);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
     event DebtRecorded(address indexed debtor, uint256 amount);
@@ -459,14 +458,14 @@ function getRentInEth() public view returns (uint256) {
         address initiator,
         DisputeType dtype,
         uint256 requestedAmount,
-        string memory evidence,
+        bytes32 evidenceDigest,
         bool resolved,
         bool approved,
         uint256 appliedAmount
     ) {
         require(caseId < _disputes.length, "bad id");
         DisputeCase storage dc = _disputes[caseId];
-        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidence, dc.resolved, dc.approved, dc.appliedAmount);
+        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidenceDigest, dc.resolved, dc.approved, dc.appliedAmount);
     }
 
     function getDisputeMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
@@ -491,7 +490,7 @@ function getRentInEth() public view returns (uint256) {
         }
     }
 
-    function reportDispute(DisputeType dtype, uint256 requestedAmount, string calldata evidence) external payable onlyActive returns (uint256 caseId) {
+    function reportDispute(DisputeType dtype, uint256 requestedAmount, bytes32 evidenceDigest) external payable onlyActive returns (uint256 caseId) {
         // Allow reporting disputes even when an external arbitration service is
         // not yet configured. This lets parties record evidence/claims and
         // later enable arbitration via `configureArbitration` without losing
@@ -506,9 +505,8 @@ function getRentInEth() public view returns (uint256) {
         dc.initiator = msg.sender;
         dc.dtype = dtype;
         dc.requestedAmount = requestedAmount;
-    dc.evidence = evidence;
-    // store legacy-derived digest for backwards compatibility
-    dc.evidenceDigest = keccak256(bytes(evidence));
+        // store provided digest
+        dc.evidenceDigest = evidenceDigest;
 
         // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
         uint256 requiredBond = 0;
@@ -532,89 +530,13 @@ function getRentInEth() public view returns (uint256) {
             _caseDepositSatisfied[caseId] = false;
         }
 
-    emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidence);
-    emit DisputeReportedWithDigest(caseId, dc.evidenceDigest, evidence);
+    emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount);
+    emit DisputeReportedWithDigest(caseId, dc.evidenceDigest);
     // Notify debtor off-chain via event so UI can prompt debtor to deposit requested amount
     emit DisputeFiled(caseId, debtor, requestedAmount);
     }
 
-    /// @notice New entrypoint to report a dispute attaching a precomputed bytes32 digest (CID digest)
-    function reportDisputeWithCid(DisputeType dtype, uint256 requestedAmount, uint256 reporterBond, bytes32 evidenceDigest, string calldata evidenceCid) external payable onlyActive returns (uint256 caseId) {
-        // mirror logic from reportDispute but accept digest directly
-        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
-        if (requestedAmount == 0 && (dtype == DisputeType.Damage || dtype == DisputeType.Quality || dtype == DisputeType.DepositSplit)) revert AmountTooLow();
-
-        caseId = _disputes.length;
-        _disputes.push();
-        DisputeCase storage dc = _disputes[caseId];
-        dc.initiator = msg.sender;
-        dc.dtype = dtype;
-        dc.requestedAmount = requestedAmount;
-        dc.evidence = evidenceCid;
-        dc.evidenceDigest = evidenceDigest;
-
-        // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
-        uint256 requiredBond = 0;
-        if (requestedAmount > 0) {
-            requiredBond = (requestedAmount * 5) / 1000; // 0.5%
-            if (requiredBond == 0) requiredBond = 1;
-        }
-        if (msg.value < requiredBond) revert InsufficientFee();
-        if (msg.value > 0) {
-            _reporterBond[caseId] = msg.value;
-        }
-
-        // Track debtor and whether deposit already satisfied
-        address debtor = msg.sender == landlord ? tenant : landlord;
-        _caseDebtor[caseId] = debtor;
-        if (partyDeposit[debtor] >= requestedAmount) {
-            _caseDepositSatisfied[caseId] = true;
-        } else {
-            _caseDepositSatisfied[caseId] = false;
-        }
-
-    emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
-    emit DisputeReportedWithDigest(caseId, evidenceDigest, evidenceCid);
-    emit DisputeFiled(caseId, debtor, requestedAmount);
-    }
-
-    /// @notice Legacy helper that accepts only a CID string and computes the digest on-chain
-    function reportDisputeWithCidLegacy(DisputeType dtype, uint256 requestedAmount, string calldata evidenceCid) external payable onlyActive returns (uint256 caseId) {
-        bytes32 digest = keccak256(bytes(evidenceCid));
-        // reuse reportDisputeWithCid semantics
-        caseId = _disputes.length;
-        _disputes.push();
-        DisputeCase storage dc = _disputes[caseId];
-        dc.initiator = msg.sender;
-        dc.dtype = dtype;
-        dc.requestedAmount = requestedAmount;
-        dc.evidence = evidenceCid;
-        dc.evidenceDigest = digest;
-
-        // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
-        uint256 requiredBond = 0;
-        if (requestedAmount > 0) {
-            requiredBond = (requestedAmount * 5) / 1000; // 0.5%
-            if (requiredBond == 0) requiredBond = 1;
-        }
-        if (msg.value < requiredBond) revert InsufficientFee();
-        if (msg.value > 0) {
-            _reporterBond[caseId] = msg.value;
-        }
-
-        // Track debtor and whether deposit already satisfied
-        address debtor = msg.sender == landlord ? tenant : landlord;
-        _caseDebtor[caseId] = debtor;
-        if (partyDeposit[debtor] >= requestedAmount) {
-            _caseDepositSatisfied[caseId] = true;
-        } else {
-            _caseDepositSatisfied[caseId] = false;
-        }
-
-    emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount, evidenceCid);
-    emit DisputeReportedWithDigest(caseId, digest, evidenceCid);
-    emit DisputeFiled(caseId, debtor, requestedAmount);
-    }
+    // Deprecated: CID-based reporting functions removed. Use reportDispute with a bytes32 digest.
 
     /// @notice Read the stored digest for a dispute (bytes32, zero if none)
     function getDisputeDigest(uint256 caseId) external view returns (bytes32) {
@@ -646,7 +568,7 @@ function getRentInEth() public view returns (uint256) {
     function _resolveDisputeFinal(
         uint256 caseId,
         bool approve,
-        uint256 appliedAmount,
+        uint256,
         address beneficiary,
         string memory classification,
         string memory rationale

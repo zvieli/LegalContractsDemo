@@ -12,9 +12,9 @@ describe('TemplateRentContract - CID reporting', function () {
     const cid = 'QmFakeCid123';
     const digest = ethers.keccak256(ethers.toUtf8Bytes(cid));
 
-    // call legacy helper which computes digest on-chain
-    // DisputeType is an enum; use 0 (Damage) and requestedAmount 0 for this test
-    await rent.reportDisputeWithCidLegacy(0, 0, cid);
+    // call new digest-only reportDispute API
+    // Use DisputeType = 1 (ConditionStart) which allows requestedAmount == 0 for this test
+    await rent.reportDispute(1, 0, digest);
     expect(await rent.getDisputeDigest(0)).to.equal(digest);
     });
 });

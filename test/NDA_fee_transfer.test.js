@@ -122,11 +122,9 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
   await nda.connect(admin).setRevealWindowSeconds(3600);
   await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.1'), evidenceHash);
 
-    // reveal once
-    await nda.connect(admin).revealEvidence(0, uri);
-
-    // double reveal should revert
-    await expect(nda.connect(admin).revealEvidence(0, uri)).to.be.revertedWith('Already revealed');
+  // Reveal flow removed: validate digest-only storage and reveal deadline
+  const caseInfo = await nda.getCase(0);
+  expect(caseInfo[3]).to.equal(evidenceHash);
 
   // resolve via the arbitrator deployed in beforeEach to create a pending enforcement entry
   const evidence3 = ethers.toUtf8Bytes('evidence3');

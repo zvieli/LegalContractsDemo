@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
-import mockContracts from '../../utils/contracts/MockContracts.json';
 import './CreateRent.css';
 import '../../styles/notAllowed.css';
 
 function CreateRent() {
-  // Mock Price Feed (loaded via static import so bundler includes it)
-  const mockPriceFeedAddress = mockContracts?.contracts?.MockPriceFeed?.trim() || null;
+  // Mock Price Feed: attempt to load a generated MockContracts.json at runtime if present.
+  // We avoid a static import because the file is generated at deploy-time and may be absent
+  // in checkout/build environments. We fetch it at runtime and fall back gracefully.
+  const [mockPriceFeedAddress, setMockPriceFeedAddress] = useState(null);
   console.log('mockPriceFeedAddress:', mockPriceFeedAddress);
 
   const { account, signer, isConnected, chainId } = useEthers();
@@ -19,7 +20,7 @@ function CreateRent() {
     tenantAddress: '',
     rentAmount: '',
     // Default to mock price feed on localhost when available; otherwise use Sepolia by default
-    priceFeed: mockPriceFeedAddress || '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
+    priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
     duration: '',
     startDate: '',
     network: 'localhost' // Default to localhost for developer workflows
@@ -48,6 +49,24 @@ function CreateRent() {
       return next;
     });
   };
+
+  // Try to fetch generated MockContracts.json at runtime (optional). This keeps the bundle
+  // independent of generated artifacts while still allowing local dev to use mocks.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const resp = await fetch('/utils/contracts/MockContracts.json');
+        if (!resp.ok) return;
+        const mc = await resp.json();
+        const addr = mc?.contracts?.MockPriceFeed?.trim() || null;
+        if (!cancelled && addr) setMockPriceFeedAddress(addr);
+      } catch (e) {
+        // ignore — file may not exist in many environments
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const handleCreateContract = async (e) => {
     e.preventDefault();

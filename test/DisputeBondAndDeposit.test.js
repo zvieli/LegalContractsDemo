@@ -5,6 +5,7 @@ import { expect } from 'chai';
 describe('Dispute bond & deposit flows', function () {
   let landlord, tenant, reporter, arbOwner;
   let arbitrationService, factory, rent;
+  let evDigest;
 
   beforeEach(async function () {
     [landlord, tenant, reporter, arbOwner] = await ethers.getSigners();
@@ -28,6 +29,8 @@ describe('Dispute bond & deposit flows', function () {
     const evt = receipt.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
     const deployedAddr = evt.args.contractAddress;
     rent = await ethers.getContractAt('TemplateRentContract', deployedAddr);
+    // common evidence digest used by tests in this suite
+    evDigest = ethers.keccak256(ethers.toUtf8Bytes('e'));
   });
 
   it('requires reporter to pay 0.5% bond when submitting a dispute', async function () {
@@ -35,12 +38,13 @@ describe('Dispute bond & deposit flows', function () {
     const requiredBond = requested * 5n / 1000n; // 0.5%
 
     // try reporting with insufficient bond
+    const evDigest = ethers.keccak256(ethers.toUtf8Bytes('e'));
     await expect(
-      rent.connect(landlord).reportDispute(0, requested, 'e', { value: requiredBond - 1n })
+      rent.connect(landlord).reportDispute(0, requested, evDigest, { value: requiredBond - 1n })
     ).to.be.reverted;
 
     // reporting with exact bond should succeed
-    const tx = await rent.connect(landlord).reportDispute(0, requested, 'e', { value: requiredBond });
+  const tx = await rent.connect(landlord).reportDispute(0, requested, evDigest, { value: requiredBond });
     const rcpt = await tx.wait();
     const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
     expect(evt).to.not.be.undefined;
@@ -49,7 +53,7 @@ describe('Dispute bond & deposit flows', function () {
   it('debtor can deposit required claim amount for a case', async function () {
     const requested = ethers.parseEther('2');
     const requiredBond = requested * 5n / 1000n;
-    const rcpt = await (await rent.connect(tenant).reportDispute(0, requested, 'e', { value: requiredBond })).wait();
+  const rcpt = await (await rent.connect(tenant).reportDispute(0, requested, evDigest, { value: requiredBond })).wait();
     const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
     const caseId = evt.args.caseId;
 
@@ -69,7 +73,7 @@ describe('Dispute bond & deposit flows', function () {
     const requested = ethers.parseEther('1');
     const bond = requested * 5n / 1000n;
 
-    const rcpt = await (await rent.connect(tenant).reportDispute(0, requested, 'e', { value: bond })).wait();
+  const rcpt = await (await rent.connect(tenant).reportDispute(0, requested, evDigest, { value: bond })).wait();
     const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
     const caseId = evt.args.caseId;
 
@@ -96,7 +100,7 @@ describe('Dispute bond & deposit flows', function () {
   it('rejection forwards bond to arbitrator owner', async function () {
     const requested = ethers.parseEther('1');
     const bond = requested * 5n / 1000n;
-    const rcpt = await (await rent.connect(tenant).reportDispute(0, requested, 'e', { value: bond })).wait();
+  const rcpt = await (await rent.connect(tenant).reportDispute(0, requested, evDigest, { value: bond })).wait();
     const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
     const caseId = evt.args.caseId;
 

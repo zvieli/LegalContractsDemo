@@ -43,7 +43,8 @@ describe('ContractService.reportRentDispute', () => {
     const rentAddr = '0xcontract';
     // Call with amount that yields a non-zero bond
     const amount = 10000n;
-    const res = await svc.reportRentDispute(rentAddr, 0, amount, 'evidence');
+  const evDigest = ethers.keccak256(ethers.toUtf8Bytes('evidence'));
+  const res = await svc.reportRentDispute(rentAddr, 0, amount, evDigest);
     expect(res).toHaveProperty('receipt');
     // computeReporterBond should be > 0
     expect(svc.computeReporterBond(amount) > 0n).toBeTruthy();

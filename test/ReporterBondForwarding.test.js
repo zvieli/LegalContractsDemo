@@ -47,7 +47,8 @@ describe('Reporter bond forwarding', function () {
     const bond = ethers.parseEther('0.1');
 
     // landlord (a party) reports a dispute and attaches a bond
-    const tx = await rent.connect(landlord).reportDispute(0, ethers.parseEther('0.01'), 'evidence', { value: bond });
+  const evDigest = ethers.keccak256(ethers.toUtf8Bytes('evidence'));
+  const tx = await rent.connect(landlord).reportDispute(0, ethers.parseEther('0.01'), evDigest, { value: bond });
     const rcpt = await tx.wait();
     const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
     const caseId = evt.args.caseId;
@@ -65,7 +66,8 @@ describe('Reporter bond forwarding', function () {
     const bond = ethers.parseEther('0.05');
 
     // tenant (a party) reports a dispute and attaches a bond
-    const tx = await rent.connect(tenant).reportDispute(0, ethers.parseEther('0.01'), 'evidence', { value: bond });
+  const evDigest = ethers.keccak256(ethers.toUtf8Bytes('evidence'));
+  const tx = await rent.connect(tenant).reportDispute(0, ethers.parseEther('0.01'), evDigest, { value: bond });
     const rcpt = await tx.wait();
     const evt = rcpt.logs.find(l => l.fragment && l.fragment.name === 'DisputeReported');
     const caseId = evt.args.caseId;

@@ -21,10 +21,7 @@
     "copy-abi": "node scripts/copy-abi.js",
     "node": "npx hardhat node",
     "build:all": "npm run compile && npm run copy-abi && npm run build"
-    ,
-  "test:pinserver": "node -r dotenv/config tools/ipfs/tests/pin-server.integration.mjs"
-  ,
-  "test:pinserver:e2e": "node -r dotenv/config tools/ipfs/tests/pin-server.e2e.mjs"
+    
   },
   "keywords": [],
   "author": "",

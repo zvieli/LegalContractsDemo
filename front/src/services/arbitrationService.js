@@ -93,4 +93,8 @@ export class ArbitrationService {
       throw error;
     }
   }
+
+  // Admin-only decryption helpers moved to `tools/admin/decryptHelper.js`.
+  // Use that utility in a trusted admin environment (server or CLI) to decrypt
+  // EthCrypto JSON ciphertexts. Do NOT include admin private keys in client bundles.
 }

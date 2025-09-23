@@ -88,9 +88,10 @@ function Arbitration() {
         return;
       }
       const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-      const mod = await import('../../utils/contracts/ContractFactory.json');
-      const local = mod?.default ?? mod;
-      const factoryAddr = local?.contracts?.ContractFactory;
+      // Prefer to read local deployment metadata if available via helper
+      const { getLocalDeploymentAddresses, getContractAddress } = await import('../../utils/contracts');
+      const local = await getLocalDeploymentAddresses();
+      const factoryAddr = local?.ContractFactory || (await getContractAddress(Number(31337), 'ContractFactory'));
       if (!factoryAddr) {
         setDisputes([]);
         setLoading(false);

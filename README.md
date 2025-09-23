@@ -170,6 +170,24 @@ Notes:
 
 ABIs are copied into `front/src/utils/contracts`. The UI should now use arbitrator-based flows (create case → notify arbitrator → read resolution) and must not rely on voting or AI features.
 
+### Admin decryption helper
+
+Evidence ciphertexts are intended to be encrypted client-side to an admin public key and stored off-chain (the contract stores only the `bytes32` keccak256 digest of the ciphertext). To decrypt ciphertexts, use the admin-only helper located at:
+
+```
+tools/admin/decryptHelper.js
+```
+
+Example (Node.js / admin environment):
+
+```js
+const { decryptEvidencePayload } = require('./tools/admin/decryptHelper');
+const plaintext = decryptEvidencePayload(payloadJsonString, process.env.ADMIN_PRIVATE_KEY);
+console.log('Decrypted evidence:', plaintext);
+```
+
+Important: do NOT include admin private keys or this module in client-side bundles. Keep decryption in a trusted admin environment (server/CLI) and ensure keys are stored securely (HSM or vault).
+
 ## Tests
 
 Hardhat tests cover NDA flows, the owner arbitrator, and rent contract workflows.
@@ -178,6 +196,10 @@ Run:
 ```
 npm test
 ```
+
+## Admin tooling note
+
+Admin decryption utilities live under `tools/admin/`. These helpers are intended for trusted admin environments only. Do not commit private keys or bundle admin helpers into front-end builds. See `tools/admin/README.md` for usage and a CLI wrapper.
 
 ## Troubleshooting
 
@@ -193,9 +215,7 @@ npm test
 
 - New contracts store off-chain evidence as a `bytes32` digest (keccak256 of the CID) instead of relying on raw string CIDs on-chain. This reduces gas and standardizes verification.
 - Smart-contract entrypoints:
-	- `reportDisputeWithCid(...)` accepts a `bytes32 evidenceDigest` and an `evidenceCid` for off-chain storage metadata.
-	- `reportDisputeWithCidLegacy(...)` computes the digest on-chain from a provided CID to preserve compatibility with older frontends.
-- Frontend `contractService` will attempt to call `reportDisputeWithCid(...)` and fall back to `reportDisputeWithCidLegacy(...)` if the new ABI is not present on a deployed contract.
+	- `reportDispute(...)` accepts a `bytes32 evidenceDigest` only; the contract no longer stores or references IPFS CIDs or off-chain URIs.
 
 If you maintain integrations or UIs, update your contract ABIs and prefer providing the digest precomputed by the frontend (see `front/src/services/contractService.js`).
 

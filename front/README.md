@@ -1,3 +1,14 @@
+Frontend notes
+
+- The front-end uses the contract service helpers in `front/src/services/contractService.js` to compute evidence digests. Do NOT attempt to import admin decryption helpers into the front-end.
+- Admin decryption tooling lives in `tools/admin/` and is intended for trusted admin environments only. Do not bundle private keys or admin helpers into the front build.
+
+Build / dev
+
+```
+npm install
+npm run dev
+```
 Front-end notes
 
 This frontend attempts to use the injected wallet provider (e.g. MetaMask) for all on-chain reads and writes. For local development with Hardhat, MetaMask sometimes blocks or returns an internal RPC error ("Execution prevented because the circuit breaker is open").

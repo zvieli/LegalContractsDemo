@@ -36,9 +36,9 @@ function loadAbi(rel) {
         const initiator = e.args[1];
         const requested = e.args[3].toString();
         console.log(' caseId=', caseId, 'initiator=', initiator, 'requested=', requested);
-        // get dispute details
-        const dispute = await rent.getDispute(caseId);
-        console.log('  getDispute -> initiator=', dispute[0], 'requested=', dispute[2].toString(), 'resolved=', dispute[4]);
+  // get dispute details (evidence is now stored as a bytes32 digest)
+  const dispute = await rent.getDispute(caseId);
+  console.log('  getDispute -> initiator=', dispute[0], 'requested=', dispute[2].toString(), 'resolved=', dispute[4], 'evidenceDigest=', dispute[3]);
       }
     }
     if (filedFilter) {

@@ -18,3 +18,11 @@ ignition/deployments/chain-31337
 
 # Frontend generated contract addresses/ABI artifacts (dev-only)
 front/src/utils/contracts/
+
+# Admin tooling (do not commit keys)
+tools/admin/*.key
+tools/admin/*.pem
+tools/admin/*.secret
+tools/admin/*.env
+
+ 

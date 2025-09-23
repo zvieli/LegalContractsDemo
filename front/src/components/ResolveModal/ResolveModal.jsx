@@ -2,90 +2,22 @@ import React, { useEffect, useState } from 'react';
 import { ContractService } from '../../services/contractService';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import { ArbitrationService } from '../../services/arbitrationService';
-import { fetchPinnedRecord, decryptPinnedRecord, decryptPinnedRecordWithSignature } from '../../services/pinServerService';
+// pin-server removed: evidence is handled on-chain as a string/cid; no local pin-server calls
 import * as ethers from 'ethers';
 import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
 import { createContractInstance } from '../../utils/contracts';
 import './ResolveModal.css';
 
-function EvidencePanel({ initialPinId, isArbitrator, signer, contractAddress }) {
-  const [pinId, setPinId] = useState(initialPinId || '');
-  const [pinnedLoading, setPinnedLoading] = useState(false);
-  const [pinnedError, setPinnedError] = useState(null);
-  const [pinnedRecord, setPinnedRecord] = useState(null);
-  const [pinnedDecrypted, setPinnedDecrypted] = useState(null);
-
-  const handleFetch = async () => {
-    if (!pinId) return setPinnedError('Enter a pin ID');
-    setPinnedLoading(true);
-    setPinnedError(null);
-    setPinnedRecord(null);
-    setPinnedDecrypted(null);
-    try {
-      const rec = await fetchPinnedRecord(pinId);
-      setPinnedRecord(rec);
-    } catch (err) {
-      setPinnedError(err?.message || String(err));
-    } finally {
-      setPinnedLoading(false);
-    }
-  };
-
-  const handleAdminDecrypt = async () => {
-    if (!pinId) return setPinnedError('Enter a pin ID');
-    setPinnedLoading(true);
-    setPinnedError(null);
-    try {
-      // Prefer a signer-based reveal when we have a connected signer and the contract context
-      if (signer && contractAddress) {
-        const dec = await decryptPinnedRecordWithSignature(pinId, signer, contractAddress, false, []);
-        setPinnedDecrypted(dec || null);
-      } else {
-        // Call decryptPinnedRecord without relying on localStorage-stored API keys.
-        // The UI enforces that only an authorized arbitrator can see this button.
-        const dec = await decryptPinnedRecord(pinId);
-        setPinnedDecrypted(dec.decrypted || dec);
-      }
-    } catch (err) { setPinnedError(err?.message || String(err)); } finally { setPinnedLoading(false); }
-  };
-
-  const handleDownload = () => {
-    if (!pinnedDecrypted) return;
-    try {
-      const blob = new Blob([pinnedDecrypted], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      const filename = (pinnedRecord && pinnedRecord.meta && pinnedRecord.meta.filename) ? pinnedRecord.meta.filename : `evidence-${pinId || Date.now()}`;
-      a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-    } catch (e) { console.error('Download failed', e); }
-  };
-
+function EvidencePanel({ initialEvidence }) {
+  // Simplified evidence panel after removing local pin-server: evidence is stored on-chain
+  const [evidenceText, setEvidenceText] = useState(initialEvidence || '');
   return (
     <div style={{marginTop:12, padding:12, border:'1px solid #eee', borderRadius:6}}>
-      <h4>Evidence / Pin</h4>
-      <div style={{display:'flex', gap:8, alignItems:'center'}}>
-        <input placeholder="Enter pin id (e.g. pin_12345)" value={pinId} onChange={e=>setPinId(e.target.value)} style={{flex:1}} />
-        <button className="btn-sm" onClick={handleFetch}>Fetch</button>
-        {isArbitrator && <button className="btn-sm primary" onClick={handleAdminDecrypt}>Admin Decrypt</button>}
+      <h4>Evidence</h4>
+      <div style={{marginTop:8}}>
+        <div style={{fontSize:13, color:'#555', marginBottom:6}}>Evidence for this dispute is stored off-chain (encrypted). The contract stores only a keccak256 digest for integrity.</div>
+        <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{evidenceText || <span style={{color:'#888'}}>No evidence digest available on-chain</span>}</pre>
       </div>
-      {pinnedLoading && <div style={{marginTop:8}}>Loading...</div>}
-      {pinnedError && <div style={{color:'#a33', marginTop:8}}>Error: {pinnedError}</div>}
-      {pinnedRecord && (
-        <div style={{marginTop:8}}>
-          <div><strong>Filename:</strong> {pinnedRecord.meta?.filename || 'n/a'}</div>
-          <div><strong>Size:</strong> {pinnedRecord.meta?.size || 'n/a'}</div>
-          <pre style={{whiteSpace:'pre-wrap', marginTop:8}}>{JSON.stringify(pinnedRecord, null, 2)}</pre>
-        </div>
-      )}
-      {pinnedDecrypted && (
-        <div style={{marginTop:8}}>
-          <h5>Decrypted</h5>
-          <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto'}}>{pinnedDecrypted}</pre>
-          <div style={{marginTop:8}}>
-            <button className="btn-sm" onClick={handleDownload}>Download</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -578,6 +510,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                             const svc = new ContractService(signer, chainId);
                             await svc.depositForCase(contractAddress, disputeInfo.caseId, amtWei);
                             alert('Deposit submitted for case');
+                            // refresh parent contract data to update payment history and hide deposit input
+                            try { if (window && typeof window.refreshContractData === 'function') await window.refreshContractData(); } catch (_) {}
                             await refreshDisputeState();
                           } catch (e) {
                             alert(`Deposit failed: ${e?.message || e}`);
@@ -602,7 +536,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           )}
 
       {/* Evidence panel: fetch/decrypt/preview/download pinned evidence (arbitrator-only decrypt) */}
-  <EvidencePanel initialPinId={disputeInfo?.evidencePinId || disputeInfo?.pinId || ''} isArbitrator={isAuthorizedArbitrator} signer={signer} contractAddress={contractAddress} />
+  <EvidencePanel initialEvidence={disputeInfo?.evidenceDigest || ''} />
 
           {/* Reporter bond and withdrawable info */}
               {disputeInfo && (

@@ -49,7 +49,6 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
     event PaymentWithdrawn(address indexed to, uint256 amount);
     event BreachRationale(uint256 indexed caseId, string classification, string rationale);
-    event EvidenceRevealed(uint256 indexed caseId, string uri);
     // debug removed
 
     struct BreachCase {
@@ -68,7 +67,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
 
     BreachCase[] private _cases;
     mapping(uint256 => CaseMeta) private _caseMeta; // caseId => meta
-    mapping(uint256 => string) private _evidenceURI; // optional revealed evidence storage (URI or CID)
+    // mapping(uint256 => string) private _evidenceURI; // optional revealed evidence storage (URI or CID) - removed
     mapping(uint256 => uint256) private _caseFee; // fee attached to caseId
     mapping(uint256 => uint256) private _revealDeadline; // timestamp until which reveal allowed
     mapping(uint256 => uint256) private _resolvedAt; // timestamp when case was resolved
@@ -320,37 +319,10 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
     }
 
-    /// @notice Reveal evidence URI (e.g., IPFS CID) after committing evidenceHash on report
-    function revealEvidence(uint256 caseId, string calldata uri) external onlyParty onlyActive {
-        require(caseId < _cases.length, "Invalid case ID");
-        BreachCase storage bc = _cases[caseId];
-        require(msg.sender == bc.reporter || msg.sender == bc.offender, "Not a party to case");
-
-    // enforce reveal window if configured
-        if (revealWindowSeconds > 0) {
-            require(_revealDeadline[caseId] != 0, "No reveal window set");
-            require(block.timestamp <= _revealDeadline[caseId], "Reveal window closed");
-        }
-
-        // verify the revealed URI matches the committed evidence hash
-        bytes32 computed = keccak256(bytes(uri));
-        require(computed == bc.evidenceHash, "Evidence hash mismatch");
-
-    // prevent double-reveal
-    require(bytes(_evidenceURI[caseId]).length == 0, "Already revealed");
-    _evidenceURI[caseId] = uri;
-        emit EvidenceRevealed(caseId, uri);
-    }
-
     function getCaseMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
         require(caseId < _cases.length, "Invalid case ID");
         CaseMeta storage m = _caseMeta[caseId];
         return (m.classification, m.rationale);
-    }
-
-    function getEvidenceURI(uint256 caseId) external view returns (string memory) {
-        require(caseId < _cases.length, "Invalid case ID");
-        return _evidenceURI[caseId];
     }
 
     function getOffenderBreachCount(address offender) external view returns (uint256) {

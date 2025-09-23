@@ -6,7 +6,6 @@ import { getContractABI } from '../../utils/contracts';
 import { useRentPaymentEvents } from '../../hooks/useContractEvents';
 import ContractModal from '../ContractModal/ContractModal';
 import * as ethers from 'ethers';
-import mockContracts from '../../utils/contracts/MockContracts.json';
 // AI service removed for now; use a deterministic local stub for UI testing
 import './Dashboard.css';
 

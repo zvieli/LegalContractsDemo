@@ -262,7 +262,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           setRequiredEthWei(null);
           setRequiredEth(null);
         }
-        const paymentEvents = await rentContract.queryFilter(rentContract.filters.RentPaid());
+  const paymentEvents = await rentContract.queryFilter(rentContract.filters.RentPaid());
+  // include security deposit events (debtor deposits for case) so deposits show in payment history
+  const depositEvents = await rentContract.queryFilter(rentContract.filters.SecurityDepositPaid?.());
         const transactions = await Promise.all(paymentEvents.map(async (event) => {
           const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
           return {
@@ -273,6 +275,17 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           };
         }));
 
+        const depositTxs = await Promise.all(depositEvents.map(async (event) => {
+          const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
+          return {
+            hash: event.transactionHash,
+            amount: ethers.formatEther(event.args.amount),
+            date: blk?.timestamp ? new Date(Number(blk.timestamp) * 1000).toLocaleDateString() : '—',
+            payer: event.args.by,
+            note: `Deposit for case (total after): ${ethers.formatEther(event.args.total || 0n)} ETH`
+          };
+        }));
+
         // Also include dispute/appeal events (so reporter bond / appeal TXs show in history)
         try {
           const disputeEvents = await rentContract.queryFilter(rentContract.filters.DisputeReported?.());
@@ -280,19 +293,30 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             const blk = await (signer?.provider || provider).getBlock(ev.blockNumber);
             const cid = Number(ev.args?.caseId ?? ev.args?.[0] ?? 0);
             const req = ev.args?.requestedAmount ?? ev.args?.[3] ?? 0n;
-            const amt = (() => { try { return ethers.formatEther(req); } catch { return String(req); } })();
+            // Read the actual transaction value (msg.value) to show the real ETH moved (reporter bond),
+            // otherwise showing `requestedAmount` is misleading because disputes often only send the bond.
+            let txValue = 0n;
+            try {
+              const txOnChain = await (signer?.provider || provider).getTransaction(ev.transactionHash);
+              if (txOnChain && txOnChain.value != null) txValue = txOnChain.value;
+            } catch (e) {
+              // non-fatal: fall back to requestedAmount if tx.value cannot be read
+              txValue = req;
+            }
+            const amt = (() => { try { return ethers.formatEther(txValue); } catch { return String(txValue); } })();
             return {
               hash: ev.transactionHash,
               amount: amt,
               date: blk?.timestamp ? new Date(Number(blk.timestamp) * 1000).toLocaleDateString() : '—',
               payer: ev.args?.initiator || ev.args?.[1],
               note: `Appeal (case #${cid})`,
+              requestedAmountEth: (() => { try { return ethers.formatEther(req); } catch { return String(req); } })(),
               caseId: cid,
             };
           }));
 
           // merge and sort by date (newest first)
-          const merged = [...transactions, ...disputeTxs].sort((a,b) => {
+          const merged = [...transactions, ...depositTxs, ...disputeTxs].sort((a,b) => {
             const da = a.date === '—' ? 0 : new Date(a.date).getTime();
             const db = b.date === '—' ? 0 : new Date(b.date).getTime();
             return db - da;
@@ -378,6 +402,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         }
       }
 
+      // expose for simple cross-component refresh calls in this educational demo
+      try { window.refreshContractData = loadContractData; } catch (_) {}
       if (details?.type === 'Rental') {
         // Load cancellation events timeline (best-effort)
         const evts = [];
@@ -697,6 +723,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     try {
       setActionLoading(true);
       const service = new ContractService(signer, chainId);
+      // If evidence is a plain string, contractService will compute digest; pass through as-is
       await service.ndaReportBreach(contractAddress, offender, penalty, evidence);
       alert('Breach reported');
       await loadContractData();
@@ -741,7 +768,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       const svc = new ContractService(signer, chainId);
       const amountWei = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
       // prefer file hash if present, otherwise use evidence text
-      const evidence = disputeFileHash || disputeForm.evidence || '';
+      const evidenceRaw = disputeFileHash || disputeForm.evidence || '';
+      // If evidenceRaw is a 0x-prefixed 32-byte hash, use it; otherwise compute keccak256 of the UTF-8 string.
+      let evidence = '';
+      try {
+        if (evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw)) evidence = evidenceRaw;
+        else if (evidenceRaw) evidence = ethers.keccak256(ethers.toUtf8Bytes(String(evidenceRaw)));
+        else evidence = '';
+      } catch (e) { evidence = '' }
       // If a file was attached and user provided a web3.storage token, upload it and include CID
       let cid = null;
       let cidUrl = null;
@@ -766,11 +800,11 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         // Directly submit dispute - this will prompt MetaMask and send the bond as msg.value
         const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
         try {
-          const incoming = {
+            const incoming = {
             contractAddress: contractAddress,
             dtype: Number(disputeForm.dtype || 0),
             amountEth: String(disputeForm.amountEth || '0'),
-            evidence: evidence || '',
+              evidenceDigest: evidence || '',
             fileName: disputeFileName || '',
             cid: cid || null,
             cidUrl: cidUrl || null,
@@ -1370,6 +1404,12 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           {tx.hash.slice(0, 10)}...{tx.hash.slice(-8)}
                           <button className="btn-copy" onClick={() => handleCopyTx(tx.hash)} title="Copy tx hash" style={{marginLeft:8}}>Copy</button>
                         </div>
+                        {tx.requestedAmountEth && (
+                          <div className="tx-note">Requested: {tx.requestedAmountEth} ETH</div>
+                        )}
+                        {tx.note && (
+                          <div className="tx-note">{tx.note}</div>
+                        )}
                       </div>
                     ))
                   )}
