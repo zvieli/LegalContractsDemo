@@ -16,3 +16,18 @@ This frontend attempts to use the injected wallet provider (e.g. MetaMask) for a
 To make local development smoother the frontend will automatically fall back to a direct JSON-RPC provider at `http://127.0.0.1:8545` for certain read-only RPCs (such as `eth_getCode`) when the app detects it's connected to a localhost chain (chainId 31337/1337/5777) and the injected provider fails.
 
 If you see errors in the browser console about the circuit breaker, ensure your local Hardhat node is running (`npx hardhat node`) and that MetaMask is pointed at the same network.
+
+Evidence workflow (client-side helper)
+
+Use `front/src/utils/evidence.js` to prepare evidence payloads before reporting:
+
+```js
+import { prepareEvidencePayload } from './src/utils/evidence';
+
+// Example: encrypt to admin public key then upload ciphertext off-chain
+const { ciphertext, digest } = await prepareEvidencePayload('some secret text', { encryptToAdminPubKey: '04abcd...' });
+// upload `ciphertext` to your storage (S3 / server), then call the contract with `digest`
+// e.g. contract.reportDispute(caseType, amount, digest)
+```
+
+If you do not want client-side encryption, call `prepareEvidencePayload(payload)` and it will return `{ digest }` computed over the plaintext.

@@ -11,7 +11,7 @@ describe('EvidencePanel', () => {
   let originalFetch
   beforeEach(() => {
     originalFetch = global.fetch
-    // The pin-server and admin decrypt endpoints were removed; tests should not rely on network fetches.
+  // Network fetches and admin decrypt endpoints are not used by the UI tests; mock fetch to avoid external calls.
     global.fetch = vi.fn(() => Promise.resolve({ ok: false }))
   })
 

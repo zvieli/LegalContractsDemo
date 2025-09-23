@@ -465,8 +465,11 @@ describe("NDATemplate - reveal & appeal windows", function () {
     // admin sets reveal window
     await ndaR.connect(adminR).setRevealWindowSeconds(3600);
 
-    const uri = "ipfs://QmExampleCid123";
-    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(uri));
+  // Legacy examples used ipfs:// URIs; the contract now stores only the
+  // keccak256 digest of an off-chain evidence payload. For test purposes we
+  // compute the digest of a representative payload string.
+  const payload = "example-offchain-payload-1";
+  const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(payload));
 
     // deposits
     await ndaR.connect(adminR).deposit({ value: ethers.parseEther('0.5') });
@@ -488,8 +491,9 @@ describe("NDATemplate - reveal & appeal windows", function () {
   it("rejects reveal after reveal window expires", async function () {
     await ndaR.connect(adminR).setRevealWindowSeconds(10); // short window
 
-    const uri = "ipfs://QmShortWindow";
-    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(uri));
+  // Short-window test uses a representative off-chain payload (not an IPFS URI)
+  const payload2 = "example-offchain-payload-short";
+  const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(payload2));
 
     await ndaR.connect(adminR).deposit({ value: ethers.parseEther('0.5') });
     await ndaR.connect(partyBR).deposit({ value: ethers.parseEther('0.5') });

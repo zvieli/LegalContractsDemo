@@ -5,7 +5,7 @@ import { ArbitrationService } from '../../services/arbitrationService';
 // Evidence workflow: the contract stores only a keccak256 digest of an
 // off-chain evidence payload. The frontend should display the digest or a
 // decrypted/processed version of the payload only when provided by a trusted
-// admin/service. No local pin-server calls are performed by the frontend.
+// admin/service. The frontend performs NO pinning or direct IPFS interactions.
 import * as ethers from 'ethers';
 import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
 import { createContractInstanceAsync, getLocalDeploymentAddresses } from '../../utils/contracts';

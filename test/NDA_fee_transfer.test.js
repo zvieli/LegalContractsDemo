@@ -115,8 +115,10 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
   // set appeal window so enforcement is deferred
   await nda.connect(admin).setAppealWindowSeconds(1);
 
-  const uri = 'ipfs://abc';
-  const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(uri));
+  // Example off-chain payload (previously used ipfs:// URIs in docs). Compute
+  // the keccak256 digest of the payload string to represent stored evidence.
+  const payload = 'example-offchain-payload';
+  const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(payload));
 
   // set reveal window before reporting so revealDeadline is recorded at report time
   await nda.connect(admin).setRevealWindowSeconds(3600);

@@ -1,5 +1,6 @@
 import * as ethers from 'ethers';
 import { contract } from './contractInstance.js';
+import { computePayloadDigest } from '../utils/cidDigest';
 
 // Evidence workflow: the frontend computes and submits a `bytes32` keccak256
 // digest of an off-chain evidence payload. The payload itself (encrypted
@@ -8,10 +9,6 @@ import { contract } from './contractInstance.js';
 // operations MUST occur in a trusted admin environment (see `tools/admin`).
 // Do NOT bundle admin private keys or server-only decryption logic into the
 // frontend bundle.
-export function computeCidDigest(cid) {
-  if (!cid) return ethers.ZeroHash;
-  return ethers.keccak256(ethers.toUtf8Bytes(cid));
-}
 
 // Client-side helper: compute and submit a bytes32 digest for an evidence payload.
 // Note: the frontend only computes the digest and calls the contract. Any
@@ -20,8 +17,8 @@ export function computeCidDigest(cid) {
 // admin/service environment (see `tools/admin`).
 export async function reportRentDispute(id, evidencePayloadString = '', overrides = {}) {
   try {
-    const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
-    const digest = computeCidDigest(payloadStr);
+  const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
+  const digest = computePayloadDigest(payloadStr);
     await contract.reportDispute(id, digest, overrides);
   } catch (e) {
     throw e;

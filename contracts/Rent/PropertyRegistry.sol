@@ -7,7 +7,7 @@ contract PropertyRegistry {
     struct Property {
         address owner;
         bytes32 locationHash; // hashed physical address / coordinates to avoid storing full PII
-        string metadataURI;   // off-chain metadata (IPFS / HTTPS) with richer details & media
+    string metadataURI;   // off-chain metadata (HTTPS or other secure store) with richer details & media
         bool active;
     }
 
