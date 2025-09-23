@@ -31,3 +31,9 @@ const { ciphertext, digest } = await prepareEvidencePayload('some secret text', 
 ```
 
 If you do not want client-side encryption, call `prepareEvidencePayload(payload)` and it will return `{ digest }` computed over the plaintext.
+
+Short note on evidence and admin keys
+
+- The front-end only computes and submits a bytes32 evidence digest (keccak256) to the contract. For empty evidence the canonical sentinel `ethers.ZeroHash` is used. The front-end does not and must not hold admin private keys.
+- If you choose the encrypted evidence flow: the client encrypts the plaintext to the admin public key (ECIES) and uploads the ciphertext to your off-chain storage (S3/HTTPS). The contract should store the keccak256 digest of the ciphertext only. Admins fetch the ciphertext off-chain and decrypt it using the secure CLI/tools under `tools/admin/` on a trusted machine.
+- Never embed admin private keys in the front-end bundle or in public repositories. Prefer secure key storage such as environment variables on a locked admin host, cloud KMS/HSM, or a secrets manager.
