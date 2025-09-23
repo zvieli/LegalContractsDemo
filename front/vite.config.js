@@ -15,7 +15,10 @@ export default defineConfig({
     }
   },
   optimizeDeps: {
-    include: ['buffer', 'bn.js', 'elliptic', 'secp256k1', 'eccrypto', 'eth-crypto']
+    // Keep common crypto/browser libs pre-bundled. Do NOT force `eth-crypto`
+    // into the prebundle; encryption helpers are admin-only and should not be
+    // included in the main client bundle unless intentionally enabled.
+    include: ['buffer', 'bn.js', 'elliptic', 'secp256k1', 'eccrypto']
   },
   build: {
     rollupOptions: {

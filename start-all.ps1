@@ -23,7 +23,10 @@ function Start-Terminal($title, $command, $workdir) {
 
 $root = $PSScriptRoot
 
-# A - Optional IPFS/pin-server: this repository does not run a pin-server by default. If you require a local pin-server for custom workflows, restore `tools/ipfs` and adjust this script accordingly.
+# A - Evidence storage: this repository does not run a local IPFS/pin-server by default.
+# Evidence payloads are expected to be stored off-chain and the contract stores only a
+# keccak256 digest. Admin-side decryption/helpers are located under `tools/admin` and
+# must run in a trusted environment (do NOT bundle admin private keys into the frontend).
 
 # B - Hardhat node
 Start-Terminal "Hardhat" "npx hardhat node" "$root"

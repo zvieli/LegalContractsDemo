@@ -33,6 +33,22 @@ export ADMIN_PRIVATE_KEY="0x..."
 node tools/admin/decrypt-cli.js --file ciphertext.json
 ```
 
+Windows (PowerShell) example using environment variable (temporary for session):
+
+```
+$env:ADMIN_PRIVATE_KEY = '0x...'
+node tools/admin/decrypt-cli.js --file ciphertext.json
+```
+
+Windows (PowerShell) example reading from a secure file (ensure NTFS ACLs restrict access):
+
+```
+$env:ADMIN_PRIVATE_KEY_FILE = 'C:\secure\admin.key'
+# Ensure file permissions are tight: use icacls to restrict access on Windows
+# icacls C:\secure\admin.key /inheritance:r /grant:r "$($env:USERNAME):(R)"
+node tools/admin/decrypt-cli.js --file ciphertext.json
+```
+
 Decrypt using Vault (KV v2 default mount):
 
 ```
