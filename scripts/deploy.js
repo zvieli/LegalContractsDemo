@@ -37,26 +37,31 @@ async function main() {
     }
   }
 
-  // Ensure frontend contracts dir exists early so we can inspect existing MockContracts.json
-  const frontendContractsDir = path.join(
-    __dirname,
-    "../front/src/utils/contracts"
-  );
-  if (!fs.existsSync(frontendContractsDir)) {
-    fs.mkdirSync(frontendContractsDir, { recursive: true });
+  // Ensure frontend public contracts dir exists early. The dev server serves
+  // artifacts from `front/public/utils/contracts` at runtime (served at /utils/contracts/).
+  const frontendPublicContractsDir = path.join(__dirname, "../front/public/utils/contracts");
+  // Primary contracts directory used for runtime fetch
+  const frontendContractsDir = frontendPublicContractsDir;
+  if (!fs.existsSync(frontendPublicContractsDir)) {
+    fs.mkdirSync(frontendPublicContractsDir, { recursive: true });
   }
 
-  // If DEPLOY_MOCKS is not explicitly true, but the frontend MockContracts.json exists
-  // and is missing mock addresses, auto-enable mock deployment so we populate the file.
+  // If DEPLOY_MOCKS is not explicitly true, check both src and public MockContracts.json
+  // and auto-enable mock deployment when the MockPriceFeed address is missing.
   let shouldDeployMocks = deployMocks;
   try {
-    const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
-    if (!deployMocks && fs.existsSync(mockContractsPath)) {
-      const existing = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {};
-      const mp = existing?.contracts?.MockPriceFeed ?? null;
-      if (!mp) {
-        console.log('ℹ️  MockContracts.json missing MockPriceFeed address; enabling mock deployment to populate it');
-        shouldDeployMocks = true;
+    const checkPaths = [
+      path.join(frontendPublicContractsDir, "MockContracts.json")
+    ];
+    for (const p of checkPaths) {
+      if (!deployMocks && fs.existsSync(p)) {
+        const existing = JSON.parse(fs.readFileSync(p, 'utf8')) || {};
+        const mp = existing?.contracts?.MockPriceFeed ?? null;
+        if (!mp) {
+          console.log('ℹ️  MockContracts.json missing MockPriceFeed address; enabling mock deployment to populate it');
+          shouldDeployMocks = true;
+          break;
+        }
       }
     }
   } catch (e) {
@@ -84,10 +89,10 @@ async function main() {
     },
   };
 
-  const deploymentFile = path.join(frontendContractsDir, "ContractFactory.json");
-  fs.writeFileSync(deploymentFile, JSON.stringify(deploymentData, null, 2));
-
-  console.log("💾 Deployment saved to frontend:", deploymentFile);
+  // Write ContractFactory.json to public (primary)
+  const publicDeploymentFile = path.join(frontendPublicContractsDir, "ContractFactory.json");
+  fs.writeFileSync(publicDeploymentFile, JSON.stringify(deploymentData, null, 2));
+  console.log("💾 Deployment saved to frontend public:", publicDeploymentFile);
 
   // === SANITY CHECK: ensure the deployed factory has code on-chain ===
   try {
@@ -284,9 +289,9 @@ async function main() {
             bytecode: chosenBytecode,
           };
 
-          const destPath = path.join(frontendContractsDir, `${contractName}ABI.json`);
-          fs.writeFileSync(destPath, JSON.stringify(abiData, null, 2));
-          console.log(`✅ Copied ${contractName} ABI`);
+          const publicDest = path.join(frontendPublicContractsDir, `${contractName}ABI.json`);
+          fs.writeFileSync(publicDest, JSON.stringify(abiData, null, 2));
+          console.log(`✅ Copied ${contractName} ABI to public`);
           copiedCount++;
         } catch (error) {
           console.error(`❌ Error copying artifact ${full}:`, error.message);
@@ -305,23 +310,23 @@ async function main() {
   // === 4. Write MockContracts.json with deployed mock addresses and factory (no sample/demo contract) ===
   console.log("💾 Writing MockContracts.json for frontend...");
 
-  try {
-    const mockContractsPath = path.join(frontendContractsDir, "MockContracts.json");
-    let existing = {};
-    if (fs.existsSync(mockContractsPath)) {
-      try { existing = JSON.parse(fs.readFileSync(mockContractsPath, 'utf8')) || {}; } catch (e) { existing = {}; }
+    try {
+      // Write MockContracts.json to public (primary)
+      const publicMockContractsPath = path.join(frontendPublicContractsDir, "MockContracts.json");
+      let existing = {};
+      if (fs.existsSync(publicMockContractsPath)) {
+        try { existing = JSON.parse(fs.readFileSync(publicMockContractsPath, 'utf8')) || {}; } catch (e) { existing = {}; }
+      }
+
+      existing.contracts = existing.contracts || {};
+      if (mockPriceAddress) existing.contracts.MockPriceFeed = mockPriceAddress;
+      existing.contracts.ContractFactory = existing.contracts.ContractFactory || factoryAddress;
+
+      fs.writeFileSync(publicMockContractsPath, JSON.stringify(existing, null, 2));
+      console.log("✅ MockContracts.json written/updated to frontend public:", publicMockContractsPath);
+    } catch (err) {
+      console.error("⚠️  Could not write MockContracts.json to frontend:", err.message);
     }
-
-    existing.contracts = existing.contracts || {};
-    // Only set values that are available (null means not deployed)
-  if (mockPriceAddress) existing.contracts.MockPriceFeed = mockPriceAddress;
-    existing.contracts.ContractFactory = existing.contracts.ContractFactory || factoryAddress;
-
-    fs.writeFileSync(mockContractsPath, JSON.stringify(existing, null, 2));
-    console.log("✅ MockContracts.json written/updated to frontend:", mockContractsPath);
-  } catch (err) {
-    console.error("⚠️  Could not write MockContracts.json to frontend:", err.message);
-  }
 
   console.log(`🎉 Copied ${copiedCount} ABI files to ${frontendContractsDir}`);
   if (skippedCount > 0) {

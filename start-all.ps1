@@ -2,7 +2,6 @@
 Start-All.ps1
 
 Opens separate PowerShell windows for common local development tasks:
-- Pin-server (tools/ipfs docker-compose)
 - Hardhat node (local JSON-RPC)
 - Deploy contracts and copy ABIs to `front/src/utils/contracts`
 - Frontend dev server (front/)
@@ -24,7 +23,7 @@ function Start-Terminal($title, $command, $workdir) {
 
 $root = $PSScriptRoot
 
-# A - Pin-server: removed in this scale-down. If you still need a pin-server, restore scripts/tools/ipfs manually.
+# A - Optional IPFS/pin-server: this repository does not run a pin-server by default. If you require a local pin-server for custom workflows, restore `tools/ipfs` and adjust this script accordingly.
 
 # B - Hardhat node
 Start-Terminal "Hardhat" "npx hardhat node" "$root"
@@ -32,7 +31,7 @@ Start-Terminal "Hardhat" "npx hardhat node" "$root"
 # C - Deploy contracts & copy ABIs to frontend utils (copy only if artifacts exist)
 # Wait for Hardhat JSON-RPC (http://127.0.0.1:8545) to be available before running deploy.
 # This avoids racing the deploy step with the Hardhat node startup. Times out after 60s.
-Start-Terminal "Deploy" "for ($i=0; $i -lt 60; $i++) { try { Invoke-WebRequest -Uri 'http://127.0.0.1:8545' -UseBasicParsing -TimeoutSec 2 > \$null; Write-Host 'Hardhat RPC available' -ForegroundColor Green; break } catch { if ($i -eq 0) { Write-Host 'Waiting for Hardhat RPC at http://127.0.0.1:8545 ...' -ForegroundColor Cyan } Start-Sleep -Seconds 1 } } ; if ($i -ge 60) { Write-Host 'Timed out waiting for Hardhat RPC (60s). Proceeding with deploy anyway.' -ForegroundColor Yellow } ; node scripts/deploy.js ; if (Test-Path 'artifacts') { mkdir -Force front\\src\\utils\\contracts | Out-Null; Get-ChildItem -Path artifacts\\contracts -Filter '*.json' -Recurse | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path -Path 'front\\src\\utils\\contracts' -ChildPath $_.Name) -Force } }" "$root"
+Start-Terminal "Deploy" "for ($i=0; $i -lt 60; $i++) { try { Invoke-WebRequest -Uri 'http://127.0.0.1:8545' -UseBasicParsing -TimeoutSec 2 > \$null; Write-Host 'Hardhat RPC available' -ForegroundColor Green; break } catch { if ($i -eq 0) { Write-Host 'Waiting for Hardhat RPC at http://127.0.0.1:8545 ...' -ForegroundColor Cyan } Start-Sleep -Seconds 1 } } ; if ($i -ge 60) { Write-Host 'Timed out waiting for Hardhat RPC (60s). Proceeding with deploy anyway.' -ForegroundColor Yellow } ; node scripts/deploy.js" "$root"
 
 # D - Frontend (Vite dev)
 # start in the frontend folder; avoid an extra `cd front` which would create a `front\front` path

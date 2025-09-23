@@ -11,12 +11,14 @@ async function main() {
   const root = path.resolve();
   const frontendContractsDir = path.join(root, 'front', 'src', 'utils', 'contracts');
 
-  const factoryDeploymentPath = path.join(frontendContractsDir, 'ContractFactory.json');
-  const factoryAbiPath = path.join(frontendContractsDir, 'ContractFactoryABI.json');
-  const mockContractsPath = path.join(frontendContractsDir, 'MockContracts.json');
-  const rentAbiPath = path.join(frontendContractsDir, 'TemplateRentContractABI.json');
-  const ndaAbiPath = path.join(frontendContractsDir, 'NDATemplateABI.json');
-  const arbitratorAbiPath = path.join(frontendContractsDir, 'ArbitratorABI.json');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const frontendContractsDirResolved = getFrontendContractsDir();
+  const factoryDeploymentPath = path.join(frontendContractsDirResolved, 'ContractFactory.json');
+  const factoryAbiPath = path.join(frontendContractsDirResolved, 'ContractFactoryABI.json');
+  const mockContractsPath = path.join(frontendContractsDirResolved, 'MockContracts.json');
+  const rentAbiPath = path.join(frontendContractsDirResolved, 'TemplateRentContractABI.json');
+  const ndaAbiPath = path.join(frontendContractsDirResolved, 'NDATemplateABI.json');
+  const arbitratorAbiPath = path.join(frontendContractsDirResolved, 'ArbitratorABI.json');
 
   if (!fs.existsSync(factoryDeploymentPath) || !fs.existsSync(factoryAbiPath)) {
     console.error('Required frontend contract files not found. Run scripts/deploy.js first.');

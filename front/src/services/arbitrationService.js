@@ -1,4 +1,4 @@
-import { createContractInstance } from '../utils/contracts';
+import { createContractInstanceAsync } from '../utils/contracts';
 import * as ethers from 'ethers';
 
 export class ArbitrationService {
@@ -8,7 +8,7 @@ export class ArbitrationService {
   }
 
   async getArbitratorForNDA(ndaAddress) {
-    const nda = createContractInstance('NDATemplate', ndaAddress, this.signer);
+  const nda = await createContractInstanceAsync('NDATemplate', ndaAddress, this.signer);
     // NDA templates no longer store a direct `arbitrator`. Instead they
     // expose the configured `arbitrationService` which manages disputes.
     const svc = await nda.arbitrationService();
@@ -18,7 +18,7 @@ export class ArbitrationService {
     // The owner of the ArbitrationService is expected to be the on-chain
     // Arbitrator factory. We return the service contract instance here so
     // callers can interact with dispute creation helpers via the service.
-    return createContractInstance('ArbitrationService', svc, this.signer);
+  return await createContractInstanceAsync('ArbitrationService', svc, this.signer);
   }
 
   async getArbitratorOwner(ndaAddress) {

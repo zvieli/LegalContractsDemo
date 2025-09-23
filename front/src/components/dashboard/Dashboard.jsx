@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { ContractService } from '../../services/contractService';
-import { getContractABI } from '../../utils/contracts';
+import { createContractInstanceAsync } from '../../utils/contracts';
 import { useRentPaymentEvents } from '../../hooks/useContractEvents';
 import ContractModal from '../ContractModal/ContractModal';
 import * as ethers from 'ethers';
@@ -49,8 +49,9 @@ function Dashboard() {
   // האזנה לאירועי יצירת חוזים
   const setupEventListeners = async () => {
     try {
-      const contractService = new ContractService(signer, chainId);
-      const factoryContract = await contractService.getFactoryContract();
+    const contractService = new ContractService(signer, chainId);
+    const factoryContractBase = await contractService.getFactoryContract();
+    const factoryContract = await createContractInstanceAsync('ContractFactory', factoryContractBase.address || factoryContractBase.target || factoryContractBase, signer.provider || signer);
 
   factoryContract.on('RentContractCreated', (contractAddress, landlord, tenant) => {
         addNotification({
@@ -92,14 +93,13 @@ function Dashboard() {
 
   const attachListenersToAddresses = async (addresses = []) => {
     try {
-      const rentAbi = getContractABI('TemplateRentContract');
-      const provider = signer.provider || new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+        const provider = signer.provider || new ethers.JsonRpcProvider('http://127.0.0.1:8545');
       for (const addr of addresses) {
         const a = String(addr).toLowerCase?.() ?? addr;
         if (!a) continue;
         if (contractListenersRef.current[a]) continue; // already listening
         try {
-          const inst = new ethers.Contract(a, rentAbi, provider);
+          const inst = await createContractInstanceAsync('TemplateRentContract', a, provider);
           const refresh = () => loadUserContracts();
           inst.on('CancellationInitiated', refresh);
           inst.on('CancellationApproved', refresh);
@@ -148,7 +148,7 @@ function Dashboard() {
           // to avoid differences between injected wallets and the local node.
           const localRpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
           const factoryAddr = factory.target || factory.address || null;
-          const localFactory = factoryAddr ? new ethers.Contract(factoryAddr, getContractABI('ContractFactory'), localRpc) : null;
+          const localFactory = factoryAddr ? await createContractInstanceAsync('ContractFactory', factoryAddr, localRpc) : null;
           // Debug: print provider/wallet network state and on-provider code at factory address
           try {
             const provider = contractService.signer.provider;

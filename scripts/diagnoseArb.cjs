@@ -34,8 +34,9 @@ function loadAbi(relPath) {
     console.log('bytecode length:', code ? code.length : 0, code === '0x' ? '(no contract deployed at this address)' : '');
 
     // 2) Rent contract instance
-    const rentAbi = loadAbi('front/src/utils/contracts/TemplateRentContractABI.json');
-    if (!rentAbi) console.warn('TemplateRentContract ABI not found in front/src/utils/contracts');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const rentAbi = loadAbi(path.join(getFrontendContractsDir(), 'TemplateRentContractABI.json'));
+  if (!rentAbi) console.warn('TemplateRentContract ABI not found in frontend contracts dir');
     const rent = new ethers.Contract(rentAddr, rentAbi, provider);
 
     // 3) arbitrationService and depositBalance
@@ -75,8 +76,8 @@ function loadAbi(relPath) {
 
     // 5) Inspect arbitration service owner / factory if present
     if (arbAddr && arbAddr !== ethers.constants.AddressZero) {
-      const arbAbi = loadAbi('front/src/utils/contracts/ArbitrationServiceABI.json');
-      if (!arbAbi) console.warn('ArbitrationService ABI not found in front/src/utils/contracts');
+  const arbAbi = loadAbi(path.join(getFrontendContractsDir(), 'ArbitrationServiceABI.json'));
+  if (!arbAbi) console.warn('ArbitrationService ABI not found in frontend contracts dir');
       const arb = new ethers.Contract(arbAddr, arbAbi, provider);
       let owner = null;
       let factory = null;

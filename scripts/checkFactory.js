@@ -8,7 +8,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
-  const frontendContractsDir = path.join(__dirname, '../front/src/utils/contracts');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const frontendContractsDir = getFrontendContractsDir();
   const factoryFile = path.join(frontendContractsDir, 'ContractFactory.json');
   if (!fs.existsSync(factoryFile)) {
     console.error('ContractFactory.json not found at', factoryFile);

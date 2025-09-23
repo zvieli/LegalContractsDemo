@@ -96,12 +96,12 @@ Prereqs:
 Install deps:
 ```
 npm install
-## Deployment notes (automated wiring)
+```
+
+Deployment notes (automated wiring)
 ----------------------------------
 
-The `scripts/deploy.js` script now deploys `ContractFactory`, mocks, and `ArbitrationService`, and performs a best-effort wiring step: after `ArbitrationService` is deployed the script calls `arbitrationService.setFactory(factoryAddress)` so the deployed `ContractFactory` is registered as the trusted factory in the service. This makes the factory-authorized arbitration flow work out-of-the-box for local deploys used by the smoke test and frontend.
-
-If you want to change this behavior (for example to transfer ownership of the service to an `Arbitrator` contract instead), update `scripts/deploy.js` accordingly or perform the transfer manually on-chain.
+The `scripts/deploy.js` script deploys `ContractFactory`, mocks, and `ArbitrationService`, and performs a best-effort wiring step: after `ArbitrationService` is deployed the script calls `arbitrationService.setFactory(factoryAddress)` so the deployed `ContractFactory` is registered as the trusted factory in the service. This makes the factory-authorized arbitration flow work out-of-the-box for local deploys used by the smoke test and frontend.
 
 How to run the common verification steps locally
 ------------------------------------------------
@@ -172,21 +172,9 @@ ABIs are copied into `front/src/utils/contracts`. The UI should now use arbitrat
 
 ### Admin decryption helper
 
-Evidence ciphertexts are intended to be encrypted client-side to an admin public key and stored off-chain (the contract stores only the `bytes32` keccak256 digest of the ciphertext). To decrypt ciphertexts, use the admin-only helper located at:
+Evidence ciphertexts are intended to be encrypted client-side to an admin public key and stored off-chain (the contract stores only the `bytes32` keccak256 digest of the ciphertext). Admin-only decryption utilities live under `tools/admin/` and are intended to run in a trusted admin environment (server or CLI).
 
-```
-tools/admin/decryptHelper.js
-```
-
-Example (Node.js / admin environment):
-
-```js
-const { decryptEvidencePayload } = require('./tools/admin/decryptHelper');
-const plaintext = decryptEvidencePayload(payloadJsonString, process.env.ADMIN_PRIVATE_KEY);
-console.log('Decrypted evidence:', plaintext);
-```
-
-Important: do NOT include admin private keys or this module in client-side bundles. Keep decryption in a trusted admin environment (server/CLI) and ensure keys are stored securely (HSM or vault).
+Do NOT include admin private keys or decryption modules in client-side bundles. Keep decryption in a trusted admin environment and store keys securely (HSM or vault).
 
 ## Tests
 
@@ -213,9 +201,9 @@ Admin decryption utilities live under `tools/admin/`. These helpers are intended
 
 ## ABI / Evidence digest change (2025-09)
 
-- New contracts store off-chain evidence as a `bytes32` digest (keccak256 of the CID) instead of relying on raw string CIDs on-chain. This reduces gas and standardizes verification.
+- New contracts store off-chain evidence as a `bytes32` digest (keccak256 of the off-chain payload) instead of relying on raw string CIDs or URIs on-chain. This reduces gas and standardizes verification.
 - Smart-contract entrypoints:
-	- `reportDispute(...)` accepts a `bytes32 evidenceDigest` only; the contract no longer stores or references IPFS CIDs or off-chain URIs.
+	- `reportDispute(...)` accepts a `bytes32 evidenceDigest` only; the contract no longer stores or references raw off-chain URIs.
 
 If you maintain integrations or UIs, update your contract ABIs and prefer providing the digest precomputed by the frontend (see `front/src/services/contractService.js`).
 

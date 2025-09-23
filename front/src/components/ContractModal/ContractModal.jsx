@@ -35,9 +35,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [arbBeneficiary, setArbBeneficiary] = useState('');
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [disputeForm, setDisputeForm] = useState({ dtype: 4, amountEth: '0', evidence: '' });
-  const [disputeFileName, setDisputeFileName] = useState('');
-  const [disputeFileHash, setDisputeFileHash] = useState('');
-  const [disputeFile, setDisputeFile] = useState(null);
+  
 
   // Confirmation modal state for payable actions
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -74,7 +72,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [ndaReportOffender, setNdaReportOffender] = useState('');
   const [ndaReportPenalty, setNdaReportPenalty] = useState('');
   const [ndaReportEvidenceText, setNdaReportEvidenceText] = useState('');
-  const [ndaReportFileHash, setNdaReportFileHash] = useState('');
+  
   const [createDisputeCaseId, setCreateDisputeCaseId] = useState('');
   const [createDisputeEvidence, setCreateDisputeEvidence] = useState('');
   const [rentSigning, setRentSigning] = useState(false);
@@ -634,13 +632,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       // Prefer landlord-local finalize path when caller is landlord
       const arbAddress = contractDetails?.arbitrationService || null;
       let arbAddr = arbAddress;
-      // If not configured on contract, attempt frontend global artifacts
+        // If not configured on contract, attempt frontend global artifacts (served from public)
         if (!arbAddr) {
           try {
-            // Try local deployment metadata first
-            const cfMod = await import('../../utils/contracts/ContractFactory.json');
-            const cf = cfMod?.default ?? cfMod;
-            arbAddr = cf?.contracts?.ArbitrationService || null;
+            // Fetch deployment metadata from the public assets served at /utils/contracts/
+            const resp = await fetch('/utils/contracts/ContractFactory.json');
+            if (resp && resp.ok) {
+              const cf = await resp.json();
+              arbAddr = cf?.contracts?.ArbitrationService || null;
+            }
           } catch (_) { arbAddr = null; }
         }
         // If still not found, attempt configured addresses via utils/contracts getContractAddress
@@ -768,7 +768,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       const svc = new ContractService(signer, chainId);
       const amountWei = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
       // prefer file hash if present, otherwise use evidence text
-      const evidenceRaw = disputeFileHash || disputeForm.evidence || '';
+      const evidenceRaw = disputeForm.evidence || '';
       // If evidenceRaw is a 0x-prefixed 32-byte hash, use it; otherwise compute keccak256 of the UTF-8 string.
       let evidence = '';
       try {
@@ -776,39 +776,19 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         else if (evidenceRaw) evidence = ethers.keccak256(ethers.toUtf8Bytes(String(evidenceRaw)));
         else evidence = '';
       } catch (e) { evidence = '' }
-      // If a file was attached and user provided a web3.storage token, upload it and include CID
-      let cid = null;
-      let cidUrl = null;
-      let localIdbKey = null;
+      // Compute bond (for display/record) but send the report tx immediately via the user's wallet
       try {
-        if (disputeFile) {
-          try {
-            const { idbPut } = await import('../../utils/idb');
-            const key = `dispute-file:${contractAddress}:${Date.now()}`;
-            const buf = await disputeFile.arrayBuffer();
-            await idbPut(key, { name: disputeFile.name || '', bytes: new Uint8Array(buf), createdAt: Date.now() });
-            localIdbKey = key;
-          } catch (e) {
-            console.error('Failed to store file locally:', e);
-          }
-        }
-
-        // Compute bond (for display/record) but send the report tx immediately via the user's wallet
         const bond = svc.computeReporterBond(amountWei);
-        const bondEth = (() => { try { return ethers.formatEther(bond); } catch { return String(bond); } })();
-
+        // If no evidence provided, use standard zero-hash to indicate empty evidence
+        const evidenceToSend = evidence && evidence.length ? evidence : ethers.ZeroHash;
         // Directly submit dispute - this will prompt MetaMask and send the bond as msg.value
-        const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidence);
+        const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidenceToSend);
         try {
-            const incoming = {
+          const incoming = {
             contractAddress: contractAddress,
             dtype: Number(disputeForm.dtype || 0),
             amountEth: String(disputeForm.amountEth || '0'),
-              evidenceDigest: evidence || '',
-            fileName: disputeFileName || '',
-            cid: cid || null,
-            cidUrl: cidUrl || null,
-            localIdbKey: localIdbKey || null,
+            evidenceDigest: evidenceToSend || ethers.ZeroHash,
             reporter: account || null,
             caseId: caseId != null ? String(caseId) : null,
             createdAt: new Date().toISOString()
@@ -824,7 +804,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
           if (isAuthorized) window.location.pathname = '/arbitration'; else { alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.'); window.location.pathname = '/dashboard'; }
         } catch (redirErr) { console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr); window.location.pathname = '/dashboard'; }
         await loadContractData();
-
       } catch (err) {
         console.error('Submit dispute failed:', err);
         alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
@@ -848,23 +827,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     } catch (_) { return '0'; }
   })();
 
-  const handleDisputeFileChange = async (evt) => {
-    try {
-      const f = evt.target.files && evt.target.files[0];
-      if (!f) return;
-      setDisputeFileName(f.name || '');
-      setDisputeFile(f);
-      const buf = await f.arrayBuffer();
-      const bytes = new Uint8Array(buf);
-      const hash = ethers.keccak256(bytes);
-      setDisputeFileHash(hash);
-      // also set evidence field for visibility
-      setDisputeForm(s => ({...s, evidence: hash}));
-    } catch (e) {
-      console.error('Failed to hash file:', e);
-      alert('Failed to process file for evidence.');
-    }
-  };
+  // File uploads removed: evidence must be provided as text (or left empty). If desired, admins can compute hashes off-line.
 
   // Render: show computed bond near dispute form submission area
   // (This UI is included in the modal's dispute section elsewhere; place near the submit button)
@@ -992,21 +955,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         return;
       }
       const obj = JSON.parse(json);
-      // If the appeal has a localIdbKey, load the file preview from IndexedDB
-      if (obj.localIdbKey) {
-        try {
-          const { idbGet } = await import('../../utils/idb');
-          const fileRec = await idbGet(obj.localIdbKey);
-          if (fileRec && fileRec.bytes) {
-            const blob = new Blob([fileRec.bytes], { type: 'application/octet-stream' });
-            const url = URL.createObjectURL(blob);
-            obj._localFileUrl = url;
-            obj._localFileName = fileRec.name || 'attachment';
-          }
-        } catch (e) {
-          console.warn('Failed to load attached file from IDB', e);
-        }
-      }
+      // Legacy local file attachments (IndexedDB) are no longer supported; ignore any persisted keys.
       setAppealData(obj);
       setShowAppealModal(true);
     } catch (e) {
@@ -1069,11 +1018,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         amountEth: appealData.amountEth || null,
         reporter: appealData.reporter || null,
         submitted: appealData.createdAt || null,
-  evidenceText: evidenceText || null,
-  evidence: (!evidenceText && appealData.evidence) ? appealData.evidence : null,
-        fileName: appealData.fileName || null,
-        cidUrl: appealData.cidUrl || null,
-        note: (!evidenceText && appealData._localFileUrl) ? `Attached file available at: ${appealData._localFileUrl}` : undefined
+        evidenceText: evidenceText || null,
+        evidence: (!evidenceText && appealData.evidence) ? appealData.evidence : null
       };
 
       const ok = await copyTextToClipboard(JSON.stringify(summary, null, 2));
@@ -1646,23 +1592,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                         <input className="text-input" placeholder="Offender (0x...)" value={ndaReportOffender} onChange={e => setNdaReportOffender(e.target.value)} />
                         <input className="text-input" placeholder="Requested penalty (ETH)" value={ndaReportPenalty} onChange={e => setNdaReportPenalty(e.target.value)} />
                         <input className="text-input" placeholder="Evidence text (optional)" value={ndaReportEvidenceText} onChange={e => setNdaReportEvidenceText(e.target.value)} />
-                        <label>Attach Image / File (optional)</label>
-                        <input type="file" accept="image/*,application/pdf" onChange={async (e) => {
-                          try {
-                            const f = e.target.files && e.target.files[0];
-                            if (!f) return;
-                            const buf = await f.arrayBuffer();
-                            const bytes = new Uint8Array(buf);
-                            const hash = ethers.keccak256(bytes);
-                            setNdaReportFileHash(hash);
-                            // also mirror into evidence text so it's submitted if user doesn't edit
-                            setNdaReportEvidenceText(hash);
-                          } catch (err) {
-                            console.error('Failed to hash NDA file', err);
-                            alert('Failed to process NDA file');
-                          }
-                        }} />
-                        {ndaReportFileHash && <small className="muted">Attached file hash: {ndaReportFileHash}</small>}
+                        <small className="muted">File uploads disabled. Paste evidence text or a hash in the field above.</small>
                         <button className="btn-action" disabled={actionLoading} onClick={() => handleNdaReport(ndaReportOffender, ndaReportPenalty, ndaReportEvidenceText || ndaReportFileHash)}>
                           Submit Report
                         </button>
@@ -1740,9 +1670,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               </div>
               <label>Evidence (short text or URL)</label>
               <textarea className="text-input" rows={4} value={disputeForm.evidence} onChange={e => setDisputeForm(s => ({...s, evidence: e.target.value}))} />
-              <label>Attach Image / File (optional)</label>
-              <input type="file" accept="image/*,application/pdf" onChange={handleDisputeFileChange} />
-              {disputeFileName && <small className="muted">Attached: {disputeFileName} (hash: {disputeFileHash || 'processing...'})</small>}
+              <small className="muted">File uploads disabled. Paste evidence text or a hash in the field above.</small>
               <div style={{display:'flex', gap:'8px', marginTop: '8px'}}>
                 <button className="btn-action primary" disabled={actionLoading} onClick={submitDisputeForm}>Submit Appeal</button>
                 <button className="btn-action secondary" disabled={actionLoading} onClick={() => setShowDisputeForm(false)}>Cancel</button>
@@ -1753,13 +1681,13 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       </div>
       {/* Appeal modal */}
       {showAppealModal && appealData && (
-        <div className="appeal-overlay" onClick={() => { setShowAppealModal(false); if (appealData?._localFileUrl) { URL.revokeObjectURL(appealData._localFileUrl); } }}>
+  <div className="appeal-overlay" onClick={() => { setShowAppealModal(false); }}>
           <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
               <h3>Appeal / Dispute</h3>
               <div style={{display:'flex', gap:8, alignItems:'center'}}>
                 <button className="btn-sm" onClick={handleCopyComplaint} title="Copy full complaint">Copy complaint</button>
-                <button className="modal-close" onClick={() => { setShowAppealModal(false); if (appealData?._localFileUrl) { URL.revokeObjectURL(appealData._localFileUrl); } }}><i className="fas fa-times"></i></button>
+                <button className="modal-close" onClick={() => { setShowAppealModal(false); }}><i className="fas fa-times"></i></button>
               </div>
             </div>
             <div style={{marginTop:8}}>
@@ -1770,13 +1698,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
               <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
               <p><strong>Evidence:</strong> {appealData.evidence}</p>
-              {appealData.fileName && <p><strong>Attached File:</strong> {appealData.fileName}</p>}
-              {appealData._localFileUrl && (
-                <p><a href={appealData._localFileUrl} target="_blank" rel="noreferrer">Open local attachment ({appealData._localFileName || 'file'})</a></p>
-              )}
-              {appealData.cidUrl && (
-                <p><a href={appealData.cidUrl} target="_blank" rel="noreferrer">Open IPFS file</a></p>
-              )}
+              {/* File attachments removed; no attached file name or local attachment links shown. */}
+              {/* IPFS/file attachments removed — no external links to show */}
             </div>
           </div>
         </div>

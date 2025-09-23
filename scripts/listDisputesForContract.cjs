@@ -18,8 +18,9 @@ function loadAbi(rel) {
       console.error('Usage: $env:RENT_ADDR="0x..."; npx hardhat run --network localhost scripts/listDisputesForContract.cjs');
       process.exit(1);
     }
-    const abiPath = 'front/src/utils/contracts/TemplateRentContractABI.json';
-    const abi = loadAbi(abiPath) || loadAbi(path.join('artifacts','contracts','Rent','TemplateRentContract.sol','TemplateRentContract.json'))?.abi;
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const abiPath = path.join(getFrontendContractsDir(), 'TemplateRentContractABI.json');
+  const abi = loadAbi(abiPath) || loadAbi(path.join('artifacts','contracts','Rent','TemplateRentContract.sol','TemplateRentContract.json'))?.abi;
     if (!abi) { console.error('Could not load ABI at', abiPath); process.exit(2); }
     const provider = ethers.provider;
     const rent = new ethers.Contract(addr, abi, provider);

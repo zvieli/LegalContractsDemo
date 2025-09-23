@@ -6,7 +6,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const dir = path.join(__dirname, '../front/src/utils/contracts');
+const getFrontendContractsDir = require('./getFrontendContractsDir');
+const dir = getFrontendContractsDir();
 if (!fs.existsSync(dir)) {
   console.error('Frontend contracts dir not found:', dir);
   process.exit(2);

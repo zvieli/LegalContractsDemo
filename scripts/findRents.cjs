@@ -12,7 +12,8 @@ async function main() {
   const { ethers } = pkg;
   const provider = ethers.provider || new ethers.providers.JsonRpcProvider('http://127.0.0.1:8545');
 
-  const abiPath = path.join(__dirname, '../front/src/utils/contracts/ContractFactoryABI.json');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const abiPath = path.join(getFrontendContractsDir(), 'ContractFactoryABI.json');
   if (!fs.existsSync(abiPath)) {
     console.error('Could not find ABI at', abiPath);
     process.exit(1);

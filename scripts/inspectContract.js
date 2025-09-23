@@ -6,7 +6,8 @@ const addr = process.argv[2] || '0x98a01f8ff48b849ccaf4d8d987ee200683a1a11e';
 const rpc = process.env.RPC_URL || 'http://127.0.0.1:8545';
 const provider = new ethers.JsonRpcProvider(rpc);
 
-const abiPath = path.resolve(process.cwd(), 'front/src/utils/contracts/TemplateRentContractABI.json');
+const getFrontendContractsDir = require('./getFrontendContractsDir');
+const abiPath = path.resolve(getFrontendContractsDir(), 'TemplateRentContractABI.json');
 let abiJson;
 try {
   abiJson = JSON.parse(fs.readFileSync(abiPath, 'utf8'));

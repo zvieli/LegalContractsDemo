@@ -1,5 +1,7 @@
 import * as ethers from 'ethers';
-import { createContractInstance, getContractAddress } from '../utils/contracts';
+// Note: use dynamic import of '../utils/contracts' in createDefaultContract to avoid
+// bundling generated ABIs into the main app bundle. Static imports here can cause
+// build-time errors if generated ABI files are missing.
 
 // Minimal helper used by existing service code. This file intentionally keeps logic small
 // and defensive: it will attempt to create a default 'contract' proxy when a signer is
@@ -20,7 +22,7 @@ function makeDefaultProvider() {
 const defaultProvider = makeDefaultProvider();
 
 // A very small proxy object used by some service helpers that expect a top-level `contract`
-// variable. For feature-rich interactions, code should call `createContractInstance(...)`.
+// variable. For feature-rich interactions, code should call `createContractInstanceAsync(...)`.
 export const contract = new Proxy({}, {
   get(_, prop) {
     // Return a function that throws a helpful error if the real contract isn't set.
@@ -30,15 +32,13 @@ export const contract = new Proxy({}, {
   }
 });
 
-export function createDefaultContract(name, address, signerOrProvider) {
+export async function createDefaultContract(name, address, signerOrProvider) {
   const signer = signerOrProvider || defaultProvider;
   if (!signer) throw new Error('No provider or signer available to create contract. Connect wallet or start a local node');
-  const abi = getContractAddress ? null : null; // placeholder - utils/contracts should supply ABI when used
-  // Prefer to use the util helper if available
   try {
-    return createContractInstance(name, address, signer);
+    // Use the async factory which will attempt to load ABIs at runtime
+    return await (await import('../utils/contracts')).createContractInstanceAsync(name, address, signer);
   } catch (e) {
-    // If helper not available/runtime mismatch, throw a clear error
     throw new Error(`Could not create contract instance for ${name} at ${address}: ${e.message}`);
   }
 }

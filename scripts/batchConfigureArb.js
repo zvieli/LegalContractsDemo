@@ -8,7 +8,8 @@ const __dirname = path.dirname(__filename);
 
 async function main() {
   console.log('Batch configure arbitration services (local only)');
-  const frontendContractsDir = path.join(__dirname, '../front/src/utils/contracts');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const frontendContractsDir = getFrontendContractsDir();
   const mockPath = path.join(frontendContractsDir, 'MockContracts.json');
   let mc = {};
   if (fs.existsSync(mockPath)) {

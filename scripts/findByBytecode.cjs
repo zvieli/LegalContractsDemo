@@ -6,7 +6,8 @@ async function main() {
   const { ethers } = pkg;
   const provider = ethers.provider || new ethers.providers.JsonRpcProvider('http://127.0.0.1:8545');
 
-  const artifactPath = path.join(__dirname, '../front/src/utils/contracts/TemplateRentContractABI.json');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const artifactPath = path.join(getFrontendContractsDir(), 'TemplateRentContractABI.json');
   if (!fs.existsSync(artifactPath)) {
     console.error('Artifact ABI not found at', artifactPath);
     process.exit(1);

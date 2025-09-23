@@ -33,7 +33,8 @@ async function main() {
 
   // If requested, configure arbitrationService using local ContractFactory.json
   if (shouldConfigure) {
-    const frontendContractsDir = path.join(__dirname, '../front/src/utils/contracts');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const frontendContractsDir = getFrontendContractsDir();
     const factoryFile = path.join(frontendContractsDir, 'ContractFactory.json');
     if (!fs.existsSync(factoryFile)) {
       console.error('ContractFactory.json not found in frontend utils - cannot discover ArbitrationService address to configure');

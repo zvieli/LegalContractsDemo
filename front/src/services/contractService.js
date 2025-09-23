@@ -1,42 +1,33 @@
 import * as ethers from 'ethers';
 import { contract } from './contractInstance.js';
-import EthCrypto from 'eth-crypto';
 
-// New flow: we no longer rely on local IPFS pin-server.
-// Instead, the client encrypts the evidence string with the Admin public key
-// and the client computes and submits a `bytes32` keccak256 digest of the
-// encrypted payload to the contract. The encrypted blob itself is stored
-// off-chain (client-side or another secure store) and the admin/private key
-// is used offline to decrypt when needed.
+// Evidence workflow: the frontend computes and submits a `bytes32` keccak256
+// digest of an off-chain evidence payload. The payload itself (encrypted
+// or plaintext depending on your privacy needs) must be stored off-chain
+// by the client or another secure store. Decryption and any admin-private-key
+// operations MUST occur in a trusted admin environment (see `tools/admin`).
+// Do NOT bundle admin private keys or server-only decryption logic into the
+// frontend bundle.
 export function computeCidDigest(cid) {
   if (!cid) return ethers.ZeroHash;
   return ethers.keccak256(ethers.toUtf8Bytes(cid));
 }
 
-export async function reportRentDispute(id, evidencePlaintext, adminPublicKey, overrides = {}) {
-  // adminPublicKey: hex string (e.g., '0x04....' uncompressed public key) or null to read from env
+// Client-side helper: compute and submit a bytes32 digest for an evidence payload.
+// Note: the frontend only computes the digest and calls the contract. Any
+// encryption or placement of the payload in off-chain storage (and subsequent
+// admin-side decryption) must be implemented outside the frontend in a trusted
+// admin/service environment (see `tools/admin`).
+export async function reportRentDispute(id, evidencePayloadString = '', overrides = {}) {
   try {
-    const adminKey = adminPublicKey || (typeof process !== 'undefined' && process.env && process.env.REACT_APP_ADMIN_PUBKEY) || null;
-    if (!adminKey) throw new Error('Admin public key not provided for encrypting evidence');
-
-    // We will encrypt the plaintext using EthCrypto util (ECIES-like flow)
-    // EthCrypto expects publicKey without 0x04 prefix in some functions; use `encryptWithPublicKey` which accepts hex string
-    // Normalize public key: EthCrypto expects a 128-character hex public key without 0x04 prefix for some helpers.
-    const normalized = adminKey.startsWith('0x') ? adminKey.slice(2) : adminKey;
-
-    // Use EthCrypto.encryptWithPublicKey which expects the raw public key (without 0x04) due to underlying elliptic lib
-    const pubRaw = normalized.startsWith('04') ? normalized.slice(2) : normalized;
-    const encrypted = await EthCrypto.encryptWithPublicKey(pubRaw, String(evidencePlaintext));
-    // Store as JSON string so it can be transported in a single string argument to the contract
-    const payloadStr = JSON.stringify(encrypted);
+    const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
     const digest = computeCidDigest(payloadStr);
-    // Call new digest-only API. Reporter bond (msg.value) can be supplied via overrides.value
     await contract.reportDispute(id, digest, overrides);
   } catch (e) {
     throw e;
   }
 }
-import { getContractABI, getContractAddress, createContractInstance } from '../utils/contracts';
+import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 
 export class ContractService {
   constructor(signer, chainId) {
@@ -88,7 +79,7 @@ export class ContractService {
     if (!factoryAddress) {
       throw new Error('Factory contract not deployed on this network');
     }
-    const contract = createContractInstance('ContractFactory', factoryAddress, this.signer);
+  const contract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
     // Lightweight sanity check to catch wrong/stale addresses on localhost
     const code = await this.getCodeSafe(factoryAddress);
     if (!code || code === '0x') {
@@ -264,7 +255,7 @@ export class ContractService {
 
   async getRentContract(contractAddress) {
     try {
-      return createContractInstance('TemplateRentContract', contractAddress, this.signer);
+  return await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
       throw error;
@@ -280,7 +271,7 @@ export class ContractService {
     } catch (e) {
       // Fallback: attempt low-level call with signature
       try {
-        const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
         const data = rent.interface.encodeFunctionData('withdrawable', [account]);
         const res = await this.signer.provider.call({ to: contractAddress, data });
         const decoded = rent.interface.decodeFunctionResult('withdrawable', res);
@@ -301,7 +292,7 @@ export class ContractService {
     } catch (e) {
       // fallback: try alternative getter name
       try {
-        const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
         const data = rent.interface.encodeFunctionData('getDisputeBond', [caseId]);
         const res = await this.signer.provider.call({ to: contractAddress, data });
         const decoded = rent.interface.decodeFunctionResult('getDisputeBond', res);
@@ -376,7 +367,7 @@ export class ContractService {
     } catch (e) {
       try {
         // fallback: low-level call decode
-        const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
         const data = rent.interface.encodeFunctionData('getDisputeMeta', [Number(caseId)]);
         const ret = await this.signer.provider.call({ to: contractAddress, data });
         const decoded = rent.interface.decodeFunctionResult('getDisputeMeta', ret);
@@ -663,7 +654,7 @@ export class ContractService {
       if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
       // Preflight: ensure the target contract is configured for arbitration and whether a fee is required.
       try {
-        const target = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+  const target = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
         // Check arbitrationService field
         const targetArb = await target.arbitrationService().catch(() => null);
         if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
@@ -707,7 +698,7 @@ export class ContractService {
       // Use the frontend static ABI helper to create the ArbitrationService instance
       let svc;
       try {
-        svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
+  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer);
       } catch (e) {
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
@@ -733,7 +724,7 @@ export class ContractService {
       if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
 
       // Preflight: ensure target configured and cancellation pending
-      const target = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+  const target = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
       const targetArb = await target.arbitrationService().catch(() => null);
       if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
         throw new Error(`Target contract ${contractAddress} has no arbitrationService configured`);
@@ -767,7 +758,7 @@ export class ContractService {
       // Create service instance using static ABI helper
       let svc;
       try {
-        svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
+  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer);
       } catch (e) {
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
@@ -806,7 +797,7 @@ export class ContractService {
       // Create service contract using static ABI helper
       let svc;
       try {
-        svc = createContractInstance('ArbitrationService', arbitrationServiceAddress, this.signer);
+  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer);
       } catch (e) {
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
@@ -830,7 +821,7 @@ export class ContractService {
 
       // Target preflight: ensure the target contract has this arbitration service configured
       try {
-        const target = createContractInstance('TemplateRentContract', targetContract, this.signer);
+  const target = await createContractInstanceAsync('TemplateRentContract', targetContract, this.signer);
         const targetArb = await target.arbitrationService().catch(() => null);
         if (!targetArb || targetArb === ethers.ZeroAddress) {
           throw new Error(`Target contract ${targetContract} has no arbitrationService configured`);
@@ -913,7 +904,7 @@ export class ContractService {
    */
   async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '') {
     try {
-      const rent = createContractInstance('TemplateRentContract', contractAddress, this.signer);
+  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
       // Ensure caller is one of the parties recorded on-chain
       try {
         const [landlordAddr, tenantAddr, me] = await Promise.all([
@@ -1014,7 +1005,7 @@ export class ContractService {
           const rent = await this.getRentContract(contractAddress);
           const svc = await rent.arbitrationService();
           if (svc && svc !== ethers.ZeroAddress) {
-            const svcInst = createContractInstance('ArbitrationService', svc, this.signer);
+            const svcInst = await createContractInstanceAsync('ArbitrationService', svc, this.signer);
             const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
             if (owner && owner.toLowerCase() === me) return true;
           }
@@ -1025,7 +1016,7 @@ export class ContractService {
           const nda = await this.getNDAContract(contractAddress);
           const svc = await nda.arbitrationService();
           if (svc && svc !== ethers.ZeroAddress) {
-            const svcInst = createContractInstance('ArbitrationService', svc, this.signer);
+            const svcInst = await createContractInstanceAsync('ArbitrationService', svc, this.signer);
             const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
             if (owner && owner.toLowerCase() === me) return true;
           }
@@ -1284,7 +1275,7 @@ export class ContractService {
 
 async getNDAContract(contractAddress) {
   try {
-    return createContractInstance('NDATemplate', contractAddress, this.signer);
+  return await createContractInstanceAsync('NDATemplate', contractAddress, this.signer);
   } catch (error) {
     console.error('Error getting NDA contract:', error);
     throw error;

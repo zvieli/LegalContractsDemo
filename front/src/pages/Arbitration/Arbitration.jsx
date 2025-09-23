@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import * as ethers from 'ethers';
-import { getContractABI } from '../../utils/contracts';
+import { createContractInstanceAsync, getLocalDeploymentAddresses, getContractAddress } from '../../utils/contracts';
 import './Arbitration.css';
 import ContractModal from '../../components/ContractModal/ContractModal';
 import ResolveModal from '../../components/ResolveModal/ResolveModal';
@@ -27,11 +27,10 @@ function Arbitration() {
           setLoading(false);
           return;
         }
-        // Use the local JSON-RPC provider for admin-wide reads
-        const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-        // load factory address from frontend artifact
+    // Use the local JSON-RPC provider for admin-wide reads
+    const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+    // load factory address from frontend artifact
   // Prefer to read local deployment metadata if available (via helper)
-  const { getLocalDeploymentAddresses, getContractAddress } = await import('../../utils/contracts');
   const local = await getLocalDeploymentAddresses();
   const factoryAddr = local?.ContractFactory || (await getContractAddress(Number(31337), 'ContractFactory'));
         if (!factoryAddr) {
@@ -39,18 +38,17 @@ function Arbitration() {
           setLoading(false);
           return;
         }
-        // Use static ABI helper to avoid dynamic JSON import
-        const factoryAbi = getContractABI('ContractFactory');
-        const factory = new ethers.Contract(factoryAddr, factoryAbi, rpc);
+  // Use async contract factory which ensures ABIs are loaded from /utils/contracts
+  const factory = await createContractInstanceAsync('ContractFactory', factoryAddr, rpc);
         const total = Number(await factory.getAllContractsCount());
         const pageSize = Math.min(total, 100);
         const page = pageSize > 0 ? await factory.getAllContractsPaged(0, pageSize) : [];
         const unique = Array.from(new Set((page || []).map(a => String(a).toLowerCase()).filter(Boolean)));
         const results = [];
-        const rentAbi = getContractABI('TemplateRentContract');
         for (const addr of unique) {
           try {
-            const inst = new ethers.Contract(addr, rentAbi, rpc);
+            // create rent contract instance using ABI loader
+            const inst = await createContractInstanceAsync('TemplateRentContract', addr, rpc);
             // best-effort read cancelRequested
             const code = await rpc.getCode(addr);
             if (!code || code === '0x') continue;
@@ -89,26 +87,25 @@ function Arbitration() {
       }
       const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
       // Prefer to read local deployment metadata if available via helper
-      const { getLocalDeploymentAddresses, getContractAddress } = await import('../../utils/contracts');
-      const local = await getLocalDeploymentAddresses();
-      const factoryAddr = local?.ContractFactory || (await getContractAddress(Number(31337), 'ContractFactory'));
+  // getLocalDeploymentAddresses/getContractAddress from utils (ensure runtime artifacts are used)
+  // (these helpers are async-safe)
+  const local = await getLocalDeploymentAddresses();
+  const factoryAddr = local?.ContractFactory || (await getContractAddress(Number(31337), 'ContractFactory'));
       if (!factoryAddr) {
         setDisputes([]);
         setLoading(false);
         return;
       }
   // Use static ABI helper from utils/contracts
-  const factoryAbi = getContractABI('ContractFactory');
-  const factory = new ethers.Contract(factoryAddr, factoryAbi, rpc);
+  const factory = await createContractInstanceAsync('ContractFactory', factoryAddr, rpc);
       const total = Number(await factory.getAllContractsCount());
       const pageSize = Math.min(total, 100);
       const page = pageSize > 0 ? await factory.getAllContractsPaged(0, pageSize) : [];
       const unique = Array.from(new Set((page || []).map(a => String(a).toLowerCase()).filter(Boolean)));
       const results = [];
-    const rentAbi = getContractABI('TemplateRentContract');
-      for (const addr of unique) {
+    for (const addr of unique) {
         try {
-          const inst = new ethers.Contract(addr, rentAbi, rpc);
+          const inst = await createContractInstanceAsync('TemplateRentContract', addr, rpc);
           const code = await rpc.getCode(addr);
           if (!code || code === '0x') continue;
           const cancelRequested = await inst.cancelRequested().catch(() => false);

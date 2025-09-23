@@ -17,7 +17,8 @@ function loadAbi(rel) {
       process.exit(1);
     }
     const caseId = Number(caseIdArg);
-    const abi = loadAbi('front/src/utils/contracts/TemplateRentContractABI.json') || loadAbi(path.join('artifacts','contracts','Rent','TemplateRentContract.sol','TemplateRentContract.json'))?.abi;
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const abi = loadAbi(path.join(getFrontendContractsDir(), 'TemplateRentContractABI.json')) || loadAbi(path.join('artifacts','contracts','Rent','TemplateRentContract.sol','TemplateRentContract.json'))?.abi;
     if (!abi) { console.error('TemplateRentContract ABI not found'); process.exit(2); }
 
     const provider = ethers.provider;

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
-import { getContractABI } from '../../utils/contracts';
+import { createContractInstanceAsync } from '../../utils/contracts';
 import './MyContracts.css';
 import ContractModal from '../ContractModal/ContractModal';
 
@@ -35,7 +35,7 @@ export default function MyContracts() {
             const factoryAddr = factory.target || factory.address || null;
             const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
             if (factoryAddr) {
-              const localFactory = new ethers.Contract(factoryAddr, getContractABI('ContractFactory'), rpc);
+              const localFactory = await createContractInstanceAsync('ContractFactory', factoryAddr, rpc);
               const total = Number(await localFactory.getAllContractsCount().catch(() => 0));
               const pageSize = Math.min(total, 50);
               list = pageSize > 0 ? await localFactory.getAllContractsPaged(0, pageSize).catch(() => []) : [];

@@ -3,8 +3,10 @@ import fs from 'fs';
 import path from 'path';
 
 async function main() {
-  const networkFile = path.resolve(process.cwd(), 'front/src/utils/contracts/ContractFactory.json');
-  const abiFile = path.resolve(process.cwd(), 'front/src/utils/contracts/ContractFactoryABI.json');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const frontendContractsDir = getFrontendContractsDir();
+  const networkFile = path.resolve(frontendContractsDir, 'ContractFactory.json');
+  const abiFile = path.resolve(frontendContractsDir, 'ContractFactoryABI.json');
   if (!fs.existsSync(networkFile)) {
     console.error('ContractFactory.json not found at', networkFile);
     process.exit(1);

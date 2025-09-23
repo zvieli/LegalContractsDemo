@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { ContractService } from '../../services/contractService';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import { ArbitrationService } from '../../services/arbitrationService';
-// pin-server removed: evidence is handled on-chain as a string/cid; no local pin-server calls
+// Evidence workflow: the contract stores only a keccak256 digest of an
+// off-chain evidence payload. The frontend should display the digest or a
+// decrypted/processed version of the payload only when provided by a trusted
+// admin/service. No local pin-server calls are performed by the frontend.
 import * as ethers from 'ethers';
 import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
-import { createContractInstance } from '../../utils/contracts';
+import { createContractInstanceAsync, getLocalDeploymentAddresses } from '../../utils/contracts';
 import './ResolveModal.css';
 
 function EvidencePanel({ initialEvidence }) {
@@ -182,7 +185,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                     const rent = await svc.getRentContract(contractAddress);
                     const svcAddr = await rent.arbitrationService().catch(() => null);
                     if (svcAddr && svcAddr !== '0x0000000000000000000000000000000000000000') {
-                      const arbSvc = createContractInstance('ArbitrationService', svcAddr, signer);
+                      const arbSvc = await createContractInstanceAsync('ArbitrationService', svcAddr, signer);
                       const owner = await arbSvc.owner().catch(() => null);
                         if (owner) {
                         const ownersW = BigInt(await svc.getWithdrawable(contractAddress, owner));
@@ -334,7 +337,6 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
 
         if (!arbAddr || arbAddr === '0x0000000000000000000000000000000000000000') {
           try {
-            const { getLocalDeploymentAddresses } = await import('../../utils/contracts');
             const local = await getLocalDeploymentAddresses();
             arbAddr = local?.ArbitrationService || local?.ArbitrationService || null;
           } catch (_) { arbAddr = null; }
@@ -356,7 +358,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             // Instead of relying on target, create a direct ArbitrationService contract to read owner/factory
               try {
                 // Use the frontend static ABI helper to create the contract instance (avoids dynamic ABI imports)
-                const arbRead = createContractInstance('ArbitrationService', arbAddr, signer.provider || signer);
+                const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, signer.provider || signer);
                 const ownerAddr = await arbRead.owner().catch(() => null);
                 const factoryAddr = await arbRead.factory().catch(() => null);
                 const me = (await signer.getAddress?.()).toLowerCase();

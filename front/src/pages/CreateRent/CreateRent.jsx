@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
@@ -10,7 +10,11 @@ function CreateRent() {
   // We avoid a static import because the file is generated at deploy-time and may be absent
   // in checkout/build environments. We fetch it at runtime and fall back gracefully.
   const [mockPriceFeedAddress, setMockPriceFeedAddress] = useState(null);
-  console.log('mockPriceFeedAddress:', mockPriceFeedAddress);
+  // Log mock price feed only when it changes (avoid noisy logs on every render)
+  useEffect(() => {
+    // Use debug-level log to reduce console noise in production/devtools
+    console.debug('mockPriceFeedAddress changed:', mockPriceFeedAddress);
+  }, [mockPriceFeedAddress]);
 
   const { account, signer, isConnected, chainId } = useEthers();
   const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;

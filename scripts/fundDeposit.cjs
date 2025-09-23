@@ -29,7 +29,8 @@ function loadAbi(relPath) {
     const provider = ethers.provider;
     console.log('Rent address:', rentAddr);
 
-    const rentAbi = loadAbi('front/src/utils/contracts/TemplateRentContractABI.json');
+  const getFrontendContractsDir = require('./getFrontendContractsDir');
+  const rentAbi = loadAbi(path.join(getFrontendContractsDir(), 'TemplateRentContractABI.json'));
     const rent = new ethers.Contract(rentAddr, rentAbi, provider);
 
     // Read tenant address

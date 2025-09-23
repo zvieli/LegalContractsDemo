@@ -2,10 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as ethers from 'ethers';
 import { ContractService } from '../contractService';
 
-// Mock createContractInstance to return a fake contract object
+// Mock the frontend static contracts helper. The real module exports
+// `createContractInstanceAsync` and `getContractAddress`; tests call
+// `createContractInstanceAsync`, so provide that export in the mock.
 vi.mock('../../utils/contracts', () => {
   return {
-    createContractInstance: (name, address, signer) => {
+    getContractAddress: (chainId, name) => null,
+    createContractInstanceAsync: async (name, address, signer) => {
       // simple fake rent contract
       return {
         landlord: async () => '0x0000000000000000000000000000000000000001',

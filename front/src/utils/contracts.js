@@ -12,6 +12,7 @@ import { CONTRACT_ADDRESSES } from '../../config/chains';
 import * as ethers from 'ethers';
 
 let _localDeployCache = null;
+import { loadAbis } from './loadAbis';
 
 export const getLocalDeploymentAddresses = async () => {
   if (_localDeployCache) return _localDeployCache;
@@ -48,21 +49,16 @@ export const getLocalDeploymentAddresses = async () => {
 
 // פונקציות utility לעבודה עם החוזים
 export const getContractABI = (contractName) => {
-  // Try to lazily require ABI files if they exist in the `contracts/` helper folder.
+  // Prefer preloaded ABIs attached to window.__ABIS__ (populated by loadAbis())
   try {
-    if (!ContractFactoryABI) ContractFactoryABI = awaitTryImportABI('ContractFactoryABI.json');
-  } catch (_) {}
-  try {
-    if (!TemplateRentContractABI) TemplateRentContractABI = awaitTryImportABI('TemplateRentContractABI.json');
-  } catch (_) {}
-  try {
-    if (!NDATemplateABI) NDATemplateABI = awaitTryImportABI('NDATemplateABI.json');
-  } catch (_) {}
-  try {
-    if (!ArbitratorABI) ArbitratorABI = awaitTryImportABI('ArbitratorABI.json');
-  } catch (_) {}
-  try {
-    if (!ArbitrationServiceABI) ArbitrationServiceABI = awaitTryImportABI('ArbitrationServiceABI.json');
+    if (typeof window !== 'undefined' && window.__ABIS__) {
+      const abis = window.__ABIS__;
+      if (!ContractFactoryABI && abis.ContractFactory) ContractFactoryABI = abis.ContractFactory;
+      if (!TemplateRentContractABI && abis.TemplateRentContract) TemplateRentContractABI = abis.TemplateRentContract;
+      if (!NDATemplateABI && abis.NDATemplate) NDATemplateABI = abis.NDATemplate;
+      if (!ArbitratorABI && abis.Arbitrator) ArbitratorABI = abis.Arbitrator;
+      if (!ArbitrationServiceABI && abis.ArbitrationService) ArbitrationServiceABI = abis.ArbitrationService;
+    }
   } catch (_) {}
 
   switch (contractName) {
@@ -145,6 +141,28 @@ export const getContractAddress = async (chainId, contractName) => {
 };
 
 export const createContractInstance = (contractName, address, signerOrProvider) => {
+  const abi = getContractABI(contractName);
+  return new ethers.Contract(address, abi, signerOrProvider);
+};
+
+// Async variant: ensures ABIs are loaded (via loadAbis fetch) before creating the contract.
+export const createContractInstanceAsync = async (contractName, address, signerOrProvider) => {
+  // If window.__ABIS__ is missing or doesn't have the requested key, attempt to load ABIs at runtime
+  try {
+    if (typeof window !== 'undefined') {
+      const has = window.__ABIS__ && window.__ABIS__[contractName];
+      if (!has) {
+        try {
+          await loadAbis();
+        } catch (e) {
+          // ignore; getContractABI will throw a clearer error if ABI still missing
+        }
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
   const abi = getContractABI(contractName);
   return new ethers.Contract(address, abi, signerOrProvider);
 };

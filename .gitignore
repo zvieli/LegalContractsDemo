@@ -25,4 +25,4 @@ tools/admin/*.pem
 tools/admin/*.secret
 tools/admin/*.env
 
- 
+front/public/utils/contracts/
