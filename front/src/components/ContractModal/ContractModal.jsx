@@ -321,7 +321,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           });
           setTransactionHistory(merged);
 
-          // Find unresolved disputes and if current account is debtor, set pendingDeposit
+            // Find unresolved disputes and if current account is debtor, set pendingDeposit
           try {
             let found = null;
             for (const d of disputeTxs) {
@@ -334,8 +334,22 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                   const tenantAddr = await rentContract.tenant();
                   const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
                   const requested = BigInt(disc[2] || 0);
+                  // Read the debtor's current partyDeposit to decide whether deposit is still required
+                  let debtorDeposit = 0n;
+                  try {
+                    debtorDeposit = BigInt(await rentContract.partyDeposit(debtorAddr).catch(() => 0n) || 0n);
+                  } catch (_) { debtorDeposit = 0n; }
+
                   if (account && String(account).toLowerCase() === String(debtorAddr).toLowerCase()) {
-                    found = { caseId: Number(d.caseId), requestedAmountWei: requested, requestedAmountEth: (() => { try { return ethers.formatEther(requested); } catch { return String(requested); } })(), debtor: debtorAddr };
+                    const requestedEth = (() => { try { return ethers.formatEther(requested); } catch { return String(requested); } })();
+                    if (debtorDeposit >= requested) {
+                      // Deposit already satisfies requested amount — show a satisfied confirmation instead of the input
+                      const depositedEth = (() => { try { return ethers.formatEther(debtorDeposit); } catch { return String(debtorDeposit); } })();
+                      found = { caseId: Number(d.caseId), requestedAmountWei: requested, requestedAmountEth: requestedEth, debtor: debtorAddr, satisfied: true, depositedAmountWei: debtorDeposit, depositedAmountEth: depositedEth };
+                    } else {
+                      // Still needs deposit
+                      found = { caseId: Number(d.caseId), requestedAmountWei: requested, requestedAmountEth: requestedEth, debtor: debtorAddr, satisfied: false };
+                    }
                     break;
                   }
                 }
@@ -784,6 +798,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         // Directly submit dispute - this will prompt MetaMask and send the bond as msg.value
         const { caseId } = await svc.reportRentDispute(contractAddress, Number(disputeForm.dtype || 0), amountWei, evidenceToSend);
         try {
+          // Preserve the raw evidence text for display/copy in the appeal modal when it's a human-entered string
           const incoming = {
             contractAddress: contractAddress,
             dtype: Number(disputeForm.dtype || 0),
@@ -791,7 +806,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             evidenceDigest: evidenceToSend || ethers.ZeroHash,
             reporter: account || null,
             caseId: caseId != null ? String(caseId) : null,
-            createdAt: new Date().toISOString()
+            createdAt: new Date().toISOString(),
+            // If the user entered plain evidence (not a 0x64 hex digest), store it as `evidence` for UI display.
+            evidence: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? String(disputeForm.evidence) : null
           };
           sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
           try { const perKey = `incomingDispute:${contractAddress}`; localStorage.setItem(perKey, JSON.stringify(incoming)); } catch (e) { console.warn('Failed to persist per-contract incomingDispute', e); }
@@ -1310,30 +1327,39 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 {/* Pending deposit prompt for debtor when an unresolved dispute exists */}
                 {pendingDeposit && (
                   <div style={{marginTop:12, padding:10, border:'1px solid #f0c', borderRadius:6, background:'#fff7fb'}}>
-                    <div style={{marginBottom:8}}><strong>Notice:</strong> A dispute (case #{pendingDeposit.caseId}) has been filed requesting {pendingDeposit.requestedAmountEth} ETH. As the debtor you must deposit the claimed amount or part of it.</div>
-                    <div style={{display:'flex', gap:8, alignItems:'center'}}>
-                      <input className="text-input" type="number" step="0.000000000000000001" placeholder={`Amount to deposit (ETH) up to ${pendingDeposit.requestedAmountEth}`} value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} />
-                      <button className="btn-primary" onClick={async () => {
-                        try {
-                          const toSendEth = paymentAmount && String(paymentAmount).trim() !== '' ? paymentAmount : pendingDeposit.requestedAmountEth;
-                          const amtWei = toSendEth ? ethers.parseEther(String(toSendEth)) : 0n;
-                          const amtEth = (() => { try { return ethers.formatEther(amtWei); } catch { return String(amtWei); } })();
-                          setConfirmAmountEth(amtEth);
-                          setConfirmAction(() => async () => {
+                    {!pendingDeposit.satisfied ? (
+                      <>
+                        <div style={{marginBottom:8}}><strong>Notice:</strong> A dispute (case #{pendingDeposit.caseId}) has been filed requesting {pendingDeposit.requestedAmountEth} ETH. As the debtor you must deposit the claimed amount or part of it.</div>
+                        <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                          <input className="text-input" type="number" step="0.000000000000000001" placeholder={`Amount to deposit (ETH) up to ${pendingDeposit.requestedAmountEth}`} value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} />
+                          <button className="btn-primary" onClick={async () => {
                             try {
-                              setActionLoading(true);
-                              const svc = new ContractService(signer, chainId);
-                              await svc.depositForCase(contractAddress, pendingDeposit.caseId, amtWei);
-                              alert('Deposit submitted');
-                              // refresh contract data
-                              await loadContractData();
-                            } catch (err) { alert(`Deposit failed: ${err?.message || err}`); } finally { setActionLoading(false); }
-                          });
-                          setConfirmOpen(true);
-                        } catch (e) { console.error('Failed to prepare deposit', e); alert('Failed to prepare deposit'); }
-                      }}>Deposit</button>
-                      <div className="muted">Or leave input empty to deposit the full requested amount.</div>
-                    </div>
+                              const toSendEth = paymentAmount && String(paymentAmount).trim() !== '' ? paymentAmount : pendingDeposit.requestedAmountEth;
+                              const amtWei = toSendEth ? ethers.parseEther(String(toSendEth)) : 0n;
+                              const amtEth = (() => { try { return ethers.formatEther(amtWei); } catch { return String(amtWei); } })();
+                              setConfirmAmountEth(amtEth);
+                              setConfirmAction(() => async () => {
+                                try {
+                                  setActionLoading(true);
+                                  const svc = new ContractService(signer, chainId);
+                                  await svc.depositForCase(contractAddress, pendingDeposit.caseId, amtWei);
+                                  alert('Deposit submitted');
+                                  // refresh contract data
+                                  await loadContractData();
+                                } catch (err) { alert(`Deposit failed: ${err?.message || err}`); } finally { setActionLoading(false); }
+                              });
+                              setConfirmOpen(true);
+                            } catch (e) { console.error('Failed to prepare deposit', e); alert('Failed to prepare deposit'); }
+                          }}>Deposit</button>
+                          <div className="muted">Or leave input empty to deposit the full requested amount.</div>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{display:'flex', flexDirection:'column', gap:6}}>
+                        <div style={{marginBottom:8}}><strong>Deposit satisfied:</strong> You have already deposited {pendingDeposit.depositedAmountEth} ETH which meets or exceeds the requested {pendingDeposit.requestedAmountEth} ETH for case #{pendingDeposit.caseId}.</div>
+                        <div className="muted">No further deposit is required. The deposit input is hidden.</div>
+                      </div>
+                    )}
                   </div>
                 )}
 
