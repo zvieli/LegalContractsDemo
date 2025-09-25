@@ -11,7 +11,13 @@ describe('Admin decrypt helper roundtrip', function () {
     const rawPub = identity.publicKey.startsWith('0x') ? identity.publicKey.slice(2) : identity.publicKey;
     const pub = rawPub.startsWith('04') ? rawPub.slice(2) : rawPub;
     const encrypted = await EthCrypto.encryptWithPublicKey(pub, msg);
-    const payloadStr = JSON.stringify(encrypted);
+    function stableStringify(obj) {
+      if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
+      if (Array.isArray(obj)) return '[' + obj.map(v => stableStringify(v)).join(',') + ']';
+      const keys = Object.keys(obj).sort();
+      return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
+    }
+    const payloadStr = stableStringify(encrypted);
   const decrypted = await decryptEvidencePayload(payloadStr, identity.privateKey);
   expect(decrypted).to.equal(msg);
   });

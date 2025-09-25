@@ -6,6 +6,7 @@ Files
 
 - `decryptHelper.js` — ESM exports with `decryptEvidencePayload(payloadJson, adminPrivateKey)` and `decryptRationale(...)` helpers.
 - `decrypt-cli.js` — small CLI wrapper that reads ciphertext JSON from a file or stdin and prints the decrypted plaintext.
+ - `check-digest-match.mjs` — small helper to compute keccak256 over a ciphertext file and compare with an expected digest (useful for regression tests and CI).
 
 Security recommendations
 
@@ -47,6 +48,23 @@ $env:ADMIN_PRIVATE_KEY_FILE = 'C:\secure\admin.key'
 # Ensure file permissions are tight: use icacls to restrict access on Windows
 # icacls C:\secure\admin.key /inheritance:r /grant:r "$($env:USERNAME):(R)"
 node tools/admin/decrypt-cli.js --file ciphertext.json
+```
+
+Check digest match (compute keccak256 over the file and optionally compare):
+
+```
+node tools/admin/check-digest-match.mjs front/e2e/static/<digestNo0x>.json 0x1234...abcd
+```
+
+Notes about demo keys in repository
+
+- Demo/front helper scripts previously included an example admin private key for local development. Those hard-coded keys were removed. Do NOT store admin private keys in the repository or the front-end.
+- For local testing, set `ADMIN_PRIVATE_KEY` in your session or point `ADMIN_PRIVATE_KEY_FILE` to a secure file containing the private key. Example PowerShell session usage:
+
+```
+$env:ADMIN_PRIVATE_KEY = '0x...'
+node front/tools/admin/write-ciphertext-to-static.mjs
+$env:ADMIN_PRIVATE_KEY = $null
 ```
 
 Decrypt using Vault (KV v2 default mount):

@@ -55,6 +55,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
   const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
+  const [cliFallbackCommand, setCliFallbackCommand] = useState('');
   const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
   const [adminDecrypted, setAdminDecrypted] = useState(null);
   const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
@@ -72,6 +73,11 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   // ... use imported parseEtherSafe and formatEtherSafe from utils/eth
 
   useEffect(() => {
+    // If build-time env provides an admin private key (for local admin-only builds), prefill it and hide input
+    try {
+      const pre = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ADMIN_PRIVATE_KEY) ? import.meta.env.VITE_ADMIN_PRIVATE_KEY : '';
+      if (pre) setAdminPrivateKeyInput(pre);
+    } catch (_) {}
     // When modal opens, attempt to compute required early-termination fee (if any)
     let mounted = true;
     const loadFee = async () => {
@@ -326,34 +332,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     return () => { mounted = false; };
   }, [isOpen, contractAddress, signer, chainId]);
 
-  // Auto-fetch+decrypt once when admin modal opens and admin key + guessed URL are present
-  useEffect(() => {
-    if (!showAdminDecryptModal) { setAdminAutoTried(false); return; }
-    if (adminAutoTried) return;
-    const tryAuto = async () => {
-      try {
-        const pk = adminPrivateKeyInput && adminPrivateKeyInput.trim();
-        const payload = adminCiphertextInput && adminCiphertextInput.trim();
-        if (!pk || !payload) return;
-        if (!/^https?:\/\//i.test(payload)) return;
-        setAdminDecryptBusy(true);
-        let fetched = '';
-        try {
-          const resp = await fetch(payload);
-          if (!resp.ok) throw new Error('Fetch failed: ' + resp.statusText);
-          fetched = await resp.text();
-        } catch (e) { return; }
-        try {
-          const plain = await decryptCiphertextJson(fetched, pk);
-          setAdminDecrypted(plain);
-        } catch (_) {}
-      } finally {
-        setAdminAutoTried(true);
-        setAdminDecryptBusy(false);
-      }
-    };
-    tryAuto();
-  }, [showAdminDecryptModal]);
+  // Decryption is explicit in the demo UI: admin must paste private key and click Decrypt.
+  // We intentionally avoid automatic fetch+decrypt to make key usage explicit.
 
   if (!isOpen) return null;
 
@@ -597,74 +577,22 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           {/* Admin decrypt button & modal (optional in-browser decryption). WARNING: private key must be transient and not stored. */}
           {isAuthorizedArbitrator && (
             <div style={{marginTop:12}}>
-                      <button type="button" className="btn-sm" onClick={() => {
-                        setShowAdminDecryptModal(true);
-                        setAdminDecrypted(null);
-                        try {
-                          const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
-                          const maybe = disputeInfo && disputeInfo.evidence ? disputeInfo.evidence : null;
-                          let guessed = '';
-                          if (base && maybe && /^0x[0-9a-fA-F]{64}$/.test(String(maybe).trim())) {
-                            const digestNo0x = String(maybe).trim().replace(/^0x/, '');
-                            guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
-                          }
-                          setAdminCiphertextInput(guessed);
-                        } catch (_) { setAdminCiphertextInput(''); }
-                        // Do NOT auto-fill admin private key from env for security - leave empty so admin must paste/transiently enter it
-                        setAdminPrivateKeyInput('');
-                      }}>Admin decrypt (client)</button>
-              {showAdminDecryptModal && (
-                <div style={{position:'fixed', left:0, top:0, right:0, bottom:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center'}}>
-                  <div style={{background:'#fff', padding:16, width:720, maxWidth:'95%', borderRadius:8}}>
-                    <h4>Admin decrypt (client-side)</h4>
-                    <div style={{fontSize:13, color:'#a33', marginBottom:8}}>Security: entering your private key here will only be used in this browser session and will not be saved. Prefer running server-side admin tools. Use only ephemeral keys if possible.</div>
-                    <div style={{display:'flex', gap:12}}>
-                      <div style={{flex:1}}>
-                        <label>Ciphertext JSON or URL</label>
-                        <textarea rows={6} value={adminCiphertextInput} onChange={e => setAdminCiphertextInput(e.target.value)} placeholder='Paste ciphertext JSON here or an HTTPS URL to fetch it' style={{width:'100%', boxSizing:'border-box'}} />
-                      </div>
-                      <div style={{width:320}}>
-                        <label>Admin private key (transient)</label>
-                        <input className="text-input" type="password" value={adminPrivateKeyInput} onChange={e => setAdminPrivateKeyInput(e.target.value)} placeholder="0x..." style={{width:'100%'}} autoComplete="new-password" aria-label="Admin private key" />
-                        <div style={{fontSize:12, color:'#555', marginTop:8}}>If you provide a URL above, the client will attempt to fetch it via CORS. If the server blocks CORS, download the file and paste JSON here.</div>
-                      </div>
-                    </div>
-                    <div style={{marginTop:12, display:'flex', gap:8, justifyContent:'flex-end'}}>
-                      <button type="button" className="btn-sm" onClick={() => setShowAdminDecryptModal(false)}>Close</button>
-                      <button type="button" className="btn-sm primary" disabled={adminDecryptBusy} onClick={async () => {
-                        setAdminDecryptBusy(true);
-                        setAdminDecrypted(null);
-                        try {
-                          let payload = adminCiphertextInput && adminCiphertextInput.trim() || '';
-                          if (!payload) { alert('Provide ciphertext JSON or URL to fetch'); setAdminDecryptBusy(false); return; }
-                          // If it's a URL, try to fetch
-                          if (/^https?:\/\//i.test(payload)) {
-                            try {
-                              const resp = await fetch(payload);
-                              if (!resp.ok) throw new Error('Failed to fetch ciphertext: ' + resp.statusText);
-                              payload = await resp.text();
-                            } catch (e) {
-                              alert('Failed to fetch ciphertext URL: ' + (e?.message || e));
-                              setAdminDecryptBusy(false);
-                              return;
-                            }
-                          }
-                          try {
-                            const plain = await decryptCiphertextJson(payload, adminPrivateKeyInput.trim());
-                            setAdminDecrypted(plain);
-                          } catch (e) {
-                            alert('Decryption failed: ' + (e?.message || e));
-                          }
-                        } finally { setAdminDecryptBusy(false); }
-                      }}>Decrypt</button>
-                    </div>
-                    <div style={{marginTop:12}}>
-                      <label>Decrypted plaintext</label>
-                      <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{adminDecrypted || <span style={{color:'#888'}}>No plaintext yet</span>}</pre>
-                    </div>
-                  </div>
-                </div>
-              )}
+              <button type="button" className="btn-sm" onClick={() => {
+                setShowAdminDecryptModal(true);
+                setAdminDecrypted(null);
+                try {
+                  const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
+                  const maybe = disputeInfo && disputeInfo.evidence ? disputeInfo.evidence : null;
+                  let guessed = '';
+                  if (base && maybe && /^0x[0-9a-fA-F]{64}$/.test(String(maybe).trim())) {
+                    const digestNo0x = String(maybe).trim().replace(/^0x/, '');
+                    guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
+                  }
+                  setAdminCiphertextInput(guessed);
+                } catch (_) { setAdminCiphertextInput(''); }
+                // Do NOT auto-fill admin private key from env for security - leave empty so admin must paste/transiently enter it
+                setAdminPrivateKeyInput('');
+              }}>Admin decrypt (client)</button>
             </div>
           )}
 
@@ -701,6 +629,107 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             </button>
           </div>
         </form>
+        {/* Admin decrypt modal rendered outside of the main form to avoid nested form accessibility warnings */}
+        {showAdminDecryptModal && (
+          <div style={{position:'fixed', left:0, top:0, right:0, bottom:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center'}}>
+            <div style={{background:'#fff', padding:16, width:720, maxWidth:'95%', borderRadius:8}}>
+              <h4>Admin decrypt (client-side)</h4>
+              <div style={{fontSize:13, color:'#a33', marginBottom:8}}>Security: entering your private key here will only be used in this browser session and will not be saved. Prefer running server-side admin tools. Use only ephemeral keys if possible.</div>
+              {/* Wrap inputs in a small form so password inputs are contained in a form (accessibility) */}
+              <form onSubmit={(e) => e.preventDefault()} aria-label="Admin decrypt form">
+                <div role="group" aria-label="Admin decrypt inputs" style={{display:'flex', gap:12}}>
+                  <input type="text" name="prevent_autofill_username" autoComplete="username" aria-hidden="true" tabIndex={-1} style={{position:'absolute', left:'-9999px', width:1, height:1, opacity:0}} />
+                  <div style={{flex:1}}>
+                    <label>Ciphertext JSON or URL</label>
+                    <textarea
+                      rows={6}
+                      value={adminCiphertextInput}
+                      onChange={e => {
+                        const v = e.target.value || '';
+                        // If admin pastes exactly a 0x-prefixed 64-hex digest, auto-generate fetch URL
+                        try {
+                          const maybe = String(v).trim();
+                          if (/^0x[0-9a-fA-F]{64}$/.test(maybe)) {
+                            const envBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) ? import.meta.env.VITE_EVIDENCE_FETCH_BASE : '';
+                            const digestNo0x = maybe.replace(/^0x/, '');
+                            const url = envBase ? `${envBase.replace(/\/$/, '')}/${digestNo0x}.json` : digestNo0x;
+                            setAdminCiphertextInput(url);
+                            return;
+                          }
+                        } catch (_) { /* ignore and fallthrough */ }
+                        setAdminCiphertextInput(v);
+                      }}
+                      placeholder='Paste ciphertext JSON here or an HTTPS URL to fetch it'
+                      style={{width:'100%', boxSizing:'border-box'}}
+                    />
+                  </div>
+                  {!(typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_ADMIN_PRIVATE_KEY) && (
+                    <div style={{width:320}}>
+                      <label>Admin private key (transient)</label>
+                      {/* Prevent browser autofill by making the input readOnly until focused */}
+                      <input className="text-input" type="password" name="admin_private_key" value={adminPrivateKeyInput} onChange={e => setAdminPrivateKeyInput(e.target.value)} placeholder="0x..." style={{width:'100%'}} autoComplete="new-password" aria-label="Admin private key" readOnly={true} onFocus={(e) => { e.target.readOnly = false; e.target.select && e.target.select(); }} />
+                      <div style={{fontSize:12, color:'#555', marginTop:8}}>If you provide a URL above, the client will attempt to fetch it via CORS. If the server blocks CORS, download the file and paste JSON here.</div>
+                    </div>
+                  )}
+                </div>
+              </form>
+              <div style={{marginTop:12, display:'flex', gap:8, justifyContent:'flex-end'}}>
+                <button type="button" className="btn-sm" onClick={() => setShowAdminDecryptModal(false)}>Close</button>
+                <button type="button" className="btn-sm primary" disabled={adminDecryptBusy} onClick={async () => {
+                  setAdminDecryptBusy(true);
+                  setAdminDecrypted(null);
+                  try {
+                    let payload = adminCiphertextInput && adminCiphertextInput.trim() || '';
+                    if (!payload) { alert('Provide ciphertext JSON or URL to fetch'); setAdminDecryptBusy(false); return; }
+                    if (/^https?:\/\//i.test(payload)) {
+                      try {
+                        const resp = await fetch(payload);
+                        if (!resp.ok) throw new Error('Failed to fetch ciphertext: ' + resp.statusText);
+                        payload = await resp.text();
+                      } catch (e) {
+                        alert('Failed to fetch ciphertext URL: ' + (e?.message || e));
+                        setAdminDecryptBusy(false);
+                        return;
+                      }
+                    }
+                    try {
+                      const plain = await decryptCiphertextJson(payload, adminPrivateKeyInput.trim());
+                      setAdminDecrypted(plain);
+                      setCliFallbackCommand('');
+                    } catch (e) {
+                      // If the error is about missing eth-crypto in browser or externalized Node modules,
+                      // present a CLI fallback that the admin can run in a trusted environment.
+                      const msg = (e && e.message) ? e.message : String(e);
+                      console.warn('Client decrypt failed:', msg);
+                      const digest = (disputeInfo?.evidenceDigest) ? disputeInfo.evidenceDigest : '';
+                      const envBase = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) ? import.meta.env.VITE_EVIDENCE_FETCH_BASE : '';
+                      const url = (payload && /^https?:\/\//i.test(payload)) ? payload : (envBase.replace(/\/$/, '') + '/' + (digest ? digest.replace(/^0x/, '') + '.json' : ''));
+                      // Provide both PowerShell (Windows) and POSIX (bash/sh) variants for admins.
+                      const psCmd = `$env:ADMIN_PRIVATE_KEY = '<private_key>'; node tools/admin/fetch-and-decrypt.js --digest ${digest || '<0x...>'} --fetchUrl '${url || '<fetchUrl>'}'; $env:ADMIN_PRIVATE_KEY = $null`;
+                      const shCmd = `ADMIN_PRIVATE_KEY='<private_key>' node tools/admin/fetch-and-decrypt.js --digest ${digest || '<0x...>'} --fetchUrl '${url || '<fetchUrl>'}'`;
+                      const combined = `PowerShell (Windows):\n${psCmd}\n\nPOSIX (bash/sh):\n${shCmd}`;
+                      setCliFallbackCommand(combined);
+                    }
+                  } finally { setAdminDecryptBusy(false); }
+                }}>Decrypt</button>
+              </div>
+              <div style={{marginTop:12}}>
+                <label>Decrypted plaintext</label>
+                <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{adminDecrypted || <span style={{color:'#888'}}>No plaintext yet</span>}</pre>
+              </div>
+              {cliFallbackCommand && (
+                <div style={{marginTop:12, padding:8, background:'#fff3cd', border:'1px solid #ffeeba'}}>
+                  <div style={{fontWeight:600}}>Client decrypt not available in this browser</div>
+                  <div style={{marginTop:6}}>Run the following command in a trusted admin shell to fetch and decrypt the ciphertext:</div>
+                  <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8, marginTop:8}}>{cliFallbackCommand}</pre>
+                  <div style={{marginTop:8}}>
+                    <button className="btn-sm" onClick={() => { navigator.clipboard && navigator.clipboard.writeText(cliFallbackCommand); }}>Copy command</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
       <ConfirmPayModal open={depositConfirmOpen} title="Confirm deposit" amountEth={depositConfirmAmount} details={`This will deposit funds for case ${disputeInfo?.caseId || ''}.`} onConfirm={async () => { if (depositConfirmAction) await depositConfirmAction(); setDepositConfirmOpen(false); }} onCancel={() => setDepositConfirmOpen(false)} busy={depositConfirmBusy} />
     </div>
