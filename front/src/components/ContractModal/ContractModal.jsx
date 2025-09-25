@@ -7,6 +7,7 @@ import { DocumentGenerator } from '../../utils/documentGenerator';
 import { getContractAddress } from '../../utils/contracts';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
+import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const { signer, chainId, account, provider } = useEthers();
@@ -81,8 +82,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [hasAppeal, setHasAppeal] = useState(false);
   const [arbResolution, setArbResolution] = useState(null);
   const [rationaleRevealed, setRationaleRevealed] = useState(false);
+  const [hasActiveDisputeAgainstLandlord, setHasActiveDisputeAgainstLandlord] = useState(false);
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
+  const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
+  const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
+  const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
+  const [adminDecrypted, setAdminDecrypted] = useState(null);
+  const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
+  const [adminAutoTried, setAdminAutoTried] = useState(false);
 
   const formatDuration = (sec) => {
     const s = Number(sec || 0);
@@ -324,6 +332,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             // Find unresolved disputes and if current account is debtor, set pendingDeposit
           try {
             let found = null;
+            let foundActiveAgainstLandlord = false;
             for (const d of disputeTxs) {
               try {
                 const disc = await rentContract.getDispute(Number(d.caseId));
@@ -334,6 +343,14 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                   const tenantAddr = await rentContract.tenant();
                   const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
                   const requested = BigInt(disc[2] || 0);
+
+                  // If the unresolved dispute's debtor equals the landlord address, mark flag so UI hides modification buttons
+                  try {
+                    if (String(debtorAddr).toLowerCase() === String(landlordAddr).toLowerCase()) {
+                      foundActiveAgainstLandlord = true;
+                    }
+                  } catch (_) {}
+
                   // Read the debtor's current partyDeposit to decide whether deposit is still required
                   let debtorDeposit = 0n;
                   try {
@@ -356,6 +373,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
               } catch (_) {}
             }
             setPendingDeposit(found);
+            setHasActiveDisputeAgainstLandlord(foundActiveAgainstLandlord);
           } catch (e) { console.debug('pending deposit detection failed', e); }
         } catch (e) {
           // ignore dispute merge failures
@@ -843,7 +861,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     } catch (_) { return '0'; }
   })();
 
-  // File uploads removed: evidence must be provided as text (or left empty). If desired, admins can compute hashes off-line.
+  // File uploads removed: evidence must be provided as an off-chain payload and
+  // the frontend will only submit a 32-byte keccak256 digest of that payload.
+  // Reporter clients must upload the ciphertext/payload to an HTTP(S) location
+  // reachable by the platform arbitrator/admin (or provide the digest of an
+  // already-uploaded payload). Do NOT include plaintext/admin private keys in
+  // the frontend. For local development, use tools/admin/upload-evidence-local.mjs
+  // to place ciphertext files under front/e2e/static/<digestNo0x>.json and
+  // configure EVIDENCE_FETCH_BASE accordingly.
 
   // Render: show computed bond near dispute form submission area
   // (This UI is included in the modal's dispute section elsewhere; place near the submit button)
@@ -1035,7 +1060,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         reporter: appealData.reporter || null,
         submitted: appealData.createdAt || null,
         evidenceText: evidenceText || null,
-        evidence: (!evidenceText && appealData.evidence) ? appealData.evidence : null
+        // If no plaintext available, include the stored digest so admins can locate ciphertext
+        evidence: (!evidenceText && appealData.evidence) ? appealData.evidence : ((appealData.evidenceDigest) ? appealData.evidenceDigest : null)
       };
 
       const ok = await copyTextToClipboard(JSON.stringify(summary, null, 2));
@@ -1049,6 +1075,35 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       alert(`Failed to copy complaint: ${e?.message || e}`);
     }
   };
+
+  // Attempt auto-fetch+decrypt once when modal opens and admin key + guessed URL are present
+  useEffect(() => {
+    if (!showAdminDecryptModal) { setAdminAutoTried(false); return; }
+    if (adminAutoTried) return;
+    const tryAuto = async () => {
+      try {
+        const pk = adminPrivateKeyInput && adminPrivateKeyInput.trim();
+        const payload = adminCiphertextInput && adminCiphertextInput.trim();
+        if (!pk || !payload) return;
+        if (!/^https?:\/\//i.test(payload)) return;
+        setAdminDecryptBusy(true);
+        let fetched = '';
+        try {
+          const resp = await fetch(payload);
+          if (!resp.ok) throw new Error('Fetch failed: ' + resp.statusText);
+          fetched = await resp.text();
+        } catch (e) { return; }
+        try {
+          const plain = await decryptCiphertextJson(fetched, pk);
+          setAdminDecrypted(plain);
+        } catch (_) {}
+      } finally {
+        setAdminAutoTried(true);
+        setAdminDecryptBusy(false);
+      }
+    };
+    tryAuto();
+  }, [showAdminDecryptModal]);
 
   const handleExport = () => {
     try {
@@ -1481,7 +1536,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       )}
                     </div>
 
-                    {isLandlord && (
+                    {isLandlord && !hasActiveDisputeAgainstLandlord && (
                       <div className="policy-form" style={{marginTop: '8px'}}>
                         <div className="details-grid">
                           <div className="detail-item">
@@ -1498,6 +1553,11 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           </div>
                         </div>
                         <button className="btn-action" disabled={readOnly || actionLoading} onClick={handleSetPolicy}>Save Policy</button>
+                      </div>
+                    )}
+                    {isLandlord && hasActiveDisputeAgainstLandlord && (
+                      <div style={{marginTop: '8px', padding: '8px', border: '1px dashed #eee', borderRadius:6}}>
+                        <div className="muted">A dispute has been filed against the landlord for this contract. Contract policy edits are temporarily disabled until the dispute is resolved.</div>
                       </div>
                     )}
 
@@ -1527,8 +1587,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       );
                       return (
                         <div className="cxl-actions" style={{marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap'}}>
-                          <button className="btn-action" disabled={actionLoading || !canInitiate} onClick={handleInitiateCancel}>Initiate Cancellation</button>
-                          <button className="btn-action" disabled={actionLoading || !canApprove} onClick={handleApproveCancel}>Approve Cancellation</button>
+                          { !hasActiveDisputeAgainstLandlord ? (
+                            <>
+                              <button className="btn-action" disabled={actionLoading || !canInitiate} onClick={handleInitiateCancel}>Initiate Cancellation</button>
+                              <button className="btn-action" disabled={actionLoading || !canApprove} onClick={handleApproveCancel}>Approve Cancellation</button>
+                            </>
+                          ) : (
+                            <div style={{padding:'8px', border:'1px dashed #eee', borderRadius:6}} className="muted">Cancellation and policy actions are disabled while a dispute against the landlord is active.</div>
+                          )}
                           <div style={{display:'flex', gap:'8px', alignItems:'center'}}>
                             <input className="text-input" style={{width:'160px'}} type="number" placeholder={feeDueEth ? `Fee required: ${feeDueEth}` : 'Fee (ETH, optional)'} value={feeToSend} onChange={e => setFeeToSend(e.target.value)} />
                             <button className="btn-action" disabled={!feeDueEth} onClick={() => setFeeToSend(feeDueEth || '')}>Autofill Fee</button>
@@ -1616,8 +1682,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                         <label className="label">Report Breach</label>
                         <input className="text-input" placeholder="Offender (0x...)" value={ndaReportOffender} onChange={e => setNdaReportOffender(e.target.value)} />
                         <input className="text-input" placeholder="Requested penalty (ETH)" value={ndaReportPenalty} onChange={e => setNdaReportPenalty(e.target.value)} />
-                        <input className="text-input" placeholder="Evidence text (optional)" value={ndaReportEvidenceText} onChange={e => setNdaReportEvidenceText(e.target.value)} />
-                        <small className="muted">File uploads disabled. Paste evidence text or a hash in the field above.</small>
+                        <input className="text-input" placeholder="Evidence text or 0x...digest (optional)" value={ndaReportEvidenceText} onChange={e => setNdaReportEvidenceText(e.target.value)} />
+                        <small className="muted">File uploads disabled. Provide the keccak256 digest (0x...) of your off-chain ciphertext or paste ciphertext elsewhere and use the admin tools to register it. Do NOT paste admin private keys here.</small>
                         <button className="btn-action" disabled={actionLoading} onClick={() => handleNdaReport(ndaReportOffender, ndaReportPenalty, ndaReportEvidenceText || ndaReportFileHash)}>
                           Submit Report
                         </button>
@@ -1633,7 +1699,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Create Dispute (Arbitrator)</label>
                         <input className="text-input" type="number" placeholder="Case ID" value={createDisputeCaseId} onChange={e => setCreateDisputeCaseId(e.target.value)} />
-                        <input className="text-input" placeholder="Evidence text (optional)" value={createDisputeEvidence} onChange={e => setCreateDisputeEvidence(e.target.value)} />
+                        <input className="text-input" placeholder="Evidence digest 0x... (optional)" value={createDisputeEvidence} onChange={e => setCreateDisputeEvidence(e.target.value)} />
                         <button className="btn-action" disabled={actionLoading || !(contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress)} onClick={handleCreateDispute}>Create Dispute</button>
                       </div>
                         <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
@@ -1716,13 +1782,99 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               </div>
             </div>
             <div style={{marginTop:8}}>
-              <p><strong>Contract:</strong> {appealData.contractAddress}</p>
-              <p><strong>Case ID:</strong> {appealData.caseId || 'n/a'}</p>
-              <p><strong>Type:</strong> {appealData.dtype}</p>
-              <p><strong>Amount:</strong> {appealData.amountEth} ETH</p>
-              <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
-              <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
-              <p><strong>Evidence:</strong> {appealData.evidence}</p>
+                    <p><strong>Contract:</strong> {appealData.contractAddress}</p>
+                    <p><strong>Case ID:</strong> {appealData.caseId || 'n/a'}</p>
+                    <p><strong>Type:</strong> {appealData.dtype}</p>
+                    <p><strong>Amount:</strong> {appealData.amountEth} ETH</p>
+                    <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
+                    {/* Admin decrypt button (client-side, transient key only) */}
+                    <div style={{marginTop:12}}>
+                      <button className="btn-sm" onClick={() => {
+                        setShowAdminDecryptModal(true);
+                        setAdminDecrypted(null);
+                        // Auto-fill ciphertext URL when we have a configured fetch base and an on-chain digest
+                        try {
+                          const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
+                          let guessed = '';
+                          const maybe = (appealData && (appealData.evidence || appealData.evidenceDigest)) || null;
+                          if (base && maybe && /^0x[0-9a-fA-F]{64}$/.test(String(maybe).trim())) {
+                            const digestNo0x = String(maybe).trim().replace(/^0x/, '');
+                            guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
+                          }
+                          setAdminCiphertextInput(guessed);
+                        } catch (_) {
+                          setAdminCiphertextInput('');
+                        }
+                        // Do NOT auto-fill admin private key from env for security - leave empty so admin must paste/transiently enter it
+                        setAdminPrivateKeyInput('');
+                      }}>Admin decrypt (client)</button>
+                    </div>
+                      {showAdminDecryptModal && (
+                      <div style={{position:'fixed', left:0, top:0, right:0, bottom:0, background:'rgba(0,0,0,0.4)', display:'flex', alignItems:'center', justifyContent:'center'}}>
+                        <div style={{background:'#fff', padding:16, width:720, maxWidth:'95%', borderRadius:8}}>
+                          <h4>Admin decrypt (client-side)</h4>
+                          <div style={{fontSize:13, color:'#a33', marginBottom:8}}>Security: entering your private key here will only be used in this browser session and will not be saved. Prefer running server-side admin tools. Use only ephemeral keys if possible.</div>
+                          <div style={{display:'flex', gap:12}}>
+                            <div style={{flex:1}}>
+                              <label>Ciphertext JSON or URL</label>
+                              <textarea rows={6} value={adminCiphertextInput} onChange={e => setAdminCiphertextInput(e.target.value)} placeholder='Paste ciphertext JSON here or an HTTPS URL to fetch it' style={{width:'100%', boxSizing:'border-box'}} />
+                            </div>
+                            <div style={{width:320}}>
+                              <label>Admin private key (transient)</label>
+                              <input className="text-input" type="password" value={adminPrivateKeyInput} onChange={e => setAdminPrivateKeyInput(e.target.value)} placeholder="0x..." style={{width:'100%'}} autoComplete="new-password" aria-label="Admin private key" />
+                              <div style={{fontSize:12, color:'#555', marginTop:8}}>If you provide a URL above, the client will attempt to fetch it via CORS. If the server blocks CORS, download the file and paste JSON here.</div>
+                            </div>
+                          </div>
+                          <div style={{marginTop:12, display:'flex', gap:8, justifyContent:'flex-end'}}>
+                            <button type="button" className="btn-sm" onClick={() => setShowAdminDecryptModal(false)}>Close</button>
+                            <button type="button" className="btn-sm primary" disabled={adminDecryptBusy} onClick={async () => {
+                              setAdminDecryptBusy(true);
+                              setAdminDecrypted(null);
+                              try {
+                                let payload = adminCiphertextInput && adminCiphertextInput.trim() || '';
+                                if (!payload) { alert('Provide ciphertext JSON or URL to fetch'); setAdminDecryptBusy(false); return; }
+                                if (/^https?:\/\//i.test(payload)) {
+                                  try {
+                                    const resp = await fetch(payload);
+                                    if (!resp.ok) throw new Error('Failed to fetch ciphertext: ' + resp.statusText);
+                                    payload = await resp.text();
+                                  } catch (e) {
+                                    alert('Failed to fetch ciphertext URL: ' + (e?.message || e));
+                                    setAdminDecryptBusy(false);
+                                    return;
+                                  }
+                                }
+                                try {
+                                  const plain = await decryptCiphertextJson(payload, adminPrivateKeyInput.trim());
+                                  setAdminDecrypted(plain);
+                                } catch (e) {
+                                  alert('Decryption failed: ' + (e?.message || e));
+                                }
+                              } finally { setAdminDecryptBusy(false); }
+                            }}>Decrypt</button>
+                          </div>
+                          <div style={{marginTop:12}}>
+                            <label>Decrypted plaintext</label>
+                            <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{adminDecrypted || <span style={{color:'#888'}}>No plaintext yet</span>}</pre>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
+                    <div style={{marginTop:6}}>
+                      <strong>Evidence:</strong>
+                      {appealData.evidence ? (
+                        <div style={{marginTop:6, whiteSpace:'pre-wrap'}}>{appealData.evidence}</div>
+                      ) : (appealData.evidenceDigest ? (
+                        <div style={{marginTop:6}}>
+                          <div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence DIGEST (on-chain):</div>
+                          <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fafafa', padding:8}}>{appealData.evidenceDigest}</pre>
+                          <div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain (encrypted). Contact the platform administrator to request decryption if you are authorized.</div>
+                        </div>
+                      ) : (
+                        <span style={{marginLeft:6, color:'#888'}}>No evidence provided</span>
+                      ))}
+                    </div>
               {/* File attachments removed; no attached file name or local attachment links shown. */}
               {/* IPFS/file attachments removed — no external links to show */}
             </div>

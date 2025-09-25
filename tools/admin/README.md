@@ -70,3 +70,33 @@ node tools/admin/decrypt-cli.js --file ciphertext.json
 CI example
 
 See `.github/workflows/admin-key-example.yml` for an example GitHub Actions job that writes the admin key from a secret into a file with restricted permissions and runs the CLI.
+
+Fetch-and-decrypt helper
+
+This repository includes a convenience script `fetch-and-decrypt.js` that automates a common admin flow:
+
+- read the on-chain `bytes32` digest (or accept it as an argument)
+- fetch ciphertext from a known storage convention (HTTP/S3/file/stdin)
+- verify `keccak256(ciphertext)` equals the on-chain digest
+- decrypt the ciphertext using the configured admin private key
+
+Example (PowerShell) using a digest and an S3-like base URL where objects are named `<digestNo0x>.json`:
+
+```
+$env:ADMIN_PRIVATE_KEY_FILE = 'C:\secure\admin.key'
+node tools/admin/fetch-and-decrypt.js --digest 0x1234...abcd --fetchBase https://storage.example.com/evidence --out decrypted.txt
+```
+
+Example using contract + caseId (reads digest on-chain via RPC and fetches from base URL):
+
+```
+node tools/admin/fetch-and-decrypt.js --contract 0xContractAddress --caseId 3 --rpc http://localhost:8545 --fetchBase https://storage.example.com/evidence --out out.txt
+```
+
+Example reading ciphertext from stdin (pipe) and writing plaintext to stdout:
+
+```
+cat ciphertext.json | node tools/admin/fetch-and-decrypt.js --stdin --digest 0x1234...abcd
+```
+
+Security reminder: the script reads the admin private key from `ADMIN_PRIVATE_KEY` or `ADMIN_PRIVATE_KEY_FILE` (preferred). Do not pass keys on the command line.

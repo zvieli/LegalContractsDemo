@@ -35,7 +35,24 @@ export class ArbitrationService {
   async createDisputeForCase(ndaAddress, caseId, evidenceText = '') {
     try {
       const svc = await this.getArbitratorForNDA(ndaAddress);
-      const evidenceBytes = evidenceText ? ethers.toUtf8Bytes(evidenceText) : new Uint8Array();
+      // To avoid sending arbitrarily-large evidence bytes on-chain (which
+      // scales gas with length), we follow Option A: compute and submit a
+      // 32-byte keccak256 digest of the off-chain evidence payload. The
+      // contract accepts `bytes calldata` so a 32-byte value is encoded as
+      // fixed-size bytes on-chain but avoids storing large blobs.
+      // If callers already provide a 0x-prefixed 32-byte digest, use it
+      // directly; otherwise compute keccak256 over the UTF-8 bytes of the
+      // provided evidenceText.
+      let digestHex = ethers.ZeroHash;
+      if (evidenceText && typeof evidenceText === 'string' && evidenceText.trim().length > 0) {
+        const raw = evidenceText.trim();
+        if (/^0x[0-9a-fA-F]{64}$/.test(raw)) {
+          digestHex = raw;
+        } else {
+          digestHex = ethers.keccak256(ethers.toUtf8Bytes(raw));
+        }
+      }
+      const evidenceBytes = ethers.arrayify(digestHex);
       // ArbitrationService provides a helper to create disputes on the
       // configured arbitrator/factory and returns the dispute id.
       const tx = await svc.createDisputeForCase(ndaAddress, Number(caseId), evidenceBytes);
