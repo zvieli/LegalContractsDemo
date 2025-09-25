@@ -21,13 +21,7 @@ describe('TemplateRentContract - encrypted evidence flow', function () {
   const plaintext = 'Important evidence: ' + 'E'.repeat(512);
   // EthCrypto expects the raw public key (no 0x, no leading 04 when using encryptWithPublicKey helper)
   const encrypted = await EthCrypto.encryptWithPublicKey(pubRaw, String(plaintext));
-  function stableStringify(obj) {
-    if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-    if (Array.isArray(obj)) return '[' + obj.map(v => stableStringify(v)).join(',') + ']';
-    const keys = Object.keys(obj).sort();
-    return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
-  }
-  const payloadStr = stableStringify(encrypted);
+  const payloadStr = JSON.stringify(encrypted);
   const digest = ethers.keccak256(ethers.toUtf8Bytes(payloadStr));
 
   // Call contract method that stores only the digest (no on-chain ciphertext)

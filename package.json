@@ -21,6 +21,7 @@
     "copy-abi": "node scripts/copy-abi.js",
     "node": "npx hardhat node",
     "build:all": "npm run compile && npm run copy-abi && npm run build"
+    
   },
   "keywords": [],
   "author": "",
@@ -56,6 +57,7 @@
     "eth-crypto": "^3.1.0",
     "express": "^5.1.0",
     "fs-extra": "^11.3.2",
+    
     "node-fetch": "^3.3.2",
     "uuid": "^13.0.0"
   }

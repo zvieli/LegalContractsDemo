@@ -3,13 +3,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { keccak256, toUtf8Bytes } from 'ethers';
 
-function stableStringify(obj) {
-  if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-  if (Array.isArray(obj)) return '[' + obj.map(v => stableStringify(v)).join(',') + ']';
-  const keys = Object.keys(obj).sort();
-  return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
-}
-
 async function readStdin() {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -38,19 +31,8 @@ async function main() {
 
   if (!raw) { console.error('No input ciphertext found (file or stdin).'); process.exit(2); }
 
-  // If raw looks like JSON, parse and reserialize canonically so the digest
-  // and on-disk bytes are stable and deterministic.
-  let canonical = raw;
-  try {
-    const parsed = JSON.parse(raw);
-    canonical = stableStringify(parsed);
-  } catch (_) {
-    // not JSON - keep raw as-is
-    canonical = raw;
-  }
-
-  // compute digest over exact UTF-8 bytes of the canonical serialization
-  const digest = keccak256(toUtf8Bytes(canonical));
+  // compute digest over exact UTF-8 bytes
+  const digest = keccak256(toUtf8Bytes(raw));
   const digestNo0x = digest.replace(/^0x/, '');
 
   // default destination: front/e2e/static/<digest>.json (used by local Playwright static server)
@@ -59,8 +41,7 @@ async function main() {
   await fs.mkdir(destDir, { recursive: true });
   const destPath = path.join(destDir, `${digestNo0x}.json`);
 
-  // Write the canonical bytes to disk to ensure digest/file match.
-  await fs.writeFile(destPath, canonical, 'utf8');
+  await fs.writeFile(destPath, raw, 'utf8');
 
   console.log('Wrote ciphertext to:', destPath);
   // Suggest URL for Playwright static server (port 5174) or front dev (5173)

@@ -31,13 +31,6 @@ export function computeDigestForCiphertext(ciphertext) {
   return s ? ethers.keccak256(ethers.toUtf8Bytes(s)) : ethers.ZeroHash;
 }
 
-function stableStringify(obj) {
-  if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-  if (Array.isArray(obj)) return '[' + obj.map(v => stableStringify(v)).join(',') + ']';
-  const keys = Object.keys(obj).sort();
-  return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
-}
-
 export async function encryptToAdminPubKey(payload, adminPublicKeyRaw) {
   // adminPublicKeyRaw: expected as hex string. Accept 0x-prefixed or raw.
   if (!payload) throw new Error('payload required');
@@ -58,8 +51,7 @@ export async function encryptToAdminPubKey(payload, adminPublicKeyRaw) {
   // EthCrypto.encryptWithPublicKey expects the raw public key string (no 0x prefix)
   const ciphertext = await EthCrypto.encryptWithPublicKey(pub, String(payload));
   // Return ciphertext (may be a string or object depending on EthCrypto usage) and its digest
-  // Ensure we serialize objects canonically so digest is deterministic and matches on-disk bytes.
-  const ctStr = typeof ciphertext === 'string' ? ciphertext : stableStringify(ciphertext);
+  const ctStr = typeof ciphertext === 'string' ? ciphertext : JSON.stringify(ciphertext);
   const digest = computeDigestForCiphertext(ctStr);
   return { ciphertext: ctStr, digest };
 }
