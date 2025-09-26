@@ -160,11 +160,12 @@ async function main() {
 
       // Update the previously-written ContractFactory.json to include the service
       try {
-        const deploymentFileContents = fs.readFileSync(deploymentFile, 'utf8');
+        // Update the ContractFactory.json we wrote earlier (publicDeploymentFile)
+        const deploymentFileContents = fs.readFileSync(publicDeploymentFile, 'utf8');
         const parsed = JSON.parse(deploymentFileContents);
         parsed.contracts = parsed.contracts || {};
         parsed.contracts.ArbitrationService = arbitrationServiceAddress;
-        fs.writeFileSync(deploymentFile, JSON.stringify(parsed, null, 2));
+        fs.writeFileSync(publicDeploymentFile, JSON.stringify(parsed, null, 2));
         console.log("💾 Updated ContractFactory.json with ArbitrationService address");
       } catch (err) {
         console.warn("⚠️  Could not update ContractFactory.json with ArbitrationService address:", err.message || err);

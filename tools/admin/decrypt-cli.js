@@ -15,60 +15,16 @@ function usage() {
   process.exit(2);
 }
 
-async function fetchFromVault(vaultAddr, vaultToken, secretPath, secretKey = 'privateKey') {
-  // Construct Vault API path for KV v2 by convention: /v1/<mount>/data/<path>
-  // Allow users to pass either full API path or a mount/path like secret/data/admin.
-  let url = vaultAddr;
-  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
-  // If secretPath already contains /v1/ treat it as full URL
-  if (!/\/v1\//.test(secretPath)) {
-    // default to KV v2 at mount `secret` if only a short path provided
-    if (!secretPath.startsWith('/')) secretPath = '/' + secretPath;
-    secretPath = `/v1${secretPath}`;
-  }
-  const fullUrl = new URL(secretPath, url).toString();
-
-  const lib = fullUrl.startsWith('https://') ? https : http;
-  const opts = {
-    method: 'GET',
-    headers: {
-      'X-Vault-Token': vaultToken,
-      'Accept': 'application/json'
-    }
-  };
-
-  return new Promise((resolve, reject) => {
-    const req = lib.request(fullUrl, opts, (res) => {
-      let data = '';
-      res.setEncoding('utf8');
-      res.on('data', (chunk) => data += chunk);
-      res.on('end', () => {
-        if (res.statusCode && res.statusCode >= 400) {
-          return reject(new Error(`Vault responded with status ${res.statusCode}: ${data}`));
-        }
-        try {
-          const obj = JSON.parse(data);
-          // For KV v2 the secret is in obj.data.data
-          const v2 = obj && obj.data && obj.data.data ? obj.data.data : null;
-          const val = v2 && v2[secretKey] ? v2[secretKey] : (obj && obj.data && obj.data[secretKey] ? obj.data[secretKey] : null);
-          if (!val) return reject(new Error('Secret key not found in Vault response'));
-          resolve(val);
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-    req.on('error', (err) => reject(err));
-    req.end();
-  });
-}
+// (Vault fetching is implemented in tools/admin/vaultClient.js and imported as `vaultFetch`)
 
 async function main() {
   const argv = process.argv.slice(2);
-  let file = null;
+    let file = null;
+    let outFile = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--file' && argv[i+1]) { file = argv[++i]; }
+      else if ((a === '--out-file' || a === '-o') && argv[i+1]) { outFile = argv[++i]; }
     else if (a === '--help' || a === '-h') { usage(); }
     else { usage(); }
   }
@@ -83,8 +39,8 @@ async function main() {
       // On Windows this is a best-effort check: we skip chmod checks but still read.
       try {
         const st = await fsPromises.stat(filePath);
-        // If running on POSIX, ensure mode & 0o077 === 0
-        if (typeof st.mode === 'number' && (st.mode & 0o077) !== 0) {
+        // Enforce owner-only permissions only on POSIX systems (skip on Windows)
+        if (process.platform !== 'win32' && typeof st.mode === 'number' && (st.mode & 0o077) !== 0) {
           console.error(`Private key file ${filePath} permissions are too open. Please set owner-only permissions.`);
           process.exit(4);
         }
@@ -128,14 +84,59 @@ async function main() {
   }
 
   try {
-    const plain = await decryptEvidencePayload(payloadStr, key);
-    console.log(plain);
+    // Diagnostic: surface that we have a key (don't print full key in prod)
+    try { console.error('DEBUG_CLI_KEY_PRESENT len=' + (key ? String(key).length : 0)); } catch (e) {}
+
+    // decrypt the payload using the provided admin key
+    console.error('DEBUG_CLI_DECRYPT_START');
+    let plain;
+    try {
+      // diagnostic: inspect payloadStr and cipher parts
+      try {
+        const parsed = JSON.parse(payloadStr);
+        const cipher = parsed && parsed.crypto ? parsed.crypto : parsed;
+        if (cipher) {
+          try { console.error('DEBUG_CLI_CIPHER ephemPublicKey_len=' + (cipher.ephemPublicKey ? cipher.ephemPublicKey.length : 'null')); } catch (e) {}
+          try { console.error('DEBUG_CLI_CIPHER iv_len=' + (cipher.iv ? cipher.iv.length : 'null')); } catch (e) {}
+          try { console.error('DEBUG_CLI_CIPHER ciphertext_len=' + (cipher.ciphertext ? cipher.ciphertext.length : 'null')); } catch (e) {}
+          try { console.error('DEBUG_CLI_CIPHER mac_len=' + (cipher.mac ? cipher.mac.length : 'null')); } catch (e) {}
+        }
+      } catch (e) {
+        console.error('DEBUG_CLI_PARSE_PAYLOAD_FAILED', e && e.message ? e.message : e);
+      }
+
+      plain = await decryptEvidencePayload(payloadStr, key);
+      console.error('DEBUG_CLI_DECRYPT_OK');
+    } catch (e) {
+      throw e;
+    }
+
+    // Print JSON output wrapped in markers so tests can reliably extract it despite warnings
+    if (outFile) {
+      try {
+        // write synchronously to ensure child process doesn't exit before data flushed
+        const outPath = path.resolve(process.cwd(), outFile);
+        fs.writeFileSync(outPath, String(plain), 'utf8');
+        process.stdout.write('WROTE_OUT_FILE\n');
+        console.error('DEBUG_CLI_WROTE_OUTFILE ' + outPath);
+        process.exit(0);
+      } catch (e) {
+        console.error('Failed to write out-file:', e && e.message ? e.message : e);
+        process.exit(2);
+      }
+    }
+
+    // default: print plaintext to stdout
+    process.stdout.write(String(plain) + '\n');
   } catch (e) {
     console.error('Decryption failed:', e && e.message ? e.message : e);
     process.exit(1);
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(__filename)) {
+  // script invoked directly (node path/to/decrypt-cli.js)
   main();
 }

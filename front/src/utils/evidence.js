@@ -4,7 +4,9 @@ import * as ethers from 'ethers';
  * Client-side evidence helpers (Option A flow).
  *
  * Responsibilities:
- * - Optionally encrypt a payload to an admin public key (ECIES via `eth-crypto`).
+ * - Use the provided admin public key to encrypt a payload (ECIES via `eth-crypto`).
+ *
+ * Important: the frontend does NOT generate or persist the admin private/public keypair. The only private key in the system is the admin private key and it must be managed in a trusted admin environment. The frontend should only ever be given the admin public key (for encryption) via runtime configuration.
  * - Compute the on-chain digest (keccak256) of the ciphertext (recommended) or
  *   of the plaintext if you intentionally skip encryption.
  *

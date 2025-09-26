@@ -4,9 +4,9 @@ This project includes an optional client-side admin decrypt flow exposed via the
 
 Important security notes
 
-- This client-side flow decrypts using `eth-crypto` in the browser. It requires the admin private key to be entered into a transient input field in the browser. The key is not persisted by the UI, but it will be present in the browser memory for the session.
-- DO NOT use long-lived or production private keys in an untrusted browser. Prefer using the server-side admin utilities in `tools/admin/` which can read keys from a secure vault or file and run in a trusted environment.
-- The in-browser feature is provided as a convenience for local testing or emergency use only.
+- The frontend never generates or persists any admin keypair. The only private key in the system is the admin private key and it MUST be kept and used only in a trusted admin environment.
+- The client-side flow (admin decrypt modal) is a demo convenience: it decrypts ciphertext in the browser when an admin transiently pastes their private key. The private key must NOT be stored in the frontend.
+- For production and routine operations, use the server-side admin utilities under `tools/admin/` which can integrate with secure key storage (KMS/HSM/vault) and avoid handling private keys in the browser or client bundles.
 
 How to use
 
@@ -22,4 +22,7 @@ CORS note
 
 Alternatives
 
-- Use `tools/admin/decrypt-cli.js` (recommended) to decrypt ciphertext outside the browser with keys stored in a secure vault or protected file. See `tools/admin/README.md` for details.
+Alternatives (recommended)
+
+- Use `tools/admin/decrypt-cli.js` to decrypt ciphertext outside the browser with keys stored in a secure vault or protected file. This is the recommended production flow.
+- The frontend is only expected to receive the admin public key (for encryption) via a runtime environment variable (e.g. `VITE_ADMIN_PUBLIC_KEY`). Do not embed private keys in the frontend code or environment.

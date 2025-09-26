@@ -11,6 +11,7 @@ import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
 import { createContractInstanceAsync, getLocalDeploymentAddresses } from '../../utils/contracts';
 import './ResolveModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
+import { computeDigestForCiphertext } from '../../utils/evidence';
 
 function EvidencePanel({ initialEvidence }) {
   // Simplified evidence panel after removing local pin-server: evidence is stored on-chain
@@ -57,11 +58,55 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
   const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
   const [adminDecrypted, setAdminDecrypted] = useState(null);
+  const [adminDigest, setAdminDigest] = useState(null);
   const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
   const [adminAutoTried, setAdminAutoTried] = useState(false);
-  // (Removed duplicate state declarations)
-  const [confirmPay, setConfirmPay] = useState(false);
-  const [forwardEth, setForwardEth] = useState('0');
+  const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
+
+  // Enable admin decrypt only when explicitly allowed via environment (demo/dev only)
+  const ENABLE_ADMIN_DECRYPT = (import.meta.env && String(import.meta.env.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true') || (typeof window !== 'undefined' && window.__ENV__ && String(window.__ENV__.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true');
+
+  // Utility: download plaintext as a file (demo convenience)
+  const handleDownloadPlaintext = () => {
+    try {
+      if (!adminDecrypted) return;
+      const blob = new Blob([adminDecrypted], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `evidence-${disputeInfo?.caseId ?? 'unknown'}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    } catch (e) {
+      console.warn('Download failed', e);
+      alert('Download failed: ' + (e?.message || e));
+    }
+  };
+
+  // Utility: copy digest to clipboard
+  const handleCopyDigest = async () => {
+    try {
+      if (!adminDigest) return;
+      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(adminDigest);
+        alert('Digest copied to clipboard');
+      } else {
+        // fallback
+        const ta = document.createElement('textarea');
+        ta.value = adminDigest;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        alert('Digest copied to clipboard');
+      }
+    } catch (e) {
+      console.warn('Copy failed', e);
+      alert('Copy failed: ' + (e?.message || e));
+    }
+  };
 
   // Deposit confirmation modal state
   const [depositConfirmOpen, setDepositConfirmOpen] = useState(false);
@@ -595,7 +640,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   <EvidencePanel initialEvidence={disputeInfo?.evidenceDigest || ''} />
 
           {/* Admin decrypt button & modal (optional in-browser decryption). WARNING: private key must be transient and not stored. */}
-          {isAuthorizedArbitrator && (
+          {isAuthorizedArbitrator && ENABLE_ADMIN_DECRYPT && (
             <div style={{marginTop:12}}>
                       <button type="button" className="btn-sm" onClick={() => {
                         setShowAdminDecryptModal(true);
@@ -621,7 +666,11 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                     <div style={{display:'flex', gap:12}}>
                       <div style={{flex:1}}>
                         <label>Ciphertext JSON or URL</label>
-                        <textarea rows={6} value={adminCiphertextInput} onChange={e => setAdminCiphertextInput(e.target.value)} placeholder='Paste ciphertext JSON here or an HTTPS URL to fetch it' style={{width:'100%', boxSizing:'border-box'}} />
+                        {adminCiphertextReadOnly ? (
+                          <pre style={{whiteSpace:'pre-wrap', maxHeight:180, overflow:'auto', background:'#fafafa', padding:8, border:'1px solid #eee'}}>{adminCiphertextInput || <span style={{color:'#888'}}>No ciphertext available</span>}</pre>
+                        ) : (
+                          <textarea rows={6} value={adminCiphertextInput} onChange={e => setAdminCiphertextInput(e.target.value)} placeholder='Paste ciphertext JSON here or an HTTPS URL to fetch it' style={{width:'100%', boxSizing:'border-box'}} />
+                        )}
                       </div>
                       <div style={{width:320}}>
                         <label>Admin private key (transient)</label>
@@ -634,6 +683,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                       <button type="button" className="btn-sm primary" disabled={adminDecryptBusy} onClick={async () => {
                         setAdminDecryptBusy(true);
                         setAdminDecrypted(null);
+                        setAdminDigest(null);
                         try {
                           let payload = adminCiphertextInput && adminCiphertextInput.trim() || '';
                           if (!payload) { alert('Provide ciphertext JSON or URL to fetch'); setAdminDecryptBusy(false); return; }
@@ -650,8 +700,24 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                             }
                           }
                           try {
+                            // Compute digest for display: if payload is JSON text, use it directly; if it's an object, stable-stringify it
+                            let digest = null;
+                            try { digest = computeDigestForCiphertext(payload); } catch (e) {
+                              try {
+                                const obj = JSON.parse(payload);
+                                const stable = (function stableStringify(o) {
+                                  if (o === null || typeof o !== 'object') return JSON.stringify(o);
+                                  if (Array.isArray(o)) return '[' + o.map(v => stableStringify(v)).join(',') + ']';
+                                  const keys = Object.keys(o).sort();
+                                  return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(o[k])).join(',') + '}';
+                                })(obj);
+                                digest = computeDigestForCiphertext(stable);
+                              } catch (_) { digest = null; }
+                            }
+
                             const plain = await decryptCiphertextJson(payload, adminPrivateKeyInput.trim());
                             setAdminDecrypted(plain);
+                            if (digest) setAdminDigest(digest);
                           } catch (e) {
                             alert('Decryption failed: ' + (e?.message || e));
                           }
@@ -661,6 +727,16 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                     <div style={{marginTop:12}}>
                       <label>Decrypted plaintext</label>
                       <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{adminDecrypted || <span style={{color:'#888'}}>No plaintext yet</span>}</pre>
+                      <div style={{marginTop:8, display:'flex', gap:8, alignItems:'center'}}>
+                        <div style={{flex:1}}>
+                          <label>Ciphertext digest (keccak256)</label>
+                          <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8}}>{adminDigest || <span style={{color:'#888'}}>No digest computed</span>}</pre>
+                        </div>
+                        <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                          <button type="button" className="btn-sm" onClick={handleCopyDigest} disabled={!adminDigest}>Copy digest</button>
+                          <button type="button" className="btn-sm" onClick={handleDownloadPlaintext} disabled={!adminDecrypted}>Download plaintext</button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

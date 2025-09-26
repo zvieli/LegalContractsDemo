@@ -16,8 +16,12 @@ export async function decryptEvidencePayload(payloadJson, adminPrivateKey) {
   try {
     const raw = typeof payloadJson === 'string' ? JSON.parse(payloadJson) : payloadJson;
     const pk = normalizePrivateKey(adminPrivateKey);
+    // EthCrypto.decryptWithPrivateKey expects the eth-crypto ciphertext object
+    // Some payloads are wrapped as { version: '1', crypto: { ... } }
+    const cipher = raw && raw.crypto ? raw.crypto : raw;
+    if (!cipher || typeof cipher !== 'object') throw new Error('invalid ciphertext payload');
     // EthCrypto.decryptWithPrivateKey expects a private key without 0x prefix
-    const plain = await EthCrypto.decryptWithPrivateKey(pk, raw);
+    const plain = await EthCrypto.decryptWithPrivateKey(pk, cipher);
     return plain;
   } catch (e) {
     throw new Error('Failed to decrypt payload: ' + String(e && e.message ? e.message : e));

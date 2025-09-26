@@ -1,6 +1,11 @@
 import * as ethers from 'ethers';
 import { contract } from './contractInstance.js';
 import { computePayloadDigest } from '../utils/cidDigest';
+import { prepareEvidencePayload } from '../utils/evidence';
+
+// Read Vite env variables (VITE_ prefix) at runtime
+const EVIDENCE_ENDPOINT = import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT ? import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT : null;
+const ADMIN_PUB = import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY ? import.meta.env.VITE_ADMIN_PUBLIC_KEY : null;
 
 // Evidence workflow: the frontend computes and submits a `bytes32` keccak256
 // digest of an off-chain evidence payload. The payload itself (encrypted
@@ -17,12 +22,48 @@ import { computePayloadDigest } from '../utils/cidDigest';
 // admin/service environment (see `tools/admin`).
 export async function reportRentDispute(id, evidencePayloadString = '', overrides = {}) {
   try {
-  const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
-  const digest = computePayloadDigest(payloadStr);
+    const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
+    // If the evidence endpoint + admin pub are configured in the frontend, submit ciphertext to endpoint first.
+    if (EVIDENCE_ENDPOINT && ADMIN_PUB) {
+      const digest = await submitEvidenceAndReport(id, payloadStr, overrides);
+      return digest;
+    }
+
+    const digest = computePayloadDigest(payloadStr);
     await contract.reportDispute(id, digest, overrides);
   } catch (e) {
     throw e;
   }
+}
+
+/**
+ * submitEvidenceAndReport
+ * - encrypts payload to admin public key (via `prepareEvidencePayload`)
+ * - POSTs ciphertext JSON to the evidence endpoint (expects { digest, path, file })
+ * - calls contract.reportDispute with returned digest
+ * - returns the digest
+ */
+export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
+  if (!EVIDENCE_ENDPOINT || !ADMIN_PUB) throw new Error('Evidence endpoint or admin public key not configured');
+  // prepare (encrypt) payload
+  const { ciphertext, digest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: ADMIN_PUB });
+
+  // POST ciphertext to endpoint
+  const res = await fetch(EVIDENCE_ENDPOINT.replace(/\/$/, '') + '/submit-evidence', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: ciphertext
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error('evidence endpoint returned ' + res.status + ' ' + body);
+  }
+  const body = await res.json();
+  const returnedDigest = body && body.digest ? body.digest : digest;
+
+  // Report on-chain
+  await contract.reportDispute(id, returnedDigest, overrides);
+  return returnedDigest;
 }
 import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 
@@ -955,13 +996,47 @@ export class ContractService {
         const bond = this.computeReporterBond(amount);
         const overrides = bond > 0n ? { value: bond } : {};
         // The contract now accepts a bytes32 evidence digest. If caller passed a plain string,
-        // compute keccak256 digest of its UTF-8 bytes. If caller already passed a 0x-prefixed
-        // 32-byte hex digest, use it as-is.
+        // first attempt to POST the ciphertext/plaintext to the configured evidence endpoint
+        // so the server will write the canonical ciphertext JSON into the static dir.
+        // If no endpoint is configured, fall back to computing the digest locally.
         let digestArg = '0x' + '0'.repeat(64);
+        const submitEndpoint = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (window && window?.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || null;
         if (evidence && /^0x[0-9a-fA-F]{64}$/.test(evidence)) {
           digestArg = evidence;
         } else if (evidence) {
-          digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+            // If we have a submit endpoint, encrypt (if admin public key is exposed) and POST the evidence.
+            if (submitEndpoint) {
+              try {
+                // Dynamically import prepareEvidencePayload helper to avoid circular import at module top
+                const { prepareEvidencePayload } = await import('../utils/evidence.js');
+                const adminPub = (import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) || (window && window?.__ENV__ && window.__ENV__.VITE_ADMIN_PUBLIC_KEY) || null;
+                const { ciphertext, digest } = await prepareEvidencePayload(evidence, { encryptToAdminPubKey: adminPub });
+                // POST ciphertext (or plaintext if encrypt not available) to endpoint
+                const body = ciphertext ? ciphertext : evidence;
+                const resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+                if (resp && resp.ok) {
+                  const json = await resp.json();
+                  if (json && json.digest) {
+                    digestArg = String(json.digest);
+                  } else if (json && json.digestNo0x) {
+                    digestArg = '0x' + String(json.digestNo0x);
+                  } else if (digest) {
+                    // use locally computed digest if endpoint didn't return one
+                    digestArg = digest;
+                  } else {
+                    digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                  }
+                } else {
+                  // failed to POST: fallback to digest from prepareEvidencePayload or local compute
+                  digestArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                }
+              } catch (postErr) {
+                console.warn('Evidence submit endpoint flow failed, using local digest', postErr);
+                digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+              }
+            } else {
+              digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+            }
         }
         const tx = await rent.reportDispute(disputeType, amount, digestArg, overrides);
       const receipt = await tx.wait();

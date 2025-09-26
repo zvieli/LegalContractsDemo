@@ -19,11 +19,14 @@ Notes
 
 Encrypt→Onchain→UI decrypt test
 
-This repository includes an E2E test `front/e2e/tests/encrypt-decrypt.spec.mjs` that performs a full roundtrip:
-- generate an admin keypair
+This repository includes an E2E test `front/e2e/tests/encrypt-decrypt.spec.mjs` that performs a full roundtrip.
+
+Important security note: the only private key used in the system is the admin private key. The frontend does not generate or persist any admin keypair. Clients encrypt to a single admin public key (provided to the frontend as an environment variable) and the ciphertext is stored off-chain. Admin private-key operations (decryption, key management) must be performed in a trusted admin environment (see `tools/admin`).
+
+The E2E flow performed by the test is:
 - encrypt plaintext to the admin public key (EthCrypto)
 - compute digest and call `reportDispute` on a deployed `TemplateRentContract` with the digest
-- open the frontend UI and use the `Admin decrypt (client)` modal to paste ciphertext and the admin private key
+- open the frontend UI and use the `Admin decrypt (client)` modal to paste ciphertext and the admin private key (demo only)
 - verify the UI shows the original plaintext and that the on-chain digest matches
 
 Requirements to run this test:
