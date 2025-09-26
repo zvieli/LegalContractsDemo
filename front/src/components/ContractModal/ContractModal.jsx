@@ -91,6 +91,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [adminDecrypted, setAdminDecrypted] = useState(null);
   const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
   const [adminAutoTried, setAdminAutoTried] = useState(false);
+  const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
+  const [fetchStatusMessage, setFetchStatusMessage] = useState(null);
+  const [fetchedUrl, setFetchedUrl] = useState(null);
 
   const formatDuration = (sec) => {
     const s = Number(sec || 0);
@@ -1789,10 +1792,13 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                     <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
                     {/* Admin decrypt button (client-side, transient key only) */}
                     <div style={{marginTop:12}}>
-                      <button className="btn-sm" onClick={() => {
+                      <button className="btn-sm" onClick={async () => {
                         setShowAdminDecryptModal(true);
                         setAdminDecrypted(null);
-                        // Auto-fill ciphertext URL when we have a configured fetch base and an on-chain digest
+                        setAdminCiphertextReadOnly(false);
+                        setAdminCiphertextInput('');
+                        setFetchStatusMessage(null);
+                        setFetchedUrl(null);
                         try {
                           const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
                           let guessed = '';
@@ -1800,11 +1806,27 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           if (base && maybe && /^0x[0-9a-fA-F]{64}$/.test(String(maybe).trim())) {
                             const digestNo0x = String(maybe).trim().replace(/^0x/, '');
                             guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
+                            setFetchedUrl(guessed);
+                            try {
+                              const resp = await fetch(guessed);
+                              if (resp.ok) {
+                                const txt = await resp.text();
+                                setAdminCiphertextInput(txt);
+                                setAdminCiphertextReadOnly(true);
+                                setFetchStatusMessage('Fetched canonical evidence JSON successfully.');
+                              } else {
+                                setAdminCiphertextInput(guessed);
+                                setAdminCiphertextReadOnly(false);
+                                setFetchStatusMessage(`Could not fetch canonical JSON: ${resp.status} ${resp.statusText}. You can open the URL and download the file, then paste the JSON here.`);
+                              }
+                            } catch (e) {
+                              setAdminCiphertextInput(guessed);
+                              setAdminCiphertextReadOnly(false);
+                              setFetchStatusMessage('Could not fetch canonical JSON due to network/CORS restrictions. Open the URL below in a new tab and download the file, then paste the JSON into this textbox.');
+                              try { console.debug('Fetch canonical evidence failed', e); } catch (_) {}
+                            }
                           }
-                          setAdminCiphertextInput(guessed);
-                        } catch (_) {
-                          setAdminCiphertextInput('');
-                        }
+                        } catch (_) { setAdminCiphertextInput(''); }
                         // Do NOT auto-fill admin private key from env for security - leave empty so admin must paste/transiently enter it
                         setAdminPrivateKeyInput('');
                       }}>Admin decrypt (client)</button>
@@ -1825,8 +1847,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                               <div style={{fontSize:12, color:'#555', marginTop:8}}>If you provide a URL above, the client will attempt to fetch it via CORS. If the server blocks CORS, download the file and paste JSON here.</div>
                             </div>
                           </div>
-                          <div style={{marginTop:12, display:'flex', gap:8, justifyContent:'flex-end'}}>
-                            <button type="button" className="btn-sm" onClick={() => setShowAdminDecryptModal(false)}>Close</button>
+                            <div style={{marginTop:12, display:'flex', gap:8, justifyContent:'flex-end'}}>
+                            <button type="button" className="btn-sm" onClick={() => { setShowAdminDecryptModal(false); setFetchStatusMessage(null); setFetchedUrl(null); setAdminCiphertextReadOnly(false); }}>Close</button>
                             <button type="button" className="btn-sm primary" disabled={adminDecryptBusy} onClick={async () => {
                               setAdminDecryptBusy(true);
                               setAdminDecrypted(null);
@@ -1857,6 +1879,16 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             <label>Decrypted plaintext</label>
                             <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{adminDecrypted || <span style={{color:'#888'}}>No plaintext yet</span>}</pre>
                           </div>
+                          {fetchStatusMessage && (
+                            <div style={{marginTop:10, padding:8, background:'#fff7e6', border:'1px solid #ffe0b2', borderRadius:6, color:'#663c00'}}>
+                              {fetchStatusMessage}
+                              {fetchedUrl && (
+                                <div style={{marginTop:8}}>
+                                  <button type="button" className="btn-sm" onClick={() => { try { window.open(fetchedUrl, '_blank'); } catch (_) { try { window.location.href = fetchedUrl; } catch (_) {} } }}>Open canonical URL</button>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

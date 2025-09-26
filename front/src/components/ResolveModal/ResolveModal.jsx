@@ -53,6 +53,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [willBeDebitedEth, setWillBeDebitedEth] = useState('0');
   const [debtRemainderEth, setDebtRemainderEth] = useState('0');
   const [appealLocal, setAppealLocal] = useState(null);
+  const [confirmPay, setConfirmPay] = useState(false);
+  const [forwardEth, setForwardEth] = useState('');
   const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
   const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
@@ -62,6 +64,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
   const [adminAutoTried, setAdminAutoTried] = useState(false);
   const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
+  const [fetchStatusMessage, setFetchStatusMessage] = useState(null);
+  const [fetchedUrl, setFetchedUrl] = useState(null);
 
   // Enable admin decrypt only when explicitly allowed via environment (demo/dev only)
   const ENABLE_ADMIN_DECRYPT = (import.meta.env && String(import.meta.env.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true') || (typeof window !== 'undefined' && window.__ENV__ && String(window.__ENV__.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true');
@@ -175,12 +179,16 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               const initiator = d[0];
               const requestedAmount = BigInt(d[2] || 0);
               const resolved = !!d[4];
-              if (!resolved) {
+                if (!resolved) {
                 // compute debtor address (the counterparty) and store it on disputeInfo
                 const landlordAddr = await rent.landlord();
                 const tenantAddr = await rent.tenant();
                 const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
-                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, debtor: debtorAddr });
+                // include the on-chain evidenceDigest field (d[3]) so the UI can link to the canonical JSON
+                const evidenceOnChain = (d && typeof d[3] !== 'undefined') ? d[3] : null;
+                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, debtor: debtorAddr, evidenceDigest: evidenceOnChain });
+                // reset any per-modal confirmPay/forwardEth state when loading a new dispute
+                try { setConfirmPay(false); setForwardEth(''); } catch (_) {}
                 try { setDisputeAmountEth(formatEtherSafe(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
 
                 // Try to fetch per-party deposit balances so the arbitrator
@@ -285,7 +293,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                         try { localStorage.setItem(`incomingDispute:${contractAddress}`, JSON.stringify(incoming)); } catch(_) {}
                         setAppealLocal(incoming);
                         // update disputeInfo if modal open
-                        setDisputeInfo(prev => ({ caseId: Number(caseId), requestedAmountWei: BigInt(requestedAmount || 0), initiator: prev?.initiator || null }));
+              setDisputeInfo(prev => ({ caseId: Number(caseId), requestedAmountWei: BigInt(requestedAmount || 0), initiator: prev?.initiator || null, evidenceDigest: prev?.evidenceDigest || null }));
+              try { setConfirmPay(false); } catch (_) {}
                         try { setDebtorDepositWei(BigInt(requestedAmount || 0)); setDebtorDepositEth(ethers.formatEther(BigInt(requestedAmount || 0))); } catch (_) {}
                       }
                     } catch (_) {}
@@ -336,7 +345,9 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             if (!resolved) {
               const initiator = d[0];
               const requestedAmount = BigInt(d[2] || 0);
-              setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator });
+                // include evidenceDigest field when refreshing so Admin decrypt modal can auto-locate the canonical JSON
+                const evidenceOnChain = (d && typeof d[3] !== 'undefined') ? d[3] : null;
+                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, evidenceDigest: evidenceOnChain });
               try { setDisputeAmountEth(ethers.formatEther(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
               const landlordAddr = await rent.landlord();
               const tenantAddr = await rent.tenant();
@@ -524,8 +535,22 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
         console.warn('Could not persist arbitration decision locally', e);
       }
 
-      if (onResolved) onResolved({ decision, rationale });
-      onClose();
+      // Close the modal first and refresh parent contract data/UI in the background
+      // so the modal closes immediately while the app updates in the background.
+      try {
+        if (onResolved) onResolved({ decision, rationale });
+      } catch (_) {}
+      try {
+        onClose();
+      } catch (_) {}
+      try {
+        if (typeof window !== 'undefined' && typeof window.refreshContractData === 'function') {
+          // Fire-and-forget: don't await so the modal closes immediately.
+          Promise.resolve()
+            .then(() => window.refreshContractData())
+            .catch(() => { /* ignore refresh failures */ });
+        }
+      } catch (_) {}
     } catch (e) {
       console.error('Resolve failed', e);
       alert(`Resolve failed: ${e?.message || e}`);
@@ -642,18 +667,46 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           {/* Admin decrypt button & modal (optional in-browser decryption). WARNING: private key must be transient and not stored. */}
           {isAuthorizedArbitrator && ENABLE_ADMIN_DECRYPT && (
             <div style={{marginTop:12}}>
-                      <button type="button" className="btn-sm" onClick={() => {
+                      <button type="button" className="btn-sm" onClick={async () => {
                         setShowAdminDecryptModal(true);
                         setAdminDecrypted(null);
+                        setAdminCiphertextReadOnly(false);
+                        setAdminCiphertextInput('');
+                        setFetchStatusMessage(null);
+                        setFetchedUrl(null);
                         try {
                           const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
-                          const maybe = disputeInfo && disputeInfo.evidence ? disputeInfo.evidence : null;
+                          const maybe = disputeInfo && disputeInfo.evidenceDigest ? disputeInfo.evidenceDigest : null;
                           let guessed = '';
                           if (base && maybe && /^0x[0-9a-fA-F]{64}$/.test(String(maybe).trim())) {
                             const digestNo0x = String(maybe).trim().replace(/^0x/, '');
                             guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
+                            setFetchedUrl(guessed);
+                            // Try to fetch the canonical JSON automatically and populate the ciphertext input
+                            try {
+                              const resp = await fetch(guessed);
+                              if (resp.ok) {
+                                const txt = await resp.text();
+                                // If we got valid JSON or text, populate and make read-only to avoid accidental edits
+                                setAdminCiphertextInput(txt);
+                                setAdminCiphertextReadOnly(true);
+                                setFetchStatusMessage('Fetched canonical evidence JSON successfully.');
+                              } else {
+                                // on non-OK, still set the URL so admin can fetch manually
+                                setAdminCiphertextInput(guessed);
+                                setAdminCiphertextReadOnly(false);
+                                setFetchStatusMessage(`Could not fetch canonical JSON: ${resp.status} ${resp.statusText}. You can open the URL and download the file, then paste the JSON here.`);
+                              }
+                            } catch (e) {
+                              // Network/CORS failure - fall back to placing the guessed URL
+                              setAdminCiphertextInput(guessed);
+                              setAdminCiphertextReadOnly(false);
+                              // Friendly guidance for likely CORS issues
+                              setFetchStatusMessage('Could not fetch canonical JSON due to network/CORS restrictions. Open the URL below in a new tab and download the file, then paste the JSON into this textbox.');
+                              // Log the error to console for debugging
+                              try { console.debug('Fetch canonical evidence failed', e); } catch (_) {}
+                            }
                           }
-                          setAdminCiphertextInput(guessed);
                         } catch (_) { setAdminCiphertextInput(''); }
                         // Do NOT auto-fill admin private key from env for security - leave empty so admin must paste/transiently enter it
                         setAdminPrivateKeyInput('');
@@ -679,7 +732,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                       </div>
                     </div>
                     <div style={{marginTop:12, display:'flex', gap:8, justifyContent:'flex-end'}}>
-                      <button type="button" className="btn-sm" onClick={() => setShowAdminDecryptModal(false)}>Close</button>
+                      <button type="button" className="btn-sm" onClick={() => { setShowAdminDecryptModal(false); setFetchStatusMessage(null); setFetchedUrl(null); setAdminCiphertextReadOnly(false); }}>Close</button>
                       <button type="button" className="btn-sm primary" disabled={adminDecryptBusy} onClick={async () => {
                         setAdminDecryptBusy(true);
                         setAdminDecrypted(null);
@@ -724,6 +777,16 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                         } finally { setAdminDecryptBusy(false); }
                       }}>Decrypt</button>
                     </div>
+                    {fetchStatusMessage && (
+                      <div style={{marginTop:10, padding:8, background:'#fff7e6', border:'1px solid #ffe0b2', borderRadius:6, color:'#663c00'}}>
+                        {fetchStatusMessage}
+                        {fetchedUrl && (
+                          <div style={{marginTop:8}}>
+                            <button type="button" className="btn-sm" onClick={() => { try { window.open(fetchedUrl, '_blank'); } catch (_) { try { window.location.href = fetchedUrl; } catch (_) {} } }}>Open canonical URL</button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div style={{marginTop:12}}>
                       <label>Decrypted plaintext</label>
                       <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{adminDecrypted || <span style={{color:'#888'}}>No plaintext yet</span>}</pre>

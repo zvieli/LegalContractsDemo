@@ -12,6 +12,15 @@ const cors = require('cors');
 const EthCrypto = require('eth-crypto');
 const { keccak256, toUtf8Bytes } = require('ethers').utils || require('ethers');
 
+// Load .env from repository root (if present) so the endpoint can pick up ADMIN_* variables
+try {
+  // project root is one level above tools/
+  const projectRootEnv = path.join(__dirname, '..', '.env');
+  require('dotenv').config({ path: projectRootEnv });
+} catch (e) {
+  // ignore if dotenv not available
+}
+
 const defaultPort = process.argv[2] ? Number(process.argv[2]) : 3000;
 const defaultStaticDir = process.argv[3] ? process.argv[3] : path.join(__dirname, '..', 'front', 'e2e', 'static');
 
@@ -34,7 +43,10 @@ function loadAdminPublicKey() {
   }
   if (process.env.ADMIN_PRIVATE_KEY_FILE) {
     try {
-      let pk = fs.readFileSync(process.env.ADMIN_PRIVATE_KEY_FILE, 'utf8').trim();
+      // Resolve relative paths against the repository root (one level above tools/)
+      let keyPath = process.env.ADMIN_PRIVATE_KEY_FILE;
+      if (!path.isAbsolute(keyPath)) keyPath = path.resolve(path.join(__dirname, '..', keyPath));
+      let pk = fs.readFileSync(keyPath, 'utf8').trim();
       if (pk.startsWith('0x')) pk = pk.slice(2);
   const pub = EthCrypto.publicKeyByPrivateKey(pk);
   return pub && pub.startsWith('0x') ? pub.slice(2) : pub;

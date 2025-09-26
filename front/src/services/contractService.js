@@ -79,7 +79,24 @@ export class ContractService {
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        return await primary.getCode(address);
+        const code = await primary.getCode(address);
+        // If the provider returns an empty code ("0x") while we're targeting a
+        // local chain, try the local JSON-RPC directly. This handles the common
+        // dev case where MetaMask (the injected provider) is pointed at a
+        // different network but a local Hardhat node at 127.0.0.1:8545 actually
+        // contains the deployed contracts.
+        const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
+        if (isLocal && code === '0x') {
+          try {
+            const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+            const fallbackCode = await rpc.getCode(address);
+            if (fallbackCode && fallbackCode !== '0x') return fallbackCode;
+          } catch (rpcErr) {
+            // ignore and fall through to returning the original empty code
+            console.warn('Local RPC fallback getCode failed', rpcErr);
+          }
+        }
+        return code;
       } catch (e) {
         const msg = String(e?.message || '');
         // If the provider is in the middle of a network switch, ethers may throw a transient 'network changed' error.
@@ -158,14 +175,31 @@ export class ContractService {
       // Quick balance preflight: prevent send attempts when the signer has no ETH
       // which can lead to confusing provider errors. This is a best-effort check.
       try {
-        const bal = await this.signer.getBalance();
+        // Some ethers provider/signer implementations (BrowserProvider.getSigner)
+        // don't expose `getBalance()` directly on the signer. Use a safe
+        // fallback: if signer.getBalance exists use it, otherwise derive the
+        // address and ask the provider for the balance.
+        let bal = null;
+        if (this.signer && typeof this.signer.getBalance === 'function') {
+          bal = await this.signer.getBalance();
+        } else {
+          try {
+            const addr = await this.signer.getAddress().catch(() => null);
+            if (addr && this.signer.provider && typeof this.signer.provider.getBalance === 'function') {
+              bal = await this.signer.provider.getBalance(addr);
+            }
+          } catch (inner) {
+            // ignore and let outer catch handle
+          }
+        }
+
         // require at least a tiny balance (0.0001 ETH) to cover gas on most nets
         const min = ethers.parseEther('0.0001');
-        if (bal < min) {
+        if (bal !== null && bal < min) {
           throw new Error('Connected wallet has insufficient ETH balance to create a contract. Fund the wallet and try again.');
         }
       } catch (balErr) {
-        // If getBalance fails, don't block the user, but present a helpful warning
+        // If balance query fails, don't block the user, but present a helpful warning
         console.warn('Could not determine signer balance:', balErr);
       }
 

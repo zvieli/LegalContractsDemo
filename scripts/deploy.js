@@ -39,11 +39,15 @@ async function main() {
 
   // Ensure frontend public contracts dir exists early. The dev server serves
   // artifacts from `front/public/utils/contracts` at runtime (served at /utils/contracts/).
-  const frontendPublicContractsDir = path.join(__dirname, "../front/public/utils/contracts");
+  // Resolve frontend public contracts dir robustly (use path.resolve to handle Windows paths)
+  const frontendPublicContractsDir = path.resolve(__dirname, '..', 'front', 'public', 'utils', 'contracts');
   // Primary contracts directory used for runtime fetch
   const frontendContractsDir = frontendPublicContractsDir;
-  if (!fs.existsSync(frontendPublicContractsDir)) {
+  try {
     fs.mkdirSync(frontendPublicContractsDir, { recursive: true });
+  } catch (e) {
+    console.error('❌ Could not create frontend public contracts directory:', frontendPublicContractsDir, e.message || e);
+    throw e;
   }
 
   // If DEPLOY_MOCKS is not explicitly true, check both src and public MockContracts.json
@@ -91,8 +95,13 @@ async function main() {
 
   // Write ContractFactory.json to public (primary)
   const publicDeploymentFile = path.join(frontendPublicContractsDir, "ContractFactory.json");
-  fs.writeFileSync(publicDeploymentFile, JSON.stringify(deploymentData, null, 2));
-  console.log("💾 Deployment saved to frontend public:", publicDeploymentFile);
+  try {
+    fs.writeFileSync(publicDeploymentFile, JSON.stringify(deploymentData, null, 2));
+    console.log("💾 Deployment saved to frontend public:", publicDeploymentFile);
+  } catch (e) {
+    console.error('❌ Could not write ContractFactory.json to frontend public:', publicDeploymentFile, e.message || e);
+    throw e;
+  }
 
   // === SANITY CHECK: ensure the deployed factory has code on-chain ===
   try {
@@ -232,7 +241,7 @@ async function main() {
   // === 3. Copy ABIs ===
   console.log("📂 Copying ABI files to frontend...");
 
-  const abiSourceDir = path.join(__dirname, "../artifacts/contracts");
+  const abiSourceDir = path.resolve(__dirname, '..', 'artifacts', 'contracts');
   // Scan the Hardhat artifacts/contracts directory and copy every contract artifact
   // This makes the deploy script resilient to added/removed contracts and ensures
   // the frontend has the exact ABIs produced by the current compile.
@@ -306,6 +315,7 @@ async function main() {
     walkAndCopy(abiSourceDir);
   } else {
     console.warn('⚠️  ABI source directory not found:', abiSourceDir);
+    console.warn('⚠️  Make sure you ran `npx hardhat compile` before deploying so artifacts exist.');
   }
 
   // === 4. Write MockContracts.json with deployed mock addresses and factory (no sample/demo contract) ===
@@ -325,8 +335,15 @@ async function main() {
 
       fs.writeFileSync(publicMockContractsPath, JSON.stringify(existing, null, 2));
       console.log("✅ MockContracts.json written/updated to frontend public:", publicMockContractsPath);
+      // Extra verification: print the file size and presence to help debugging when the frontend can't find it
+      try {
+        const stat = fs.statSync(publicMockContractsPath);
+        console.log(`ℹ️  Wrote MockContracts.json (${stat.size} bytes)`);
+      } catch (stErr) {
+        // ignore
+      }
     } catch (err) {
-      console.error("⚠️  Could not write MockContracts.json to frontend:", err.message);
+      console.error("⚠️  Could not write MockContracts.json to frontend:", err.message || err);
     }
 
   console.log(`🎉 Copied ${copiedCount} ABI files to ${frontendContractsDir}`);
