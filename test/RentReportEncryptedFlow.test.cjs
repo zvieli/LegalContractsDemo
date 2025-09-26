@@ -9,8 +9,9 @@ describe('TemplateRentContract - encrypted evidence flow', function () {
     const [deployer] = await ethers.getSigners();
 
     // Deploy TemplateRentContract minimal args (owner fields unused for this test)
-    const Rent = await ethers.getContractFactory('TemplateRentContract');
-    const rent = await Rent.deploy(deployer.address, deployer.address, 1, 0, ethers.ZeroAddress, 0, ethers.ZeroAddress, 0);
+  const Rent = await ethers.getContractFactory('TemplateRentContract');
+  // constructor now accepts an additional bytes32 initialEvidenceDigest; pass zero digest for tests that don't require it
+  const rent = await Rent.deploy(deployer.address, deployer.address, 1, 0, ethers.ZeroAddress, 0, ethers.ZeroAddress, 0, '0x' + '00'.repeat(32));
     await rent.waitForDeployment();
 
     // Test admin keypair (in real use admin private key stays offline). Use eth-crypto to make compatible keys.

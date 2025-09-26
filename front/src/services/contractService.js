@@ -193,14 +193,39 @@ export class ContractService {
 
         const propertyId = Number(params.propertyId || 0);
         console.debug('Sending createRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, dueDate, propertyId, factory: factoryContract.target || factoryContract.address });
-        // Call overloaded factory method that accepts dueDate: createRentContract(address,uint256,address,uint256,uint256)
-        tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256)'](
-          params.tenant,
-          rentAmountWei,
-          params.priceFeed,
-          dueDate,
-          propertyId
-        );
+        // If an initial evidence digest is provided (either as bytes32 hex or as a payload string), compute/use it and call the new factory overload.
+        let initialDigest = null;
+        if (params.initialEvidenceDigest) {
+          // Accept either a raw payload string or a hex digest. If the value looks like a hex 0x...32-bytes, use it directly.
+          const val = String(params.initialEvidenceDigest);
+          if (/^0x[0-9a-fA-F]{64}$/.test(val)) {
+            initialDigest = val;
+          } else {
+            // treat as payload string and compute keccak256 digest
+            initialDigest = computePayloadDigest(val);
+          }
+        }
+
+        if (initialDigest) {
+          // Call new overload: createRentContract(address,uint256,address,uint256,uint256,bytes32)
+          tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256,bytes32)'](
+            params.tenant,
+            rentAmountWei,
+            params.priceFeed,
+            dueDate,
+            propertyId,
+            initialDigest
+          );
+        } else {
+          // Call overloaded factory method that accepts dueDate: createRentContract(address,uint256,address,uint256,uint256)
+          tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256)'](
+            params.tenant,
+            rentAmountWei,
+            params.priceFeed,
+            dueDate,
+            propertyId
+          );
+        }
       } catch (sendErr) {
         // Try to surface the underlying RPC payload and give actionable guidance
         try {

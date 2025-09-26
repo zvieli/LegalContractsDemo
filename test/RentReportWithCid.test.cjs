@@ -6,7 +6,7 @@ describe('TemplateRentContract - digest reporting', function () {
         const Rent = await ethers.getContractFactory('TemplateRentContract');
         // deploy with placeholder args: landlord, tenant, rentAmount, dueDate, priceFeed, propertyId, arb svc, requiredDeposit
         const [deployer, other] = await ethers.getSigners();
-        const rent = await Rent.deploy(deployer.address, other.address, 1, 0, ethers.ZeroAddress, 0, ethers.ZeroAddress, 0);
+    const rent = await Rent.deploy(deployer.address, other.address, 1, 0, ethers.ZeroAddress, 0, ethers.ZeroAddress, 0, '0x' + '00'.repeat(32));
         await rent.waitForDeployment();
 
     // In legacy flows a CID string would be used. The contract accepts a
