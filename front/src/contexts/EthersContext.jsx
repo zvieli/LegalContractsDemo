@@ -32,6 +32,9 @@ export function EthersProvider({ children }) {
               const net = await web3Provider.getNetwork();
               setChainId(Number(net.chainId));
               setIsConnected(true);
+              if (import.meta.env && import.meta.env.DEV) {
+                console.debug('EthersContext init: set signer/account/chainId', { account: accounts[0], chainId: Number(net.chainId) });
+              }
             } catch (e) {
               // fallback to connectWallet if signer cannot be acquired
               await connectWallet();
@@ -149,6 +152,9 @@ export function EthersProvider({ children }) {
       setAccount(accounts[0]);
       setChainId(Number(network.chainId));
       setIsConnected(true);
+      if (import.meta.env && import.meta.env.DEV) {
+        console.debug('EthersContext connectWallet: signer/account/chainId set', { account: accounts[0], chainId: Number(network.chainId) });
+      }
       
     } catch (error) {
       console.error('Error connecting wallet:', error);

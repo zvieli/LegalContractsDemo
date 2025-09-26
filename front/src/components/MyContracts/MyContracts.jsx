@@ -149,11 +149,9 @@ export default function MyContracts() {
                   <button className="btn-sm outline" onClick={() => { setSelectedContract(d.address); setModalReadOnly(true); setIsModalOpen(true); }}>
                     <i className="fas fa-eye"></i> View
                   </button>
-                  {!isAdmin && (
-                    <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
-                      <i className="fas fa-edit"></i> Manage
-                    </button>
-                  )}
+                  <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
+                    <i className="fas fa-edit"></i> Manage
+                  </button>
                 </div>
               </li>
             );
@@ -175,11 +173,9 @@ export default function MyContracts() {
                   <button className="btn-sm outline" onClick={() => { setSelectedContract(d.address); setModalReadOnly(true); setIsModalOpen(true); }}>
                     <i className="fas fa-eye"></i> View
                   </button>
-                  {!isAdmin && (
-                    <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
-                      <i className="fas fa-edit"></i> Manage
-                    </button>
-                  )}
+                  <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
+                    <i className="fas fa-edit"></i> Manage
+                  </button>
                 </div>
               </li>
             );
@@ -191,16 +187,14 @@ export default function MyContracts() {
               <div className="contract-info">
                 <h4>{d.type} • {d.address}</h4>
               </div>
-              <div className="contract-actions">
-                <button className="btn-sm outline" onClick={() => { setSelectedContract(d.address); setModalReadOnly(true); setIsModalOpen(true); }}>
-                  <i className="fas fa-eye"></i> View
-                </button>
-                {!isAdmin && (
+                <div className="contract-actions">
+                  <button className="btn-sm outline" onClick={() => { setSelectedContract(d.address); setModalReadOnly(true); setIsModalOpen(true); }}>
+                    <i className="fas fa-eye"></i> View
+                  </button>
                   <button className="btn-sm primary" onClick={() => { setSelectedContract(d.address); setModalReadOnly(false); setIsModalOpen(true); }}>
                     <i className="fas fa-edit"></i> Manage
                   </button>
-                )}
-              </div>
+                </div>
             </li>
           );
         })}

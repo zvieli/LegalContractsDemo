@@ -29,3 +29,4 @@ front/public/utils/contracts/
 
 # Local admin key (do not commit)
 admin.key
+admin.pub

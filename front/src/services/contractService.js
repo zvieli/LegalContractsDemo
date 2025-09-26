@@ -49,14 +49,34 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   const { ciphertext, digest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: ADMIN_PUB });
 
   // POST ciphertext to endpoint
-  const res = await fetch(EVIDENCE_ENDPOINT.replace(/\/$/, '') + '/submit-evidence', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: ciphertext
-  });
+  const endpointUrl = EVIDENCE_ENDPOINT.replace(/\/$/, '') + '/submit-evidence';
+  let res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
+  // If the server rejects a submitted wrapper and returns adminPublicKey, re-encrypt locally and retry once
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error('evidence endpoint returned ' + res.status + ' ' + body);
+    // Try to parse JSON body for adminPublicKey
+    let errBody = null;
+    try { errBody = await res.json(); } catch (e) { errBody = null; }
+    if (res.status === 400 && errBody && errBody.adminPublicKey) {
+      // Re-encrypt locally using returned adminPublicKey and resend
+      try {
+        const adminPub = errBody.adminPublicKey;
+        const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: adminPub });
+        res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: newCiphertext });
+        if (!res.ok) {
+          const tb = await res.text().catch(() => '');
+          throw new Error('evidence endpoint retry failed: ' + res.status + ' ' + tb);
+        }
+        const parsed = await res.json();
+        const returnedDigest = parsed && parsed.digest ? parsed.digest : newDigest;
+        // Report on-chain
+        await contract.reportDispute(id, returnedDigest, overrides);
+        return returnedDigest;
+      } catch (reErr) {
+        throw reErr;
+      }
+    }
+    const text = await (async() => { try { return await res.text(); } catch(e){ return ''; }})();
+    throw new Error('evidence endpoint returned ' + res.status + ' ' + text);
   }
   const body = await res.json();
   const returnedDigest = body && body.digest ? body.digest : digest;
@@ -485,14 +505,20 @@ export class ContractService {
         throw new Error(`Address ${contractAddress} has no contract code`);
       }
       const rentContract = await this.getRentContract(contractAddress);
+      // Defensive: ensure this contract appears to implement the TemplateRentContract ABI
+      // If key functions are missing, return null so callers can try NDA parsing instead.
+      if (typeof rentContract.rentAmount !== 'function' || typeof rentContract.landlord !== 'function' || typeof rentContract.tenant !== 'function') {
+        if (!silent) console.debug('getRentContractDetails: contract ABI mismatch, not a Rent contract', contractAddress);
+        return null;
+      }
       
       const [landlord, tenant, rentAmount, priceFeed, isActive] = await Promise.all([
-        rentContract.landlord(),
-        rentContract.tenant(),
-        rentContract.rentAmount(),
-        rentContract.priceFeed(),
+        rentContract.landlord().catch(() => null),
+        rentContract.tenant().catch(() => null),
+        rentContract.rentAmount().catch(() => 0n),
+        (typeof rentContract.priceFeed === 'function' ? rentContract.priceFeed().catch(() => null) : Promise.resolve(null)),
         // TemplateRentContract exposes `active()`
-        rentContract.active().catch(() => true)
+        (typeof rentContract.active === 'function' ? rentContract.active().catch(() => true) : Promise.resolve(true))
       ]);
       // Cancellation policy and state (best-effort, older ABIs may not have these)
       const [requireMutualCancel, noticePeriod, earlyTerminationFeeBps, cancelRequested, cancelInitiator, cancelEffectiveAt] = await Promise.all([
@@ -563,7 +589,9 @@ export class ContractService {
       if (!silent) {
         console.error('Error getting contract details:', error);
       }
-      throw error;
+      // Return null to allow callers (UI) to skip this contract rather than
+      // letting a single malformed/ABI-mismatched contract crash the whole flow.
+      return null;
     }
   }
 
@@ -1002,7 +1030,7 @@ export class ContractService {
    * requestedAmount: BigInt or string in wei (use 0 for none)
    * evidenceText: optional plain text or URL to store on-chain as string
    */
-  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '') {
+  async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '', options = {}) {
     try {
   const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
       // Ensure caller is one of the parties recorded on-chain
@@ -1047,22 +1075,42 @@ export class ContractService {
                 const { ciphertext, digest } = await prepareEvidencePayload(evidence, { encryptToAdminPubKey: adminPub });
                 // POST ciphertext (or plaintext if encrypt not available) to endpoint
                 const body = ciphertext ? ciphertext : evidence;
-                const resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
-                if (resp && resp.ok) {
-                  const json = await resp.json();
-                  if (json && json.digest) {
-                    digestArg = String(json.digest);
-                  } else if (json && json.digestNo0x) {
-                    digestArg = '0x' + String(json.digestNo0x);
-                  } else if (digest) {
-                    // use locally computed digest if endpoint didn't return one
-                    digestArg = digest;
+                let resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+                // If server rejects wrapper with adminPublicKey, re-encrypt locally using that adminPublicKey and retry once
+                if (resp && !resp.ok) {
+                  let errBody = null;
+                  try { errBody = await resp.json(); } catch (e) { errBody = null; }
+                  if (resp.status === 400 && errBody && errBody.adminPublicKey) {
+                    // notify UI via callback if provided
+                    try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'retrying', reason: 'server_requested_reencrypt' }); } catch (_) {}
+                    const adminPubFromServer = errBody.adminPublicKey;
+                    try {
+                      const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(evidence, { encryptToAdminPubKey: adminPubFromServer });
+                      resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: newCiphertext });
+                      if (resp && resp.ok) {
+                        try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'ok' }); } catch (_) {}
+                        const json = await resp.json();
+                        if (json && json.digest) digestArg = String(json.digest);
+                        else if (json && json.digestNo0x) digestArg = '0x' + String(json.digestNo0x);
+                        else digestArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                      } else {
+                        try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) {}
+                        digestArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                      }
+                    } catch (retryErr) {
+                      console.warn('Retry encryption/post failed:', retryErr);
+                      try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) {}
+                      digestArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                    }
                   } else {
-                    digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                    // generic failure: fallback to digest from prepareEvidencePayload or local compute
+                    digestArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                   }
-                } else {
-                  // failed to POST: fallback to digest from prepareEvidencePayload or local compute
-                  digestArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                } else if (resp && resp.ok) {
+                  const json = await resp.json();
+                  if (json && json.digest) digestArg = String(json.digest);
+                  else if (json && json.digestNo0x) digestArg = '0x' + String(json.digestNo0x);
+                  else digestArg = digest;
                 }
               } catch (postErr) {
                 console.warn('Evidence submit endpoint flow failed, using local digest', postErr);
@@ -1446,7 +1494,9 @@ async getNDAContractDetails(contractAddress, options = {}) {
       const st = await ndaContract.getContractStatus();
       // st: (isActive, fullySigned, totalDeposits, activeCases)
       fullySigned = !!st[1];
-      totalDeposits = ethers.formatEther(st[2]);
+      // Guard against null/undefined totalDeposits
+      const totalDepositsRaw = (st && typeof st[2] !== 'undefined' && st[2] !== null) ? st[2] : 0n;
+      try { totalDeposits = ethers.formatEther(totalDepositsRaw); } catch (e) { totalDeposits = '0'; }
       activeCases = Number(st[3] || 0);
     } catch (_) {}
     
@@ -1481,7 +1531,7 @@ async getNDAContractDetails(contractAddress, options = {}) {
             id: i,
             reporter: c[0],
             offender: c[1],
-            requestedPenalty: ethers.formatEther(c[2]),
+            requestedPenalty: ethers.formatEther(c[2] ?? 0n),
             // templates now return a string evidence at index 3
             evidence: c[3],
             resolved: !!c[4],
@@ -1524,7 +1574,8 @@ async getNDAContractDetails(contractAddress, options = {}) {
     if (!silent) {
       console.error('Error getting NDA details:', error);
     }
-    throw error;
+    // Return null to allow UI to continue when a particular contract read fails
+    return null;
   }
 }
 

@@ -6,6 +6,8 @@ This folder contains small helper scripts used to demo and test the Option A evi
 - `evidence-e2e-test.cjs` — simple E2E script that POSTs a sample payload to the endpoint and waits for the resulting `<digest>.json` to appear.
 - `evidence-server.cjs` — simple static server for serving `front/e2e/static` during local testing.
 
+New: `e2e-evidence-flow.cjs` — full flow test that posts plaintext, then a failing wrapper (to trigger a 400 and receive `adminPublicKey`), then re-encrypts locally and retries the POST. Useful to validate client retry behavior during local dev.
+
 Quick start (local)
 
 1. Create a local admin key (or point to an existing one) and **do not commit it**:
@@ -40,6 +42,12 @@ node .\tools\evidence-server.cjs 5174 .\front\e2e\static
 
 ```powershell
 node .\tools\evidence-e2e-test.cjs .\front\e2e\static
+
+Full flow test (plain -> failed wrapper -> re-encrypt):
+
+```powershell
+node .\tools\e2e-evidence-flow.cjs http://127.0.0.1:3003/submit-evidence
+```
 ```
 
 Notes & troubleshooting

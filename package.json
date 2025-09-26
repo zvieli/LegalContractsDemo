@@ -21,6 +21,8 @@
     "copy-abi": "node scripts/copy-abi.js",
     "node": "npx hardhat node",
     "build:all": "npm run compile && npm run copy-abi && npm run build"
+    ,"test:playwright": "npx playwright test",
+    "test:vitest": "vitest"
   },
   "keywords": [],
   "author": "",
