@@ -83,6 +83,8 @@ AggregatorV3Interface public immutable priceFeed;
 
     DisputeCase[] private _disputes;
     mapping(uint256 => DisputeMeta) private _disputeMeta; // id => meta
+    // Optional initial evidence digest supplied at contract creation (bytes32 keccak256 of off-chain payload)
+    bytes32 public initialEvidenceDigest;
 
     // events
     event RentPaid(address indexed tenant, uint256 amount, bool late);
@@ -119,7 +121,8 @@ AggregatorV3Interface public immutable priceFeed;
         address _priceFeed,
         uint256 _propertyId,
         address _arbitration_service,
-        uint256 _requiredDeposit
+        uint256 _requiredDeposit,
+        bytes32 _initialEvidenceDigest
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         landlord = _landlord;
         tenant = _tenant;
@@ -142,6 +145,8 @@ AggregatorV3Interface public immutable priceFeed;
     // Cast assignment below
     arbitrationService = _arbitration_service;
     requiredDeposit = _requiredDeposit;
+    // store optional initial evidence digest for off-chain payload referenced at creation time
+    initialEvidenceDigest = _initialEvidenceDigest;
     // Set dueDate from constructor param so frontend/tx metadata can include it when desired
     dueDate = _dueDate;
     }
