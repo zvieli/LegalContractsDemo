@@ -18,6 +18,7 @@ describe('TemplateRentContract - digest reporting', function () {
     // call digest-only reportDispute API
     // Use DisputeType = 1 (ConditionStart) which allows requestedAmount == 0 for this test
     await rent.reportDispute(1, 0, digest);
-    expect(await rent.getDisputeDigest(0)).to.equal(digest);
+    // getDisputeUri returns either an ipfs:// URI or a legacy digest string; in this test we expect the digest string
+    expect(await rent.getDisputeUri(0)).to.equal(digest);
     });
 });

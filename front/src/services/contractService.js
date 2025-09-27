@@ -24,6 +24,16 @@ function getAdminPub() {
   return null;
 }
 
+function getRequireEvidenceUpload() {
+  try {
+    if (import.meta && import.meta.env && import.meta.env.VITE_REQUIRE_EVIDENCE_UPLOAD) return String(import.meta.env.VITE_REQUIRE_EVIDENCE_UPLOAD) === 'true';
+  } catch (e) {}
+  try {
+    if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_REQUIRE_EVIDENCE_UPLOAD) return String(window.__ENV__.VITE_REQUIRE_EVIDENCE_UPLOAD) === 'true';
+  } catch (e) {}
+  return false;
+}
+
 // Evidence workflow: the frontend computes and submits a `bytes32` keccak256
 // digest of an off-chain evidence payload. The payload itself (encrypted
 // or plaintext depending on your privacy needs) must be stored off-chain
@@ -49,6 +59,12 @@ export async function reportRentDispute(id, evidencePayloadString = '', override
     }
 
     const digest = computePayloadDigest(payloadStr);
+    // Guard: never send a zero/empty digest on-chain. This prevents accidental
+    // reporting of an empty payload when evidence preparation failed.
+    const isZeroDigest = d => !d || /^0x0{64}$/.test(String(d));
+    if (isZeroDigest(digest)) {
+      throw new Error('Computed evidence digest is zero or empty; aborting on-chain report');
+    }
     await contract.reportDispute(id, digest, overrides);
   } catch (e) {
     throw e;
@@ -68,6 +84,15 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   if (!runtimeEndpoint || !runtimeAdmin) throw new Error('Evidence endpoint or admin public key not configured');
   // prepare (encrypt) payload
   const { ciphertext, digest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: runtimeAdmin });
+
+  // Basic validation: make sure prepareEvidencePayload produced a ciphertext and a non-zero digest.
+  const isZeroDigest = d => !d || /^0x0{64}$/.test(String(d));
+  if (!ciphertext || typeof ciphertext !== 'string' || ciphertext.length === 0) {
+    throw new Error('Evidence preparation failed: ciphertext is empty');
+  }
+  if (isZeroDigest(digest)) {
+    throw new Error('Evidence preparation failed: computed digest is zero');
+  }
 
   // POST ciphertext to endpoint
   // Build endpoint URL robustly: the runtime endpoint may be a base URL (e.g. http://127.0.0.1:3001)
@@ -144,12 +169,15 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
     throw new Error('evidence endpoint returned ' + res.status + ' ' + text);
   }
   const body = await res.json();
+  // Prefer ipfsUri when available (new architecture). Fall back to digest for compatibility.
+  const returnedUri = body && body.ipfsUri ? body.ipfsUri : null;
   const returnedDigest = body && body.digest ? body.digest : digest;
-  try { const e2eFlag3 = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING); if (e2eFlag3) console.log && console.log('E2EDBG: evidence endpoint returned', returnedDigest, body && body.path); } catch (e) {}
+  try { const e2eFlag3 = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV__.VITE_E2E_TESTING); if (e2eFlag3) console.log && console.log('E2EDBG: evidence endpoint returned', returnedUri || returnedDigest, body && body.path); } catch (e) {}
 
-  // Report on-chain
-  await contract.reportDispute(id, returnedDigest, overrides);
-  return returnedDigest;
+  // Report on-chain: prefer passing the URI (ipfs://...) when provided, else pass the digest for backward compatibility
+  const toSend = returnedUri ? returnedUri : returnedDigest;
+  await contract.reportDispute(id, toSend, overrides);
+  return toSend;
 }
 import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 
@@ -157,6 +185,74 @@ export class ContractService {
   constructor(signer, chainId) {
     this.signer = signer;
     this.chainId = chainId;
+  }
+
+  /**
+   * Upload evidence payload to configured evidence endpoint (if available).
+   * Returns an evidence reference suitable for on-chain reporting:
+   * - Prefer an IPFS URI (string like 'ipfs://<cid>') when backend returns one.
+   * - Otherwise return a bytes32 digest (0x...) for backward compatibility.
+   */
+  async uploadEvidence(payloadStr) {
+    try {
+      const payload = payloadStr ? String(payloadStr) : '';
+      const runtimeEndpoint = getEvidenceEndpoint();
+      const runtimeAdmin = getAdminPub();
+      const requireUpload = getRequireEvidenceUpload();
+      // If no endpoint or admin key, just compute digest locally
+      if (!runtimeEndpoint || !runtimeAdmin) {
+        if (requireUpload) {
+          throw new Error('EVIDENCE_UPLOAD_REQUIRED: evidence endpoint or admin public key not configured in frontend environment. Set VITE_EVIDENCE_SUBMIT_ENDPOINT and VITE_ADMIN_PUBLIC_KEY or disable VITE_REQUIRE_EVIDENCE_UPLOAD.');
+        }
+        return computePayloadDigest(payload);
+      }
+
+      // Prepare (encrypt) payload using existing helper
+      const { ciphertext, digest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: runtimeAdmin });
+      const isZeroDigest = d => !d || /^0x0{64}$/.test(String(d));
+      if (!ciphertext || typeof ciphertext !== 'string' || ciphertext.length === 0) throw new Error('Evidence preparation failed: ciphertext empty');
+      if (isZeroDigest(digest)) throw new Error('Evidence preparation failed: zero digest');
+
+      let endpointUrl = String(runtimeEndpoint || '').trim();
+      if (endpointUrl.endsWith('/')) endpointUrl = endpointUrl.slice(0, -1);
+      if (!endpointUrl.toLowerCase().endsWith('/submit-evidence')) endpointUrl = endpointUrl + '/submit-evidence';
+
+      // POST ciphertext
+      let res;
+      try {
+        res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
+      } catch (fetchErr) {
+        throw fetchErr;
+      }
+
+      if (!res.ok) {
+        // If server returns adminPublicKey on 400, retry once using returned key
+        let errBody = null;
+        try { errBody = await res.json(); } catch (e) { errBody = null; }
+        if (res.status === 400 && errBody && errBody.adminPublicKey) {
+          const adminPub = errBody.adminPublicKey;
+          const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: adminPub });
+          res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: newCiphertext });
+          if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            throw new Error('evidence endpoint retry failed: ' + res.status + ' ' + txt);
+          }
+          const parsed = await res.json();
+          return parsed && parsed.digest ? parsed.digest : newDigest;
+        }
+        const txt = await (async() => { try { return await res.text(); } catch(e){ return ''; } })();
+        throw new Error('evidence endpoint returned ' + res.status + ' ' + txt);
+      }
+
+  const body = await res.json();
+  // Prefer ipfsUri when available
+  const returnedUri = body && body.ipfsUri ? body.ipfsUri : null;
+  const returnedDigest = body && body.digest ? body.digest : digest;
+  return returnedUri ? returnedUri : returnedDigest;
+    } catch (e) {
+      // bubble up
+      throw e;
+    }
   }
 
   // Prefer wallet provider, but on localhost fall back to a direct JSON-RPC provider if the wallet provider glitches
@@ -354,28 +450,27 @@ export class ContractService {
 
         const propertyId = Number(params.propertyId || 0);
         console.debug('Sending createRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, dueDate, propertyId, factory: factoryContract.target || factoryContract.address });
-        // If an initial evidence digest is provided (either as bytes32 hex or as a payload string), compute/use it and call the new factory overload.
-        let initialDigest = null;
+        // If an initial evidence reference is provided (e.g., ipfs://... or payload string), compute/use it and call the factory overload that accepts a string URI.
+        let initialEvidenceRef = null;
         if (params.initialEvidenceDigest) {
-          // Accept either a raw payload string or a hex digest. If the value looks like a hex 0x...32-bytes, use it directly.
           const val = String(params.initialEvidenceDigest);
+          // If looks like a 0x..64 digest, keep it as-is (string form). Otherwise, compute a digest for the payload and use it as a string.
           if (/^0x[0-9a-fA-F]{64}$/.test(val)) {
-            initialDigest = val;
+            initialEvidenceRef = val;
           } else {
-            // treat as payload string and compute keccak256 digest
-            initialDigest = computePayloadDigest(val);
+            initialEvidenceRef = computePayloadDigest(val);
           }
         }
 
-        if (initialDigest) {
-          // Call new overload: createRentContract(address,uint256,address,uint256,uint256,bytes32)
-          tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256,bytes32)'](
+        if (initialEvidenceRef) {
+          // Call new overload that accepts a string URI for initial evidence
+          tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256,string)'](
             params.tenant,
             rentAmountWei,
             params.priceFeed,
             dueDate,
             propertyId,
-            initialDigest
+            initialEvidenceRef
           );
         } else {
           // Call overloaded factory method that accepts dueDate: createRentContract(address,uint256,address,uint256,uint256)
@@ -1155,10 +1250,10 @@ export class ContractService {
         // first attempt to POST the ciphertext/plaintext to the configured evidence endpoint
         // so the server will write the canonical ciphertext JSON into the static dir.
         // If no endpoint is configured, fall back to computing the digest locally.
-        let digestArg = '0x' + '0'.repeat(64);
+  let evidenceArg = '';
         const submitEndpoint = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (window && window?.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || null;
         if (evidence && /^0x[0-9a-fA-F]{64}$/.test(evidence)) {
-          digestArg = evidence;
+          evidenceArg = evidence;
         } else if (evidence) {
             // If we have a submit endpoint, encrypt (if admin public key is exposed) and POST the evidence.
             if (submitEndpoint) {
@@ -1189,41 +1284,43 @@ export class ContractService {
                       if (resp && resp.ok) {
                         try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'ok' }); } catch (_) {}
                         const json = await resp.json();
-                        if (json && json.digest) digestArg = String(json.digest);
-                        else if (json && json.digestNo0x) digestArg = '0x' + String(json.digestNo0x);
-                        else digestArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                        if (json && json.ipfsUri) evidenceArg = String(json.ipfsUri);
+                        else if (json && json.digest) evidenceArg = String(json.digest);
+                        else if (json && json.digestNo0x) evidenceArg = '0x' + String(json.digestNo0x);
+                        else evidenceArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                       } else {
                         try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) {}
-                        digestArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                        evidenceArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                       }
-                    } catch (retryErr) {
+                      } catch (retryErr) {
                       console.warn('Retry encryption/post failed:', retryErr);
                       try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) {}
-                      digestArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                      evidenceArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                     }
                   } else {
                     // generic failure: fallback to digest from prepareEvidencePayload or local compute
-                    digestArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                    evidenceArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                   }
                 } else if (resp && resp.ok) {
                   const json = await resp.json();
-                  if (json && json.digest) digestArg = String(json.digest);
-                  else if (json && json.digestNo0x) digestArg = '0x' + String(json.digestNo0x);
-                  else digestArg = digest;
+                  if (json && json.ipfsUri) evidenceArg = String(json.ipfsUri);
+                  else if (json && json.digest) evidenceArg = String(json.digest);
+                  else if (json && json.digestNo0x) evidenceArg = '0x' + String(json.digestNo0x);
+                  else evidenceArg = digest;
                 }
               } catch (postErr) {
                 console.warn('Evidence submit endpoint flow failed, using local digest', postErr);
-                digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+                evidenceArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
               }
             } else {
-              digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
+              evidenceArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
             }
         }
         // Debugging instrumentation: log signer, target code and calldata so we can
         // diagnose CALL_EXCEPTION / missing revert data issues during E2E runs.
         try {
           const signerAddr = await this.signer.getAddress().catch(() => null);
-          console.debug('reportRentDispute: signerAddr=', signerAddr, 'target=', contractAddress, 'disputeType=', disputeType, 'amount=', String(amount), 'digest=', digestArg);
+          console.debug('reportRentDispute: signerAddr=', signerAddr, 'target=', contractAddress, 'disputeType=', disputeType, 'amount=', String(amount), 'evidence=', evidenceArg);
           try {
             const code = await this.getCodeSafe(contractAddress);
             console.debug('reportRentDispute: target contract code length=', code && code.length);
@@ -1232,14 +1329,14 @@ export class ContractService {
           }
           // Build calldata so we can attempt a low-level call for revert payload if the send fails
           let calldata = null;
-          try {
-            calldata = rent.interface.encodeFunctionData('reportDispute', [disputeType, amount, digestArg]);
+            try {
+            calldata = rent.interface.encodeFunctionData('reportDispute', [disputeType, amount, evidenceArg]);
             console.debug('reportRentDispute: calldata=', calldata.slice(0, 10) + '...');
           } catch (encErr) {
             console.warn('reportRentDispute: failed to encode calldata', encErr);
           }
 
-          const tx = await rent.reportDispute(disputeType, amount, digestArg, overrides);
+          const tx = await rent.reportDispute(disputeType, amount, evidenceArg, overrides);
           const receipt = await tx.wait();
           return { receipt, caseId: (function(){ try{ for(const l of receipt.logs){ try{ const p = rent.interface.parseLog(l); if(p && p.name==='DisputeReported') return p.args[0]?.toString?.() ?? null; }catch(_){} } }catch(_){ } return null; })() };
         } catch (sendErr) {

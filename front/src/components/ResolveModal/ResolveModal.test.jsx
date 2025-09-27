@@ -19,10 +19,10 @@ describe('EvidencePanel', () => {
 
   it('fetches pinned record and decrypts when admin key set', async () => {
     // Render the EvidencePanel directly and assert it shows provided initial evidence or 'No evidence' when absent.
-    render(<EvidencePanel initialEvidence={"0x1234"} />)
-    expect(await screen.findByText(/0x1234/)).toBeTruthy()
-    // When no evidence is provided, the panel shows the no-evidence placeholder
-    render(<EvidencePanel initialEvidence={""} />)
-    expect(await screen.findByText(/No evidence digest available on-chain/)).toBeTruthy()
+  render(<EvidencePanel initialEvidenceRef={"0x1234"} />)
+  expect(await screen.findByText(/0x1234/)).toBeTruthy()
+  // When no evidence is provided, the panel shows the no-evidence placeholder
+  render(<EvidencePanel initialEvidenceRef={""} />)
+  expect(await screen.findByText(/No evidence reference available on-chain/)).toBeTruthy()
   })
 })

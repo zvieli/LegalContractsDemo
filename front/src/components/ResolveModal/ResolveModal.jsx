@@ -13,15 +13,34 @@ import './ResolveModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import { computeDigestForCiphertext } from '../../utils/evidence';
 
-function EvidencePanel({ initialEvidence }) {
-  // Simplified evidence panel after removing local pin-server: evidence is stored on-chain
-  const [evidenceText, setEvidenceText] = useState(initialEvidence || '');
+function EvidencePanel({ initialEvidenceRef }) {
+  // EvidencePanel now treats the passed value as a generic evidence reference
+  // which may be an ipfs:// URI or the legacy keccak256 digest (0x...)
+  const ref = initialEvidenceRef || '';
+  const [evidenceText, setEvidenceText] = useState(ref);
+  const renderBody = () => {
+    if (!ref) return <span style={{color:'#888'}}>No evidence reference available on-chain</span>;
+    const s = String(ref || '').trim();
+    if (s.startsWith('ipfs://')) {
+      const cid = s.replace(/^ipfs:\/\//, '');
+      const gateway = `https://ipfs.io/ipfs/${cid}`;
+      return (
+        <div>
+          <div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{s}</code></div>
+          <div><a href={gateway} target="_blank" rel="noreferrer">Open on IPFS gateway ({gateway})</a></div>
+        </div>
+      );
+    }
+    // Legacy hex digest or arbitrary string: show verbatim
+    return <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{s}</pre>;
+  };
+
   return (
     <div style={{marginTop:12, padding:12, border:'1px solid #eee', borderRadius:6}}>
       <h4>Evidence</h4>
       <div style={{marginTop:8}}>
-        <div style={{fontSize:13, color:'#555', marginBottom:6}}>Evidence for this dispute is stored off-chain (encrypted). The contract stores only a keccak256 digest for integrity.</div>
-        <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{evidenceText || <span style={{color:'#888'}}>No evidence digest available on-chain</span>}</pre>
+        <div style={{fontSize:13, color:'#555', marginBottom:6}}>Evidence for this dispute is stored off-chain (encrypted). The contract stores only a reference (IPFS URI or keccak256 digest) for integrity.</div>
+        {renderBody()}
       </div>
     </div>
   );
@@ -186,7 +205,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                 const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
                 // include the on-chain evidenceDigest field (d[3]) so the UI can link to the canonical JSON
                 const evidenceOnChain = (d && typeof d[3] !== 'undefined') ? d[3] : null;
-                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, debtor: debtorAddr, evidenceDigest: evidenceOnChain });
+                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, debtor: debtorAddr, evidenceRef: evidenceOnChain });
                 // reset any per-modal confirmPay/forwardEth state when loading a new dispute
                 try { setConfirmPay(false); setForwardEth(''); } catch (_) {}
                 try { setDisputeAmountEth(formatEtherSafe(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
@@ -293,7 +312,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                         try { localStorage.setItem(`incomingDispute:${contractAddress}`, JSON.stringify(incoming)); } catch(_) {}
                         setAppealLocal(incoming);
                         // update disputeInfo if modal open
-              setDisputeInfo(prev => ({ caseId: Number(caseId), requestedAmountWei: BigInt(requestedAmount || 0), initiator: prev?.initiator || null, evidenceDigest: prev?.evidenceDigest || null }));
+              setDisputeInfo(prev => ({ caseId: Number(caseId), requestedAmountWei: BigInt(requestedAmount || 0), initiator: prev?.initiator || null, evidenceRef: prev?.evidenceRef || null }));
               try { setConfirmPay(false); } catch (_) {}
                         try { setDebtorDepositWei(BigInt(requestedAmount || 0)); setDebtorDepositEth(ethers.formatEther(BigInt(requestedAmount || 0))); } catch (_) {}
                       }
@@ -347,7 +366,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               const requestedAmount = BigInt(d[2] || 0);
                 // include evidenceDigest field when refreshing so Admin decrypt modal can auto-locate the canonical JSON
                 const evidenceOnChain = (d && typeof d[3] !== 'undefined') ? d[3] : null;
-                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, evidenceDigest: evidenceOnChain });
+                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, evidenceRef: evidenceOnChain });
               try { setDisputeAmountEth(ethers.formatEther(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
               const landlordAddr = await rent.landlord();
               const tenantAddr = await rent.tenant();
@@ -495,7 +514,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             // Prefer on-chain rationale when available; fall back to local appeal/evidence or typed rationale
             // Do NOT show raw plaintext evidence stored locally. Prefer on-chain rationale.
             // If no on-chain rationale is available, show the evidence DIGEST only and explanatory text.
-            const resolvedRationale = (onChainMeta && onChainMeta.rationale) ? onChainMeta.rationale : ( (appealLocal && appealLocal.evidenceDigest) ? `Evidence digest: ${appealLocal.evidenceDigest}` : rationale );
+            const resolvedRationale = (onChainMeta && onChainMeta.rationale) ? onChainMeta.rationale : ( (appealLocal && (appealLocal.evidenceRef || appealLocal.evidenceDigest)) ? `Evidence reference: ${appealLocal.evidenceRef || appealLocal.evidenceDigest}` : rationale );
             const resolvedClassification = (onChainMeta && onChainMeta.classification) ? onChainMeta.classification : (decision === 'approve' ? 'approve' : 'deny');
             const payload = { contractAddress, decision: resolvedClassification, rationale: resolvedRationale, timestamp: Date.now(), onChain: !!onChainMeta };
             try { localStorage.setItem(key, JSON.stringify(payload)); } catch (_) {}
@@ -516,7 +535,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
       // Persist the arbitrator decision and rationale locally per-contract so it can be shown in UI
       try {
         const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
-            const resolvedRationale = (appealLocal && appealLocal.evidenceDigest) ? `Evidence digest: ${appealLocal.evidenceDigest}` : rationale;
+            const resolvedRationale = (appealLocal && (appealLocal.evidenceRef || appealLocal.evidenceDigest)) ? `Evidence reference: ${appealLocal.evidenceRef || appealLocal.evidenceDigest}` : rationale;
         const payload = { contractAddress, decision, rationale: resolvedRationale, timestamp: Date.now() };
         localStorage.setItem(key, JSON.stringify(payload));
         // Also save a summary to sessionStorage for immediate visibility elsewhere
@@ -587,7 +606,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               </div>
             ) : (
               <div style={{padding:8, background:'#fafafa', border:'1px solid #eee', borderRadius:4, minHeight:48}}>
-                {(appealLocal && appealLocal.evidenceDigest) ? (<div><div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence DIGEST (on-chain):</div><pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8}}>{appealLocal.evidenceDigest}</pre><div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain encrypted to the platform admin and is not available in this browser. Contact the platform administrator to request decryption if you are authorized.</div></div>) : (rationale || <span style={{color:'#888'}}>No rationale provided</span>)}
+                {(appealLocal && (appealLocal.evidenceRef || appealLocal.evidenceDigest)) ? (<div style={{marginTop:6}}><div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence (on-chain reference):</div>{ (String(appealLocal.evidenceRef || appealLocal.evidenceDigest).startsWith('ipfs://')) ? (() => { const uri = String(appealLocal.evidenceRef || appealLocal.evidenceDigest); const cid = uri.replace(/^ipfs:\/\//,''); const gateway = `https://ipfs.io/ipfs/${cid}`; return (<div><div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{uri}</code></div><div><a href={gateway} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div></div>); })() : (<pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8}}>{appealLocal.evidenceRef || appealLocal.evidenceDigest}</pre>) }<div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain encrypted to the platform admin and is not available in this browser. Contact the platform administrator to request decryption if you are authorized.</div></div>) : (rationale || <span style={{color:'#888'}}>No rationale provided</span>)}
                 <div style={{marginTop:8, color:'#a33'}}>Note: your connected wallet is not authorized to perform arbitration actions for this contract. To finalize disputes via the ArbitrationService, connect the ArbitrationService owner or the ContractFactory creator account (the account that deployed this contract).</div>
               </div>
             )}
@@ -662,7 +681,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           )}
 
       {/* Evidence panel: fetch/decrypt/preview/download pinned evidence (arbitrator-only decrypt) */}
-  <EvidencePanel initialEvidence={disputeInfo?.evidenceDigest || ''} />
+  <EvidencePanel initialEvidenceRef={disputeInfo?.evidenceRef || disputeInfo?.evidenceDigest || ''} />
 
           {/* Admin decrypt button & modal (optional in-browser decryption). WARNING: private key must be transient and not stored. */}
           {isAuthorizedArbitrator && ENABLE_ADMIN_DECRYPT && (
@@ -674,39 +693,48 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                         setAdminCiphertextInput('');
                         setFetchStatusMessage(null);
                         setFetchedUrl(null);
-                        try {
-                          const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
-                          const maybe = disputeInfo && disputeInfo.evidenceDigest ? disputeInfo.evidenceDigest : null;
-                          let guessed = '';
-                          if (base && maybe && /^0x[0-9a-fA-F]{64}$/.test(String(maybe).trim())) {
-                            const digestNo0x = String(maybe).trim().replace(/^0x/, '');
-                            guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
-                            setFetchedUrl(guessed);
-                            // Try to fetch the canonical JSON automatically and populate the ciphertext input
-                            try {
-                              const resp = await fetch(guessed);
-                              if (resp.ok) {
-                                const txt = await resp.text();
-                                // If we got valid JSON or text, populate and make read-only to avoid accidental edits
-                                setAdminCiphertextInput(txt);
-                                setAdminCiphertextReadOnly(true);
-                                setFetchStatusMessage('Fetched canonical evidence JSON successfully.');
-                              } else {
-                                // on non-OK, still set the URL so admin can fetch manually
-                                setAdminCiphertextInput(guessed);
-                                setAdminCiphertextReadOnly(false);
-                                setFetchStatusMessage(`Could not fetch canonical JSON: ${resp.status} ${resp.statusText}. You can open the URL and download the file, then paste the JSON here.`);
+                          try {
+                            const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
+                            const maybe = disputeInfo && (disputeInfo.evidenceRef || disputeInfo.evidenceDigest) ? (disputeInfo.evidenceRef || disputeInfo.evidenceDigest) : null;
+                            let guessed = '';
+                            if (base && maybe) {
+                              const s = String(maybe).trim();
+                              if (s.startsWith('ipfs://')) {
+                                // If on-chain stores an IPFS URI, use a public gateway for quick preview
+                                const cid = s.replace(/^ipfs:\/\//, '');
+                                guessed = `https://ipfs.io/ipfs/${cid}`;
+                              } else if (/^0x[0-9a-fA-F]{64}$/.test(s)) {
+                                const digestNo0x = s.replace(/^0x/, '');
+                                guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
                               }
-                            } catch (e) {
-                              // Network/CORS failure - fall back to placing the guessed URL
-                              setAdminCiphertextInput(guessed);
-                              setAdminCiphertextReadOnly(false);
-                              // Friendly guidance for likely CORS issues
-                              setFetchStatusMessage('Could not fetch canonical JSON due to network/CORS restrictions. Open the URL below in a new tab and download the file, then paste the JSON into this textbox.');
-                              // Log the error to console for debugging
-                              try { console.debug('Fetch canonical evidence failed', e); } catch (_) {}
+                              if (guessed) {
+                                setFetchedUrl(guessed);
+                                // Try to fetch the canonical JSON automatically and populate the ciphertext input
+                                try {
+                                  const resp = await fetch(guessed);
+                                  if (resp.ok) {
+                                    const txt = await resp.text();
+                                    // If we got valid JSON or text, populate and make read-only to avoid accidental edits
+                                    setAdminCiphertextInput(txt);
+                                    setAdminCiphertextReadOnly(true);
+                                    setFetchStatusMessage('Fetched canonical evidence JSON successfully.');
+                                  } else {
+                                    // on non-OK, still set the URL so admin can fetch manually
+                                    setAdminCiphertextInput(guessed);
+                                    setAdminCiphertextReadOnly(false);
+                                    setFetchStatusMessage(`Could not fetch canonical JSON: ${resp.status} ${resp.statusText}. You can open the URL and download the file, then paste the JSON here.`);
+                                  }
+                                } catch (e) {
+                                  // Network/CORS failure - fall back to placing the guessed URL
+                                  setAdminCiphertextInput(guessed);
+                                  setAdminCiphertextReadOnly(false);
+                                  // Friendly guidance for likely CORS issues
+                                  setFetchStatusMessage('Could not fetch canonical JSON due to network/CORS restrictions. Open the URL below in a new tab and download the file, then paste the JSON into this textbox.');
+                                  // Log the error to console for debugging
+                                  try { console.debug('Fetch canonical evidence failed', e); } catch (_) {}
+                                }
+                              }
                             }
-                          }
                         } catch (_) { setAdminCiphertextInput(''); }
                         // Do NOT auto-fill admin private key from env for security - leave empty so admin must paste/transiently enter it
                         setAdminPrivateKeyInput('');

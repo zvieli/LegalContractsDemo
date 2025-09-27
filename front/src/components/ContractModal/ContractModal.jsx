@@ -4,6 +4,7 @@ import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
 import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
+import { computePayloadDigest } from '../../utils/cidDigest';
 import { getContractAddress } from '../../utils/contracts';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
@@ -853,8 +854,21 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     try {
       setActionLoading(true);
       const service = new ContractService(signer, chainId);
-      // If evidence is a plain string, contractService will compute digest; pass through as-is
-      await service.ndaReportBreach(contractAddress, offender, penalty, evidence);
+      // Upload evidence to endpoint if configured. If the app requires upload and configuration is missing,
+      // surface a user-friendly alert and abort rather than silently falling back.
+      let digestToUse = null;
+      try {
+        digestToUse = await service.uploadEvidence(evidence || '');
+      } catch (err) {
+        // Detect the explicit require-upload error code we throw
+        if (String(err?.message || '').startsWith('EVIDENCE_UPLOAD_REQUIRED')) {
+          alert('Evidence upload is required by this environment but the evidence endpoint or admin public key is not configured. Please contact the administrator.');
+          throw err; // abort
+        }
+        console.error('evidence upload failed, falling back to local digest', err);
+        digestToUse = computePayloadDigest(evidence || '');
+      }
+      await service.ndaReportBreach(contractAddress, offender, penalty, digestToUse);
       alert('Breach reported');
       await loadContractData();
     } catch (e) {
@@ -1026,7 +1040,19 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               const ov = (typeof window !== 'undefined' && window.__PLAYWRIGHT_DISPUTE_OVERRIDE) ? window.__PLAYWRIGHT_DISPUTE_OVERRIDE : null;
               if (ov && ov.amountEth != null) requestedPenaltyEth = String(ov.amountEth);
             } catch (_) {}
-            const rcpt = await svc.ndaReportBreach(targetAddress, offender, requestedPenaltyEth, disputeForm.evidence || '');
+            // Upload evidence to the endpoint (if configured) and use returned digest for on-chain report.
+            let digestToUse = null;
+            try {
+              digestToUse = await svc.uploadEvidence(disputeForm.evidence || '');
+            } catch (err) {
+              if (String(err?.message || '').startsWith('EVIDENCE_UPLOAD_REQUIRED')) {
+                alert('Evidence upload is required by this environment but the evidence endpoint or admin public key is not configured. Please contact the administrator.');
+                throw err; // abort submit
+              }
+              console.error('evidence upload failed, falling back to local digest', err);
+              digestToUse = computePayloadDigest(disputeForm.evidence || '');
+            }
+            const rcpt = await svc.ndaReportBreach(targetAddress, offender, requestedPenaltyEth, digestToUse);
             // NDA reportBreach doesn't currently emit a caseId; leave null
             caseId = null;
           } else {
@@ -1045,8 +1071,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             contractAddress: targetAddress,
             dtype: Number(disputeForm.dtype || 0),
             amountEth: String(disputeForm.amountEth || '0'),
-            // Persist only the canonical evidence digest. Do NOT store plaintext evidence here.
-            evidenceDigest: evidenceToSend || ethers.ZeroHash,
+            // Persist only the canonical evidence reference (IPFS URI or digest). Do NOT store plaintext evidence here.
+            evidenceRef: evidenceToSend || ethers.ZeroHash,
             reporter: account || null,
             caseId: caseId != null ? String(caseId) : null,
             createdAt: new Date().toISOString(),
@@ -1284,8 +1310,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         reporter: appealData.reporter || null,
         submitted: appealData.createdAt || null,
         evidenceText: evidenceText || null,
-        // If no plaintext available, include the stored digest so admins can locate ciphertext
-        evidence: (!evidenceText && appealData.evidence) ? appealData.evidence : ((appealData.evidenceDigest) ? appealData.evidenceDigest : null)
+  // If no plaintext available, include the stored reference (prefers evidenceRef then legacy digest)
+  evidence: (!evidenceText && appealData.evidence) ? appealData.evidence : ((appealData.evidenceRef || appealData.evidenceDigest) ? (appealData.evidenceRef || appealData.evidenceDigest) : null)
       };
 
       const ok = await copyTextToClipboard(JSON.stringify(summary, null, 2));
@@ -2026,28 +2052,36 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                         try {
                           const base = (import.meta.env && import.meta.env.VITE_EVIDENCE_FETCH_BASE) || '';
                           let guessed = '';
-                          const maybe = (appealData && (appealData.evidence || appealData.evidenceDigest)) || null;
-                          if (base && maybe && /^0x[0-9a-fA-F]{64}$/.test(String(maybe).trim())) {
-                            const digestNo0x = String(maybe).trim().replace(/^0x/, '');
-                            guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
-                            setFetchedUrl(guessed);
-                            try {
-                              const resp = await fetch(guessed);
-                              if (resp.ok) {
-                                const txt = await resp.text();
-                                setAdminCiphertextInput(txt);
-                                setAdminCiphertextReadOnly(true);
-                                setFetchStatusMessage('Fetched canonical evidence JSON successfully.');
-                              } else {
+                          const maybe = (appealData && (appealData.evidence || appealData.evidenceRef || appealData.evidenceDigest)) || null;
+                          if (base && maybe) {
+                            const s = String(maybe).trim();
+                            if (s.startsWith('ipfs://')) {
+                              const cid = s.replace(/^ipfs:\/\//, '');
+                              guessed = `https://ipfs.io/ipfs/${cid}`;
+                            } else if (/^0x[0-9a-fA-F]{64}$/.test(s)) {
+                              const digestNo0x = s.replace(/^0x/, '');
+                              guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
+                            }
+                            if (guessed) {
+                              setFetchedUrl(guessed);
+                              try {
+                                const resp = await fetch(guessed);
+                                if (resp.ok) {
+                                  const txt = await resp.text();
+                                  setAdminCiphertextInput(txt);
+                                  setAdminCiphertextReadOnly(true);
+                                  setFetchStatusMessage('Fetched canonical evidence JSON successfully.');
+                                } else {
+                                  setAdminCiphertextInput(guessed);
+                                  setAdminCiphertextReadOnly(false);
+                                  setFetchStatusMessage(`Could not fetch canonical JSON: ${resp.status} ${resp.statusText}. You can open the URL and download the file, then paste the JSON here.`);
+                                }
+                              } catch (e) {
                                 setAdminCiphertextInput(guessed);
                                 setAdminCiphertextReadOnly(false);
-                                setFetchStatusMessage(`Could not fetch canonical JSON: ${resp.status} ${resp.statusText}. You can open the URL and download the file, then paste the JSON here.`);
+                                setFetchStatusMessage('Could not fetch canonical JSON due to network/CORS restrictions. Open the URL below in a new tab and download the file, then paste the JSON into this textbox.');
+                                try { console.debug('Fetch canonical evidence failed', e); } catch (_) {}
                               }
-                            } catch (e) {
-                              setAdminCiphertextInput(guessed);
-                              setAdminCiphertextReadOnly(false);
-                              setFetchStatusMessage('Could not fetch canonical JSON due to network/CORS restrictions. Open the URL below in a new tab and download the file, then paste the JSON into this textbox.');
-                              try { console.debug('Fetch canonical evidence failed', e); } catch (_) {}
                             }
                           }
                         } catch (_) { setAdminCiphertextInput(''); }
@@ -2121,10 +2155,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       <strong>Evidence:</strong>
                       {appealData.evidence ? (
                         <div style={{marginTop:6, whiteSpace:'pre-wrap'}}>{appealData.evidence}</div>
-                      ) : (appealData.evidenceDigest ? (
+                      ) : ((appealData.evidenceRef || appealData.evidenceDigest) ? (
                         <div style={{marginTop:6}}>
-                          <div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence DIGEST (on-chain):</div>
-                          <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fafafa', padding:8}}>{appealData.evidenceDigest}</pre>
+                          <div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence (on-chain reference):</div>
+                          { (String(appealData.evidenceRef || appealData.evidenceDigest).startsWith('ipfs://')) ? (
+                            (() => { const uri = String(appealData.evidenceRef || appealData.evidenceDigest); const cid = uri.replace(/^ipfs:\/\//,''); const gateway = `https://ipfs.io/ipfs/${cid}`; return (<div><div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{uri}</code></div><div><a href={gateway} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div></div>); })()
+                          ) : (
+                            <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fafafa', padding:8}}>{String(appealData.evidenceRef || appealData.evidenceDigest)}</pre>
+                          )}
                           <div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain (encrypted). Contact the platform administrator to request decryption if you are authorized.</div>
                         </div>
                       ) : (

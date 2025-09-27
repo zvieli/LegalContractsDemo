@@ -7,8 +7,8 @@ import "./NDA/NDATemplate.sol";
 
 // Lightweight deployer for Rent contracts (keeps large creation bytecode out of main factory runtime)
 contract _RentDeployer {
-    function deploy(address _landlord, address _tenant, uint256 _rentAmount, uint256 _dueDate, address _priceFeed, uint256 _propertyId, address _arbitration_service, uint256 _requiredDeposit, bytes32 _initialEvidenceDigest) external returns (address) {
-        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, _arbitration_service, _requiredDeposit, _initialEvidenceDigest);
+    function deploy(address _landlord, address _tenant, uint256 _rentAmount, uint256 _dueDate, address _priceFeed, uint256 _propertyId, address _arbitration_service, uint256 _requiredDeposit, string memory _initialEvidenceUri) external returns (address) {
+        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, _arbitration_service, _requiredDeposit, _initialEvidenceUri);
         return address(c);
     }
 }
@@ -98,8 +98,8 @@ contract ContractFactory {
         (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
         require(active && owner == creator, "Bad property");
     }
-    // pass 0 as default dueDate for backward compatibility; no initial evidence digest
-    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, 0, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, bytes32(0));
+    // pass 0 as default dueDate for backward compatibility; no initial evidence URI
+    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, 0, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, "");
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;
@@ -122,7 +122,7 @@ contract ContractFactory {
             (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
             require(active && owner == creator, "Bad property");
         }
-    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, bytes32(0));
+    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, "");
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;
@@ -130,8 +130,8 @@ contract ContractFactory {
         return newAddr;
     }
 
-    /// @notice Create a Rent contract with an explicit dueDate and an initial evidence digest (bytes32)
-    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _dueDate, uint256 _propertyId, bytes32 _initialEvidenceDigest) external returns (address) {
+    /// @notice Create a Rent contract with an explicit dueDate and an initial evidence URI (string)
+    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _dueDate, uint256 _propertyId, string calldata _initialEvidenceUri) external returns (address) {
         address creator = msg.sender;
         if (_tenant == address(0)) revert ZeroTenant();
         if (_tenant == creator) revert SameAddresses();
@@ -143,7 +143,7 @@ contract ContractFactory {
             (address owner,, , bool active) = propertyRegistry.getProperty(_propertyId);
             require(active && owner == creator, "Bad property");
         }
-        address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, _initialEvidenceDigest);
+    address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, _initialEvidenceUri);
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;

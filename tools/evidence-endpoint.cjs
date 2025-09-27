@@ -11,17 +11,48 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const EthCrypto = require('eth-crypto');
 const { keccak256, toUtf8Bytes } = require('ethers').utils || require('ethers');
+// We will use Helia (embedded IPFS) only for publishing evidence. Do not use ipfs-http-client.
+let useHelia = true;
+let heliaRuntime = null; // will hold the running helia node and unixfs instance
+let uint8arrays = null;
+let _heliaModulesLoaded = false;
+async function loadHeliaModules() {
+  if (_heliaModulesLoaded) return;
+  try {
+    // dynamic import to support ESM-only packages
+    const heliaPkg = await import('helia');
+    const unixfsPkg = await import('@helia/unixfs');
+    uint8arrays = await import('uint8arrays');
+    _heliaModulesLoaded = true;
+    return { heliaPkg, unixfsPkg, uint8arrays };
+  } catch (e) {
+    console.error('Helia dynamic import failed. Ensure helia, @helia/unixfs and uint8arrays are installed:', e && e.message ? e.message : e);
+    throw e;
+  }
+}
 
 // Load .env from repository root (if present) so the endpoint can pick up ADMIN_* variables
 try {
   // project root is one level above tools/
   const projectRootEnv = path.join(__dirname, '..', '.env');
-  require('dotenv').config({ path: projectRootEnv });
+  // Only load .env automatically when no ADMIN_* env vars are already set and the .env file exists.
+  const shouldLoadDotenv = fs.existsSync(projectRootEnv) && !process.env.ADMIN_PUBLIC_KEY && !process.env.ADMIN_PUBLIC_KEY_FILE && !process.env.ADMIN_PRIVATE_KEY && !process.env.ADMIN_PRIVATE_KEY_FILE;
+  if (shouldLoadDotenv) {
+    require('dotenv').config({ path: projectRootEnv });
+  }
 } catch (e) {
   // ignore if dotenv not available
 }
 
-const defaultPort = process.argv[2] ? Number(process.argv[2]) : 3000;
+function parsePort(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// Default port resolution order: CLI arg > EVIDENCE_PORT env > PORT env > 3000
+const cliPort = process.argv[2] ? parsePort(process.argv[2]) : null;
+const envPort = parsePort(process.env.EVIDENCE_PORT || process.env.PORT || 0);
+const defaultPort = cliPort || envPort || 5001;
 const defaultStaticDir = process.argv[3] ? process.argv[3] : path.join(__dirname, '..', 'front', 'e2e', 'static');
 
 function stableStringify(obj) {
@@ -116,6 +147,16 @@ function loadAdminPrivateKey() {
       console.warn('Could not read ADMIN_PRIVATE_KEY from env:', e.message);
     }
   }
+  // Fallback: if there is an admin.key file at the repo root, use it.
+  try {
+    const repoRootKey = path.resolve(path.join(__dirname, '..', 'admin.key'));
+    if (fs.existsSync(repoRootKey)) {
+      let pk = fs.readFileSync(repoRootKey, 'utf8').trim();
+      if (!pk) return null;
+      if (!pk.startsWith('0x')) pk = '0x' + pk;
+      return pk;
+    }
+  } catch (e) {}
   return null;
 }
 
@@ -242,10 +283,40 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
       } else {
   const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
   const pubWith0x = ADMIN_PUB.startsWith('0x') ? ADMIN_PUB : '0x' + ADMIN_PUB;
-  // EthCrypto.encryptWithPublicKey expects a Uint8Array/Buffer for the public key
-  const pubBytes = Buffer.from(pubWith0x.replace(/^0x/, ''), 'hex');
-  const encrypted = await EthCrypto.encryptWithPublicKey(pubBytes, plaintext);
+  // EthCrypto.encryptWithPublicKey accepts the public key as a hex string (uncompressed, with 04 prefix)
+  // Passing the hex string avoids platform/browser-specific Buffer/Uint8Array subtle differences that
+  // can lead to MAC failures when decrypting with the browser polyfill (eccrypto). Keep key with 0x prefix.
+  // Build a normalized uncompressed public key and always pass it as 0x-prefixed
+  let pubNorm = pubWith0x.replace(/^0x/, '');
+  if (pubNorm.length === 128 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm;
+  if (pubNorm.length === 130 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm; // defensive
+  // eth-crypto expects a hex string (no 0x) for its public-key helpers
+  const pubForEncrypt = pubNorm;
+  let encrypted;
+  let usedPubForm = 'normalized-0x04';
+  try {
+  encrypted = await EthCrypto.encryptWithPublicKey(pubForEncrypt, plaintext);
+  } catch (e) {
+    console.error('Encryption failed with normalized public key:', e && e.message ? e.message : e);
+    throw e;
+  }
         ciphertextJson = { version: '1', crypto: encrypted };
+        // TESTING: which pub form was used
+        try { if (process.env && process.env.TESTING) console.error('TESTING_ENCRYPT_PUB_FORM=' + usedPubForm); } catch (e) {}
+        // TESTING: log shapes of the generated cipher components to help trace Bad MAC issues
+        try {
+          if (process.env && process.env.TESTING) {
+            const c = encrypted || {};
+            const diag = {
+              ephemPublicKeyPrefix: c.ephemPublicKey ? String(c.ephemPublicKey).slice(0,8) : null,
+              ephemPublicKeyLen: c.ephemPublicKey ? String(c.ephemPublicKey).length : null,
+              ivLen: c.iv ? String(c.iv).length : null,
+              ciphertextLen: c.ciphertext ? String(c.ciphertext).length : null,
+              macLen: c.mac ? String(c.mac).length : null
+            };
+            console.error('TESTING_ENCRYPT_DIAG=' + JSON.stringify(diag));
+          }
+        } catch (e) {}
       }
 
       try {
@@ -277,6 +348,39 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         console.warn('Schema validation skipped (ajv error):', e && e.message ? e.message : e);
       }
 
+      // Normalize the crypto hex fields to deterministic forms before canonicalizing:
+      try {
+        if (ciphertextJson && ciphertextJson.crypto && typeof ciphertextJson.crypto === 'object') {
+          const c = ciphertextJson.crypto;
+          ['ephemPublicKey','iv','ciphertext','mac'].forEach(k => {
+            if (c[k] && typeof c[k] === 'string') {
+              let s = String(c[k]).trim();
+              if (s.startsWith('0x')) s = s.slice(2);
+              s = s.toLowerCase();
+              // ensure ephemPublicKey has uncompressed 04 prefix when it's the 128-char x||y form
+              if (k === 'ephemPublicKey') {
+                // If the key is in x||y (128 hex chars) form, add the uncompressed '04' prefix.
+                if (s.length === 128 && !s.startsWith('04')) s = '04' + s;
+                // If length is odd (malformed), prefix a '0' to make it even-length hex string.
+                if (s.length % 2 === 1) s = '0' + s;
+              }
+              c[k] = s;
+            }
+          });
+          // TESTING: log normalized cipher shapes
+          try { if (process.env && process.env.TESTING) {
+            const diag = {
+              ephemPublicKeyPrefix: ciphertextJson.crypto.ephemPublicKey ? String(ciphertextJson.crypto.ephemPublicKey).slice(0,8) : null,
+              ephemPublicKeyLen: ciphertextJson.crypto.ephemPublicKey ? String(ciphertextJson.crypto.ephemPublicKey).length : null,
+              ivLen: ciphertextJson.crypto.iv ? String(ciphertextJson.crypto.iv).length : null,
+              ciphertextLen: ciphertextJson.crypto.ciphertext ? String(ciphertextJson.crypto.ciphertext).length : null,
+              macLen: ciphertextJson.crypto.mac ? String(ciphertextJson.crypto.mac).length : null
+            };
+            console.error('TESTING_CANONICAL_CIPHER_NORMALIZED=' + JSON.stringify(diag));
+          } } catch (e) {}
+        }
+      } catch (e) {}
+
       const canonical = canon(ciphertextJson);
       let digest;
       try {
@@ -288,7 +392,39 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
 
       const fileName = digest.replace(/^0x/, '') + '.json';
       const filePath = path.join(staticDirLocal, fileName);
-      fs.writeFileSync(filePath, canonical, 'utf8');
+  fs.writeFileSync(filePath, canonical, 'utf8');
+  try { if (process.env && process.env.TESTING) console.error('TESTING_CANONICAL=' + canonical.slice(0,1000)); } catch (e) {}
+
+        // Publish canonical JSON using embedded Helia (no fallback allowed)
+        let ipfsCid = null;
+        let ipfsUri = null;
+        try {
+          if (!useHelia || !heliaRuntime) throw new Error('Helia not initialized');
+          const data = uint8arrays.fromString(canonical, 'utf8');
+          // try unixfs addBytes if available
+          if (heliaRuntime.ufs && typeof heliaRuntime.ufs.addBytes === 'function') {
+            const cid = await heliaRuntime.ufs.addBytes(data);
+            ipfsCid = cid && cid.toString ? cid.toString() : String(cid);
+          } else if (heliaRuntime.ufs && typeof heliaRuntime.ufs.add === 'function') {
+            const out = await heliaRuntime.ufs.add(data);
+            if (out) ipfsCid = (out.cid && out.cid.toString) ? out.cid.toString() : String(out);
+          } else if (heliaRuntime.ufs && typeof heliaRuntime.ufs.addAll === 'function') {
+            for await (const item of heliaRuntime.ufs.addAll([{ content: data }])) {
+              if (item) ipfsCid = (item.cid && item.cid.toString) ? item.cid.toString() : String(item);
+            }
+          } else if (heliaRuntime.node && heliaRuntime.node.block && typeof heliaRuntime.node.block.put === 'function') {
+            const p = await heliaRuntime.node.block.put(data);
+            if (p && p.cid) ipfsCid = p.cid.toString();
+          } else {
+            throw new Error('no known Helia unixfs API available');
+          }
+          if (!ipfsCid) throw new Error('failed to obtain CID from Helia');
+          ipfsUri = 'ipfs://' + ipfsCid;
+          if (process.env.TESTING) console.error('TESTING_IPFS_ADDED=' + ipfsCid + '->' + filePath + ' (helia)');
+        } catch (ipfsErr) {
+          console.error('Helia publish failed:', ipfsErr && ipfsErr.message ? ipfsErr.message : ipfsErr);
+          return res.status(500).json({ error: 'helia_publish_failed', message: ipfsErr && ipfsErr.message ? ipfsErr.message : String(ipfsErr) });
+        }
 
       // TESTING-only logging: print which public key was used and which file/digest were written
       try {
@@ -298,10 +434,15 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         }
       } catch (e) {}
 
-      return res.json({ digest, path: `/static/${fileName}`, file: filePath });
+  // Include IPFS CID/URI when available so clients can pass the URI on-chain
+  const resp = { digest, path: `/static/${fileName}`, file: filePath };
+  if (ipfsCid) resp.ipfsCid = ipfsCid;
+  if (ipfsUri) resp.ipfsUri = ipfsUri;
+  return res.json(resp);
     } catch (err) {
-      console.error('submit-evidence error', err);
-      return res.status(500).json({ error: err.message });
+      try { if (process.env && process.env.TESTING) console.error('TESTING_SUBMIT_ERROR=' + (err && err.stack ? err.stack : String(err))); } catch (e) {}
+      console.error('submit-evidence error', err && err.stack ? err.stack : err);
+      return res.status(500).json({ error: err && err.message ? err.message : String(err) });
     }
   });
 
@@ -323,14 +464,58 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     s.on('error', reject);
   });
 
+  // Initialize Helia modules and runtime now (Helia is required)
+  if (useHelia && !heliaRuntime) {
+    try {
+      const { heliaPkg, unixfsPkg } = await loadHeliaModules();
+      const node = await heliaPkg.createHelia();
+      // Create UnixFS using the helia node instance (this is the correct form)
+      let ufs = null;
+      try {
+        ufs = unixfsPkg.unixfs(node);
+      } catch (e) {
+        console.warn('unixfs(node) failed, attempting fallback:', e && e.message ? e.message : e);
+        try { ufs = unixfsPkg.unixfs({ dag: node.dag }); } catch (e2) { ufs = null; }
+      }
+      heliaRuntime = { node, ufs, heliaPkg, unixfsPkg };
+      console.log('Helia in-process IPFS node started for evidence publishing.');
+    } catch (e) {
+      console.error('Failed to start Helia node at startup:', e && e.message ? e.message : e);
+      try { server.close(); } catch (ee) {}
+      throw e;
+    }
+  }
+
   let actualPort = port;
   try {
     const addr = server.address();
     if (addr && addr.port) actualPort = addr.port;
   } catch (e) {}
   console.log(`Evidence endpoint listening on http://127.0.0.1:${actualPort} (static dir: ${staticDirLocal})`);
+  try {
+    if (process.env && process.env.TESTING) {
+      let hasSecp = false;
+      try { require('secp256k1'); hasSecp = true; } catch (e) {}
+      console.error('TESTING_ENDPOINT_ENV node=' + (process && process.versions && process.versions.node) + ' secp256k1=' + String(hasSecp));
+    }
+  } catch (e) {}
   return server;
 }
+
+// Graceful shutdown for Helia
+function _maybeShutdownHelia() {
+  if (heliaRuntime && heliaRuntime.node) {
+    try {
+      if (typeof heliaRuntime.node.stop === 'function') {
+        heliaRuntime.node.stop().catch((e) => {});
+      } else if (typeof heliaRuntime.node.close === 'function') {
+        heliaRuntime.node.close().catch((e) => {});
+      }
+    } catch (e) {}
+  }
+}
+process.on('exit', _maybeShutdownHelia);
+process.on('SIGINT', () => { _maybeShutdownHelia(); process.exit(0); });
 
 // If script executed directly, start server with CLI args
 if (require.main === module) {

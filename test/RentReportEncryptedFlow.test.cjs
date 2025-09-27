@@ -31,17 +31,17 @@ describe('TemplateRentContract - encrypted evidence flow', function () {
   const requiredBond = Math.max(Math.floor((requestedAmount * 5) / 1000), 1);
   await rent.reportDispute(0, requestedAmount, digest, { value: requiredBond });
 
-    // Read back stored digest
-  const storedDigest = await rent.getDisputeDigest(0);
+    // Read back stored reference (URI or legacy digest string)
+  const storedRef = await rent.getDisputeUri(0);
   const dispute = await rent.getDispute(0);
-  const returnedDigest = dispute[3];
+  const returnedRef = dispute[3];
 
   console.log('computed digest:', digest);
-  console.log('storedDigest   :', storedDigest);
-  console.log('returnedDigest :', returnedDigest);
+  console.log('storedRef      :', storedRef);
+  console.log('returnedRef    :', returnedRef);
 
-  expect(storedDigest).to.equal(digest);
-  expect(returnedDigest).to.equal(digest);
+  expect(storedRef).to.equal(digest);
+  expect(returnedRef).to.equal(digest);
 
     // Admin would decrypt the ciphertext locally — contract does not store ciphertext after this change.
     const decrypted = await EthCrypto.decryptWithPrivateKey(adminIdentity.privateKey, encrypted);

@@ -70,7 +70,7 @@ AggregatorV3Interface public immutable priceFeed;
         address initiator;
         DisputeType dtype;
         uint256 requestedAmount;    // claim amount (e.g., damages or amount to release)
-        bytes32 evidenceDigest;     // keccak256 digest of the evidence or ciphertext
+        string evidenceUri;         // ipfs://<cid> or other off-chain URI referencing canonical evidence
         bool resolved;
         bool approved;
         uint256 appliedAmount;      // actual amount applied (deducted or released)
@@ -83,8 +83,8 @@ AggregatorV3Interface public immutable priceFeed;
 
     DisputeCase[] private _disputes;
     mapping(uint256 => DisputeMeta) private _disputeMeta; // id => meta
-    // Optional initial evidence digest supplied at contract creation (bytes32 keccak256 of off-chain payload)
-    bytes32 public initialEvidenceDigest;
+    // Optional initial evidence URI supplied at contract creation (e.g., ipfs://<cid>)
+    string public initialEvidenceUri;
 
     // events
     event RentPaid(address indexed tenant, uint256 amount, bool late);
@@ -102,8 +102,8 @@ AggregatorV3Interface public immutable priceFeed;
     event SecurityDepositPaid(address indexed by, uint256 amount, uint256 total);
     event DepositDebited(address indexed who, uint256 amount);
     event DisputeReported(uint256 indexed caseId, address indexed initiator, uint8 disputeType, uint256 requestedAmount);
-    // Event to include the bytes32 digest when available
-    event DisputeReportedWithDigest(uint256 indexed caseId, bytes32 evidenceDigest);
+    // Event to include the evidence URI when available
+    event DisputeReportedWithUri(uint256 indexed caseId, string evidenceUri);
     event DisputeFiled(uint256 indexed caseId, address indexed debtor, uint256 requestedAmount);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
     event DebtRecorded(address indexed debtor, uint256 amount);
@@ -122,7 +122,7 @@ AggregatorV3Interface public immutable priceFeed;
         uint256 _propertyId,
         address _arbitration_service,
         uint256 _requiredDeposit,
-        bytes32 _initialEvidenceDigest
+        string memory _initialEvidenceUri
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
         landlord = _landlord;
         tenant = _tenant;
@@ -145,8 +145,8 @@ AggregatorV3Interface public immutable priceFeed;
     // Cast assignment below
     arbitrationService = _arbitration_service;
     requiredDeposit = _requiredDeposit;
-    // store optional initial evidence digest for off-chain payload referenced at creation time
-    initialEvidenceDigest = _initialEvidenceDigest;
+    // store optional initial evidence URI for off-chain payload referenced at creation time
+    initialEvidenceUri = _initialEvidenceUri;
     // Set dueDate from constructor param so frontend/tx metadata can include it when desired
     dueDate = _dueDate;
     }
@@ -463,14 +463,14 @@ function getRentInEth() public view returns (uint256) {
         address initiator,
         DisputeType dtype,
         uint256 requestedAmount,
-        bytes32 evidenceDigest,
+        string memory evidenceUri,
         bool resolved,
         bool approved,
         uint256 appliedAmount
     ) {
         require(caseId < _disputes.length, "bad id");
         DisputeCase storage dc = _disputes[caseId];
-        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidenceDigest, dc.resolved, dc.approved, dc.appliedAmount);
+        return (dc.initiator, dc.dtype, dc.requestedAmount, dc.evidenceUri, dc.resolved, dc.approved, dc.appliedAmount);
     }
 
     function getDisputeMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
@@ -495,7 +495,7 @@ function getRentInEth() public view returns (uint256) {
         }
     }
 
-    function reportDispute(DisputeType dtype, uint256 requestedAmount, bytes32 evidenceDigest) external payable onlyActive returns (uint256 caseId) {
+    function reportDispute(DisputeType dtype, uint256 requestedAmount, string calldata evidenceUri) external payable onlyActive returns (uint256 caseId) {
         // Allow reporting disputes even when an external arbitration service is
         // not yet configured. This lets parties record evidence/claims and
         // later enable arbitration via `configureArbitration` without losing
@@ -510,8 +510,8 @@ function getRentInEth() public view returns (uint256) {
         dc.initiator = msg.sender;
         dc.dtype = dtype;
         dc.requestedAmount = requestedAmount;
-        // store provided digest
-        dc.evidenceDigest = evidenceDigest;
+    // store provided evidence URI
+    dc.evidenceUri = evidenceUri;
 
         // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
         uint256 requiredBond = 0;
@@ -536,17 +536,17 @@ function getRentInEth() public view returns (uint256) {
         }
 
     emit DisputeReported(caseId, msg.sender, uint8(dtype), requestedAmount);
-    emit DisputeReportedWithDigest(caseId, dc.evidenceDigest);
+    emit DisputeReportedWithUri(caseId, dc.evidenceUri);
     // Notify debtor off-chain via event so UI can prompt debtor to deposit requested amount
     emit DisputeFiled(caseId, debtor, requestedAmount);
     }
 
     // Deprecated: CID-based reporting functions removed. Use reportDispute with a bytes32 digest.
 
-    /// @notice Read the stored digest for a dispute (bytes32, zero if none)
-    function getDisputeDigest(uint256 caseId) external view returns (bytes32) {
+    /// @notice Read the stored evidence URI for a dispute (empty string if none)
+    function getDisputeUri(uint256 caseId) external view returns (string memory) {
         require(caseId < _disputes.length, "bad id");
-        return _disputes[caseId].evidenceDigest;
+        return _disputes[caseId].evidenceUri;
     }
 
     /// @notice Final resolution used by arbitrator/oracle (single-step) similar to NDA oracle path.

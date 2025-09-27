@@ -68,7 +68,17 @@ export async function encryptToAdminPubKey(payload, adminPublicKeyRaw) {
 export async function prepareEvidencePayload(payload, options = {}) {
   const payloadStr = payload ? String(payload) : '';
   if (options.encryptToAdminPubKey) {
-    return await encryptToAdminPubKey(payloadStr, options.encryptToAdminPubKey);
+    const result = await encryptToAdminPubKey(payloadStr, options.encryptToAdminPubKey);
+    // E2E-only logging: surface ciphertext length and digest so tests can assert preparation happened
+    try {
+      let e2e = false;
+      try { if (import.meta && import.meta.env && import.meta.env.VITE_E2E_TESTING) e2e = true; } catch (e) {}
+      try { if (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING) e2e = true; } catch (e) {}
+      if (e2e) {
+        try { console.log && console.log('E2EDBG: prepareEvidencePayload result', 'cipherLen=', (result.ciphertext||'').length, 'digest=', result.digest); } catch (e) {}
+      }
+    } catch (__) {}
+    return result;
   }
   // No encryption requested: compute digest over plaintext
   return { digest: computeDigestForText(payloadStr) };
