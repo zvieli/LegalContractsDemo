@@ -3,9 +3,26 @@ import { contract } from './contractInstance.js';
 import { computePayloadDigest } from '../utils/cidDigest';
 import { prepareEvidencePayload } from '../utils/evidence';
 
-// Read Vite env variables (VITE_ prefix) at runtime
-const EVIDENCE_ENDPOINT = import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT ? import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT : null;
-const ADMIN_PUB = import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY ? import.meta.env.VITE_ADMIN_PUBLIC_KEY : null;
+// Resolve Vite env variables but allow runtime overrides injected by Playwright into window.__ENV__
+function getEvidenceEndpoint() {
+  try {
+    if (import.meta && import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) return import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT;
+  } catch (e) {}
+  try {
+    if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_EVIDENCE_SUBMIT_ENDPOINT) return window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT;
+  } catch (e) {}
+  return null;
+}
+
+function getAdminPub() {
+  try {
+    if (import.meta && import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) return import.meta.env.VITE_ADMIN_PUBLIC_KEY;
+  } catch (e) {}
+  try {
+    if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_ADMIN_PUBLIC_KEY) return window.__ENV__.VITE_ADMIN_PUBLIC_KEY;
+  } catch (e) {}
+  return null;
+}
 
 // Evidence workflow: the frontend computes and submits a `bytes32` keccak256
 // digest of an off-chain evidence payload. The payload itself (encrypted
@@ -24,7 +41,9 @@ export async function reportRentDispute(id, evidencePayloadString = '', override
   try {
     const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
     // If the evidence endpoint + admin pub are configured in the frontend, submit ciphertext to endpoint first.
-    if (EVIDENCE_ENDPOINT && ADMIN_PUB) {
+    const runtimeEndpoint = getEvidenceEndpoint();
+    const runtimeAdmin = getAdminPub();
+    if (runtimeEndpoint && runtimeAdmin) {
       const digest = await submitEvidenceAndReport(id, payloadStr, overrides);
       return digest;
     }
@@ -44,26 +63,72 @@ export async function reportRentDispute(id, evidencePayloadString = '', override
  * - returns the digest
  */
 export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
-  if (!EVIDENCE_ENDPOINT || !ADMIN_PUB) throw new Error('Evidence endpoint or admin public key not configured');
+  const runtimeEndpoint = getEvidenceEndpoint();
+  const runtimeAdmin = getAdminPub();
+  if (!runtimeEndpoint || !runtimeAdmin) throw new Error('Evidence endpoint or admin public key not configured');
   // prepare (encrypt) payload
-  const { ciphertext, digest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: ADMIN_PUB });
+  const { ciphertext, digest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: runtimeAdmin });
 
   // POST ciphertext to endpoint
-  const endpointUrl = EVIDENCE_ENDPOINT.replace(/\/$/, '') + '/submit-evidence';
-  let res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
+  // Build endpoint URL robustly: the runtime endpoint may be a base URL (e.g. http://127.0.0.1:3001)
+  // or a full path (e.g. http://127.0.0.1:3001/submit-evidence). Normalize to a single
+  // final URL that ends with '/submit-evidence'. This avoids posting to '/submit-evidence/submit-evidence'.
+  let endpointUrl = String(runtimeEndpoint || '').trim();
+  if (endpointUrl.endsWith('/')) endpointUrl = endpointUrl.slice(0, -1);
+  if (!endpointUrl.toLowerCase().endsWith('/submit-evidence')) endpointUrl = endpointUrl + '/submit-evidence';
+  // E2E debug: surface the endpoint and payload in the browser console so Playwright traces capture it
+  const e2eFlag = (() => {
+    try { if (import.meta && import.meta.env && import.meta.env.VITE_E2E_TESTING) return true; } catch (e) {}
+    try { if (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING) return true; } catch (e) {}
+    return false;
+  })();
+  try { if (e2eFlag) console.log && console.log('E2EDBG: submitEvidenceAndReport POST', endpointUrl, 'admin=', String(runtimeAdmin).slice(0, 20), 'digest=', digest); } catch (e) {}
+  // E2E debug: print final fetch URL so traces show exactly where the POST goes
+  try { if (e2eFlag) console.log && console.log('E2EDBG: final evidence POST URL', endpointUrl); } catch (e) {}
+  // E2E debug: print request body length so we can spot empty/zero-length uploads
+  try { if (e2eFlag) console.log && console.log('E2EDBG: evidence POST body length', (ciphertext && ciphertext.length) || 0); } catch (e) {}
+  let res;
+  try {
+    res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
+  } catch (fetchErr) {
+    try { console.error && console.error('E2EDBG: evidence POST fetch failed', String(fetchErr)); } catch (e) {}
+    throw fetchErr;
+  }
+  // E2E debug: log response status and a short body preview (clone() so we don't consume the stream)
+  try {
+    if (e2eFlag && res) {
+      let text = '';
+      try { text = await res.clone().text().catch(() => ''); } catch (cloneErr) { text = '<clone failed>'; }
+      console.log && console.log('E2EDBG: evidence POST response', 'status=', res.status, 'bodyPreview=', String(text).slice(0, 1000));
+    }
+  } catch (e) { try { console.error && console.error('E2EDBG: response logging failed', String(e)); } catch (_) {} }
   // If the server rejects a submitted wrapper and returns adminPublicKey, re-encrypt locally and retry once
   if (!res.ok) {
-    // Try to parse JSON body for adminPublicKey
+    // Try to parse JSON body for adminPublicKey and log the failure for E2E traces
     let errBody = null;
-    try { errBody = await res.json(); } catch (e) { errBody = null; }
+    try {
+      errBody = await res.json();
+    } catch (e) {
+      try {
+        const txt = await res.text().catch(() => '');
+        if (e2eFlag) console.debug && console.debug('E2E: evidence POST non-json response body', txt.slice(0, 1000));
+      } catch (__) {}
+      errBody = null;
+    }
+  try { if (e2eFlag) console.log && console.log('E2EDBG: evidence POST initial response status', res.status, 'json=', errBody); } catch (e) {}
     if (res.status === 400 && errBody && errBody.adminPublicKey) {
       // Re-encrypt locally using returned adminPublicKey and resend
       try {
         const adminPub = errBody.adminPublicKey;
         const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: adminPub });
+        try {
+          const e2eFlag2 = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING);
+          if (e2eFlag2) console.log && console.log('E2EDBG: submitEvidenceAndReport RETRY POST', endpointUrl, 'digest=', newDigest);
+        } catch (e) {}
         res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: newCiphertext });
         if (!res.ok) {
           const tb = await res.text().catch(() => '');
+          try { console.error && console.error('E2EDBG: evidence endpoint retry non-ok', res.status, tb); } catch (_) {}
           throw new Error('evidence endpoint retry failed: ' + res.status + ' ' + tb);
         }
         const parsed = await res.json();
@@ -80,6 +145,7 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   }
   const body = await res.json();
   const returnedDigest = body && body.digest ? body.digest : digest;
+  try { const e2eFlag3 = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING); if (e2eFlag3) console.log && console.log('E2EDBG: evidence endpoint returned', returnedDigest, body && body.path); } catch (e) {}
 
   // Report on-chain
   await contract.reportDispute(id, returnedDigest, overrides);
@@ -372,7 +438,11 @@ export class ContractService {
 
   async getRentContract(contractAddress) {
     try {
-  return await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+      if (!contractAddress || typeof contractAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
+        console.warn('getRentContract called with invalid contractAddress:', contractAddress);
+        return null;
+      }
+      return await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
       throw error;
@@ -520,6 +590,12 @@ export class ContractService {
         // TemplateRentContract exposes `active()`
         (typeof rentContract.active === 'function' ? rentContract.active().catch(() => true) : Promise.resolve(true))
       ]);
+      // If landlord/tenant are not valid addresses, this is likely not a Rent contract
+      const isAddress = (a) => typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a);
+      if (!isAddress(landlord) || !isAddress(tenant)) {
+        if (!silent) console.debug('getRentContractDetails: landlord/tenant not valid addresses, treating as not a Rent contract', { landlord, tenant, contractAddress });
+        return null;
+      }
       // Cancellation policy and state (best-effort, older ABIs may not have these)
       const [requireMutualCancel, noticePeriod, earlyTerminationFeeBps, cancelRequested, cancelInitiator, cancelEffectiveAt] = await Promise.all([
         rentContract.requireMutualCancel?.().catch(() => false) ?? false,
@@ -1032,7 +1108,25 @@ export class ContractService {
    */
   async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '', options = {}) {
     try {
-  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+      // Defensive checks: ensure a valid contractAddress was provided before attempting to
+      // instantiate the TemplateRentContract. This prevents obscure TypeErrors from
+      // bubbling up when createContractInstanceAsync receives a null/undefined target.
+      if (!contractAddress) {
+        console.error('reportRentDispute called with empty contractAddress', { contractAddress });
+        throw new Error('contractAddress is required for reportRentDispute');
+      }
+      if (!/^0x[0-9a-fA-F]{40}$/.test(String(contractAddress))) {
+        console.error('reportRentDispute called with invalid contractAddress', { contractAddress });
+        throw new Error('Invalid contractAddress for reportRentDispute');
+      }
+      console.debug('reportRentDispute target:', contractAddress);
+      let rent;
+      try {
+        rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+      } catch (instErr) {
+        console.error('Failed to create TemplateRentContract instance for', contractAddress, instErr);
+        throw instErr;
+      }
       // Ensure caller is one of the parties recorded on-chain
       try {
         const [landlordAddr, tenantAddr, me] = await Promise.all([
@@ -1075,6 +1169,11 @@ export class ContractService {
                 const { ciphertext, digest } = await prepareEvidencePayload(evidence, { encryptToAdminPubKey: adminPub });
                 // POST ciphertext (or plaintext if encrypt not available) to endpoint
                 const body = ciphertext ? ciphertext : evidence;
+                // E2E debug: surface endpoint and body preview so Playwright traces capture it
+                try {
+                  const e2eFlag = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV__.VITE_E2E_TESTING);
+                  if (e2eFlag) console.debug && console.debug('E2E: inline evidence POST', submitEndpoint, String(body).slice(0,200));
+                } catch (e) {}
                 let resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
                 // If server rejects wrapper with adminPublicKey, re-encrypt locally using that adminPublicKey and retry once
                 if (resp && !resp.ok) {
@@ -1120,22 +1219,51 @@ export class ContractService {
               digestArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
             }
         }
-        const tx = await rent.reportDispute(disputeType, amount, digestArg, overrides);
-      const receipt = await tx.wait();
-      // Try to extract the caseId from emitted events
-      let caseId = null;
-      try {
-        for (const log of receipt.logs) {
+        // Debugging instrumentation: log signer, target code and calldata so we can
+        // diagnose CALL_EXCEPTION / missing revert data issues during E2E runs.
+        try {
+          const signerAddr = await this.signer.getAddress().catch(() => null);
+          console.debug('reportRentDispute: signerAddr=', signerAddr, 'target=', contractAddress, 'disputeType=', disputeType, 'amount=', String(amount), 'digest=', digestArg);
           try {
-            const parsed = rent.interface.parseLog(log);
-            if (parsed && parsed.name === 'DisputeReported') {
-              caseId = parsed.args[0]?.toString?.() ?? null;
-              break;
+            const code = await this.getCodeSafe(contractAddress);
+            console.debug('reportRentDispute: target contract code length=', code && code.length);
+          } catch (codeErr) {
+            console.warn('reportRentDispute: could not fetch target code', codeErr);
+          }
+          // Build calldata so we can attempt a low-level call for revert payload if the send fails
+          let calldata = null;
+          try {
+            calldata = rent.interface.encodeFunctionData('reportDispute', [disputeType, amount, digestArg]);
+            console.debug('reportRentDispute: calldata=', calldata.slice(0, 10) + '...');
+          } catch (encErr) {
+            console.warn('reportRentDispute: failed to encode calldata', encErr);
+          }
+
+          const tx = await rent.reportDispute(disputeType, amount, digestArg, overrides);
+          const receipt = await tx.wait();
+          return { receipt, caseId: (function(){ try{ for(const l of receipt.logs){ try{ const p = rent.interface.parseLog(l); if(p && p.name==='DisputeReported') return p.args[0]?.toString?.() ?? null; }catch(_){} } }catch(_){ } return null; })() };
+        } catch (sendErr) {
+          console.error('reportRentDispute: send failed', sendErr);
+          // Attempt a low-level eth_call to capture revert reason / data (may be available even when send fails)
+          try {
+            if (calldata && this.signer && this.signer.provider) {
+              const from = (await this.signer.getAddress().catch(()=>null)) || undefined;
+              const callObj = { to: contractAddress, data: calldata, from };
+              try {
+                const callRes = await this.signer.provider.call(callObj);
+                console.debug('reportRentDispute: provider.call returned', callRes);
+              } catch (callErr) {
+                // Some providers surface nested data objects
+                console.warn('reportRentDispute: provider.call failed', callErr?.data || callErr?.message || callErr);
+              }
             }
-          } catch (_) {}
+          } catch (probeErr) {
+            console.warn('reportRentDispute: low-level probe failed', probeErr);
+          }
+          // rethrow original error after instrumentation
+          throw sendErr;
         }
-      } catch (_) {}
-      return { receipt, caseId };
+      
     } catch (error) {
       console.error('Error reporting rent dispute:', error);
       throw error;
@@ -1457,7 +1585,11 @@ export class ContractService {
 
 async getNDAContract(contractAddress) {
   try {
-  return await createContractInstanceAsync('NDATemplate', contractAddress, this.signer);
+    if (!contractAddress || typeof contractAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
+      console.warn('getNDAContract called with invalid contractAddress:', contractAddress);
+      return null;
+    }
+    return await createContractInstanceAsync('NDATemplate', contractAddress, this.signer);
   } catch (error) {
     console.error('Error getting NDA contract:', error);
     throw error;
@@ -1672,8 +1804,34 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
     // include on-chain dispute fee if present
     let disputeFee = 0n;
     try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
-  const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
+  try {
+    const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
     return await tx.wait();
+  } catch (error) {
+    // Some browser providers (injected shims) hide revert payloads on estimateGas/send;
+    // attempt a low-level provider.call to extract the revert reason/data for debugging.
+    try {
+      const iface = nda.interface;
+      const calldata = iface.encodeFunctionData('reportBreach', [offender, requested, evidence]);
+      const from = this.signer ? await this.signer.getAddress() : undefined;
+      const provider = this.signer && this.signer.provider ? this.signer.provider : (this.provider || null);
+      if (provider && typeof provider.call === 'function') {
+        try {
+          const callResult = await provider.call({ to: contractAddress, data: calldata, from, value: disputeFee });
+          console.warn('Low-level provider.call returned (no revert):', callResult);
+        } catch (callErr) {
+          // provider.call may throw with revert data — surface it
+          console.error('Low-level provider.call error while probing revert:', callErr);
+          // attach probe info to the original error for visibility
+          try { error.probe = { callError: callErr && (callErr.message || callErr.reason || callErr.data) } } catch (_) {}
+        }
+      }
+    } catch (probeErr) {
+      console.error('Failed to probe revert with provider.call:', probeErr);
+    }
+    // rethrow original error (now possibly enriched)
+    throw error;
+  }
   } catch (error) {
     console.error('Error reporting breach:', error);
     throw error;

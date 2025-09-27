@@ -448,7 +448,7 @@ function Dashboard() {
                     <i className={`fas ${contract.type === 'Rental' ? 'fa-home' : 'fa-file-signature'}`}></i>
                     <span>{contract.type}</span>
                   </div>
-                  <div className={`contract-status ${contract.status.toLowerCase()}`}>
+                  <div className={`contract-status ${(contract.status || '').toLowerCase()}`}>
                     {contract.status}
                   </div>
                 </div>
@@ -457,7 +457,7 @@ function Dashboard() {
                   <div className="contract-parties">
                     <span className="label">Parties:</span>
                     <span className="value">
-                      {contract.parties[0]?.slice(0, 8)}... ↔ {contract.parties[1]?.slice(0, 8)}...
+                      {contract.parties?.[0]?.slice(0, 8) || ''}... ↔ {contract.parties?.[1]?.slice(0, 8) || ''}...
                     </span>
                   </div>
 

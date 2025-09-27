@@ -164,9 +164,43 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
   localApp.use(cors());
   localApp.use(bodyParser.json({ limit: '2mb' }));
 
+  // TESTING: early middleware to log incoming requests quickly for Playwright traces
+  if (process.env.TESTING) {
+    localApp.use((req, res, next) => {
+      try {
+        const method = req.method;
+        const url = req.originalUrl || req.url || '/';
+        const ip = req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
+        console.error('TESTING_EARLY_RECV=' + method + ' ' + url + ' ip=' + ip);
+      } catch (e) {}
+      try { next(); } catch (e) { next(e); }
+    });
+  }
+
   localApp.post('/submit-evidence', async (req, res) => {
     try {
       const payload = req.body;
+      // TESTING-only: log that we received the request (method, url, headers.content-type, body length)
+      try {
+        if (process.env.TESTING) {
+          const method = req.method;
+          const url = req.originalUrl || req.url || '/submit-evidence';
+          const ct = req.headers && (req.headers['content-type'] || req.headers['Content-Type']) ? (req.headers['content-type'] || req.headers['Content-Type']) : 'unknown';
+          let bodyLen = 0;
+          try { bodyLen = req.rawBody ? req.rawBody.length : (req.body ? JSON.stringify(req.body).length : 0); } catch (e) { bodyLen = 0; }
+          const ip = req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
+          console.error('TESTING_RECEIVED=' + method + ' ' + url + ' content-type=' + ct + ' bodyLen=' + bodyLen + ' ip=' + ip);
+          try {
+            // print a small preview of headers and body for debugging
+            const hdrs = Object.assign({}, req.headers);
+            const previewBody = (() => { try { return req.body ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : ''; } catch (e) { return ''; } })();
+            console.error('TESTING_HEADERS=' + JSON.stringify(hdrs));
+            console.error('TESTING_BODY_PREVIEW=' + (previewBody ? previewBody.slice(0, 1000) : '<empty>'));
+          } catch (e) {}
+        }
+      } catch (e) {}
+      // attach a finish listener to log response status when the handler completes
+      try { if (process.env.TESTING) res.on('finish', () => console.error('TESTING_RESPONSE_SENT status=' + res.statusCode + ' url=' + (req.originalUrl || req.url))); } catch (e) {}
       if (!payload) return res.status(400).json({ error: 'missing payload' });
 
       const canon = (obj) => {
@@ -268,6 +302,15 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     } catch (err) {
       console.error('submit-evidence error', err);
       return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Lightweight ping endpoint useful for Playwright to confirm connectivity from the browser
+  localApp.get('/ping', (req, res) => {
+    try {
+      return res.json({ ok: true, ts: Date.now() });
+    } catch (e) {
+      return res.status(500).json({ ok: false });
     }
   });
 

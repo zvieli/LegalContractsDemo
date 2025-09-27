@@ -142,6 +142,9 @@ export const getContractAddress = async (chainId, contractName) => {
 
 export const createContractInstance = (contractName, address, signerOrProvider) => {
   const abi = getContractABI(contractName);
+  if (!address || typeof address !== 'string' || !ethers.isAddress(address)) {
+    throw new Error(`createContractInstance: invalid contract address provided for ${contractName}: ${String(address)}`);
+  }
   return new ethers.Contract(address, abi, signerOrProvider);
 };
 
@@ -164,5 +167,8 @@ export const createContractInstanceAsync = async (contractName, address, signerO
   }
 
   const abi = getContractABI(contractName);
+  if (!address || typeof address !== 'string' || !ethers.isAddress(address)) {
+    throw new Error(`createContractInstanceAsync: invalid contract address provided for ${contractName}: ${String(address)}`);
+  }
   return new ethers.Contract(address, abi, signerOrProvider);
 };
