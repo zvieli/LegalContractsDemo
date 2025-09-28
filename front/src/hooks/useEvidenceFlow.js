@@ -12,7 +12,7 @@
  */
 
 import { useCallback } from 'react';
-import { utils as ethersUtils } from 'ethers';
+import { hexlify, keccak256 } from 'ethers';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -90,13 +90,13 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
     // If prepareEvidencePayload failed (e.g., eth-crypto not present), fall back to hashing raw payload
     if (onProgress) onProgress({ stage: 'compute_digest_error', error: e.message || String(e) });
     // Compute digest over rawPayload bytes
-    const dataU8 = toUint8ArrayFromUtf8(rawPayload || '');
-    const hex = ethersUtils.hexlify(dataU8);
-    const fallbackDigest = ethersUtils.keccak256(hex);
+  const dataU8 = toUint8ArrayFromUtf8(rawPayload || '');
+  const hex = hexlify(dataU8);
+  const fallbackDigest = keccak256(hex);
     prepResult = { digest: fallbackDigest };
   }
 
-  const digest = prepResult && prepResult.digest ? prepResult.digest : ethersUtils.keccak256(ethersUtils.hexlify(toUint8ArrayFromUtf8(String(rawPayload || ''))));
+  const digest = prepResult && prepResult.digest ? prepResult.digest : keccak256(hexlify(toUint8ArrayFromUtf8(String(rawPayload || ''))));
 
   // 2) ensure ciphertext is base64-encoded. If prepareEvidencePayload returned ciphertext
   // we will base64-encode its UTF-8 representation; otherwise base64-encode the raw payload.
