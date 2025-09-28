@@ -11,7 +11,8 @@ import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
 import { createContractInstanceAsync, getLocalDeploymentAddresses } from '../../utils/contracts';
 import './ResolveModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
-import { computeDigestForCiphertext } from '../../utils/evidence';
+import { computeDigestForCiphertext, prepareEvidencePayload } from '../../utils/evidence';
+import useEvidenceFlow from '../../hooks/useEvidenceFlow';
 
 function EvidencePanel({ initialEvidenceRef }) {
   // EvidencePanel now treats the passed value as a generic evidence reference
@@ -85,6 +86,65 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
   const [fetchStatusMessage, setFetchStatusMessage] = useState(null);
   const [fetchedUrl, setFetchedUrl] = useState(null);
+  // evidenceProgress: { stage: 'idle'|'preparing'|'uploading'|'tx'|'register', status: 'pending'|'success'|'failed', cid?, txHash?, message? }
+  const [evidenceProgress, setEvidenceProgress] = useState({ stage: 'idle', status: 'pending' });
+
+  // Evidence endpoint and admin pub (runtime-configurable)
+  const apiBase = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || '';
+  const adminPub = (import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_ADMIN_PUBLIC_KEY) || '';
+
+  // submitToContract: used by useEvidenceFlow to perform the on-chain finalize/applyResolution step.
+  const submitToContract = React.useCallback(async ({ digest: dg }) => {
+    // Reuse the same on-chain finalization logic that handleSubmit uses.
+    try {
+      const svc = new ContractService(signer, chainId);
+      // find arbitration service address
+      let arbAddr = null;
+      try {
+        const rent = await svc.getRentContract(contractAddress);
+        arbAddr = await rent.arbitrationService().catch(() => null);
+      } catch (_) { arbAddr = null; }
+
+      if (!arbAddr || arbAddr === '0x0000000000000000000000000000000000000000') {
+        try {
+          const local = await getLocalDeploymentAddresses();
+          arbAddr = local?.ArbitrationService || null;
+        } catch (_) { arbAddr = null; }
+      }
+
+      if (!arbAddr) throw new Error('No ArbitrationService configured. Cannot finalize on-chain.');
+
+      // Authorization preflight
+      try {
+        const svc2 = new ContractService(signer, chainId);
+        const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, signer.provider || signer);
+        const ownerAddr = await arbRead.owner().catch(() => null);
+        const factoryAddr = await arbRead.factory().catch(() => null);
+        const me = (await signer.getAddress?.()).toLowerCase();
+        const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
+        if (!allowed) throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
+      } catch (authErr) {
+        throw authErr;
+      }
+
+      // Perform the resolution via ArbitrationService. Use applyResolutionToTargetViaService for dispute payments, otherwise finalizeCancellationViaService.
+      const svc2 = new ContractService(signer, chainId);
+      if (disputeInfo && disputeInfo.requestedAmountWei > 0n) {
+        let forwardWei = 0n;
+        try { forwardWei = forwardEth && Number(forwardEth) > 0 ? ethers.parseEther(String(forwardEth)) : 0n; } catch (_) { forwardWei = 0n; }
+        const tx = await svc2.applyResolutionToTargetViaService(arbAddr, contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
+        return tx;
+      } else {
+        const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
+        const tx = await svc2.finalizeCancellationViaService(arbAddr, contractAddress, feeToSend);
+        return tx;
+      }
+    } catch (e) {
+      throw e;
+    }
+  }, [signer, chainId, contractAddress, disputeInfo, forwardEth, requiredFeeWei]);
+
+  const { uploadAndSubmit } = useEvidenceFlow({ submitToContract, apiBaseUrl: apiBase });
 
   // Enable admin decrypt only when explicitly allowed via environment (demo/dev only)
   const ENABLE_ADMIN_DECRYPT = (import.meta.env && String(import.meta.env.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true') || (typeof window !== 'undefined' && window.__ENV__ && String(window.__ENV__.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true');
@@ -436,10 +496,69 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
     e.preventDefault();
     setSubmitting(true);
     try {
+      // Evidence upload flow: if rationale present and evidence endpoint/admin pub configured,
+      // prepare ciphertext, upload to /submit-evidence, call contract.reportDispute, wait for tx and register.
+      // This uses the useEvidenceFlow hook which handles retries and progress callbacks.
+      const apiBase = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || '';
+      const adminPub = (import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_ADMIN_PUBLIC_KEY) || '';
+      let evidenceFinalized = false;
+      let uploadResult = null;
+      // If we have a rationale string and an evidence endpoint+admin public key, attempt the upload+onchain report
+          if (rationale && String(rationale || '').trim().length > 0 && apiBase && adminPub) {
+        try {
+          setEvidenceProgress({ stage: 'preparing', status: 'pending' });
+          // Delegate preparation and encoding to the useEvidenceFlow hook. Pass plaintext rationale
+          // and let the hook handle encryption (if requested) and base64 encoding.
+          const result = await uploadAndSubmit(rationale, { reporterAddress: account || undefined, contractAddress, note: 'resolution rationale', encryptToAdminPubKey: adminPub, timestamp: Date.now(), onProgress: (s) => {
+              try {
+                // Map hook stages to structured progress
+                switch (s.stage) {
+                  case 'compute_digest':
+                  case 'upload_start':
+                    setEvidenceProgress({ stage: 'uploading', status: 'pending' });
+                    break;
+                  case 'upload_success':
+                    setEvidenceProgress({ stage: 'uploading', status: 'success', cid: s.cid, digest: s.digest });
+                    break;
+                  case 'tx_send':
+                    setEvidenceProgress(prev => ({ ...(prev||{}), stage: 'tx', status: 'pending' }));
+                    break;
+                  case 'tx_pending':
+                    setEvidenceProgress(prev => ({ ...(prev||{}), stage: 'tx', status: 'pending', txHash: s.txHash }));
+                    break;
+                  case 'tx_mined':
+                    setEvidenceProgress(prev => ({ ...(prev||{}), stage: 'tx', status: 'success', txHash: s.receipt && s.receipt.transactionHash ? s.receipt.transactionHash : prev && prev.txHash }));
+                    break;
+                  case 'register_start':
+                    setEvidenceProgress(prev => ({ ...(prev||{}), stage: 'register', status: 'pending', txHash: s.txHash, cid: s.cid }));
+                    break;
+                  case 'register_done':
+                    setEvidenceProgress(prev => ({ ...(prev||{}), stage: 'register', status: 'success', entry: s.entry, txHash: prev && prev.txHash, cid: prev && prev.cid }));
+                    break;
+                  case 'tx_failed':
+                  case 'tx_error':
+                  case 'register_error':
+                    setEvidenceProgress(prev => ({ ...(prev||{}), stage: s.stage || 'error', status: 'failed', message: s.error || s.message }));
+                    break;
+                  default:
+                    // store raw
+                    setEvidenceProgress(prev => ({ ...(prev||{}), message: JSON.stringify(s) }));
+                }
+              } catch (e) { /* ignore progress handler errors */ }
+            } });
+          setEvidenceProgress(prev => ({ ...(prev||{}), stage: 'register', status: 'success' }));
+          uploadResult = result;
+          evidenceFinalized = true;
+        } catch (evidenceErr) {
+          console.warn('Evidence upload/report failed', evidenceErr);
+          try { alert('Evidence upload or on-chain report failed: ' + (evidenceErr?.message || evidenceErr)); } catch(_) {}
+        }
+      }
+
       const svc = new ContractService(signer, chainId);
       // For cancellation flow we finalize via service; fee is 0 here.
       // Decision semantics: approve => finalize cancellation, deny => do nothing on-chain
-      if (decision === 'approve') {
+  if (decision === 'approve') {
         // try to read arbitrationService from frontend artifacts or contract
         let arbAddr = null;
         try {
@@ -487,17 +606,21 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
             setSubmitting(false);
             return;
           }
-          if (disputeInfo && disputeInfo.requestedAmountWei > 0n) {
+          if (!evidenceFinalized) {
+            if (disputeInfo && disputeInfo.requestedAmountWei > 0n) {
             // Convert forwardEth to wei bigint if provided
             let forwardWei = 0n;
             try {
               forwardWei = forwardEth && Number(forwardEth) > 0 ? ethers.parseEther(String(forwardEth)) : 0n;
             } catch (_) { forwardWei = 0n; }
             await svc2.applyResolutionToTargetViaService(arbAddr, contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
-          } else {
+            } else {
             // Otherwise treat as cancellation finalize and forward early-termination fee if required
             const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
             await svc2.finalizeCancellationViaService(arbAddr, contractAddress, feeToSend);
+          }
+          } else {
+            // Evidence flow already finalized on-chain via uploadAndSubmit (submitToContract). Skip duplicate finalize.
           }
 
           // After on-chain confirmation, attempt to read the canonical on-chain rationale via getDisputeMeta
@@ -601,6 +724,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
                   value={rationale}
                   onChange={(e) => setRationale(e.target.value)}
                   placeholder="Enter rationale (this will be recorded with the resolution)"
+                  data-testid="resolve-rationale"
                   style={{width:'100%', boxSizing:'border-box'}}
                 />
               </div>
@@ -847,12 +971,46 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
               </div>
             </div>
           )}
-          <div style={{marginTop:12, display:'flex', justifyContent:'flex-end'}}>
-            <button type="button" className="btn-sm" onClick={onClose} disabled={submitting}>Cancel</button>
+          <div style={{marginTop:12, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+            <div style={{flex:1}}>
+              {evidenceProgress && evidenceProgress.stage !== 'idle' ? (
+                <div style={{fontSize:13, color:'#333'}}>
+                  <strong>Evidence progress</strong>
+                  <div style={{marginTop:6, display:'flex', gap:12, alignItems:'center'}}>
+                    <div style={{display:'flex', flexDirection:'column', gap:6}}>
+                      <div>1. Upload: <span style={{marginLeft:8, color: evidenceProgress.stage === 'uploading' ? '#0a66ff' : (evidenceProgress.stage !== 'uploading' && evidenceProgress.cid ? '#0a8a00' : '#888')}}>{evidenceProgress.stage === 'uploading' ? 'Uploading...' : (evidenceProgress.cid ? 'Uploaded' : 'Pending')}</span></div>
+                      <div>2. Tx: <span style={{marginLeft:8, color: evidenceProgress.stage === 'tx' ? '#0a66ff' : (evidenceProgress.txHash ? '#0a8a00' : '#888')}}>{evidenceProgress.stage === 'tx' ? 'Submitting tx...' : (evidenceProgress.txHash ? 'Mined' : 'Pending')}</span></div>
+                      <div>3. Register: <span style={{marginLeft:8, color: evidenceProgress.stage === 'register' ? '#0a66ff' : (evidenceProgress.status === 'success' ? '#0a8a00' : '#888')}}>{evidenceProgress.stage === 'register' ? 'Registering...' : (evidenceProgress.status === 'success' ? 'Registered' : 'Pending')}</span></div>
+                    </div>
+                    <div style={{display:'flex', flexDirection:'column', gap:6, marginLeft:12}}>
+                      {evidenceProgress.cid && (
+                        <div style={{fontSize:12}}>
+                          CID: <a href={`https://ipfs.io/ipfs/${String(evidenceProgress.cid)}`} target="_blank" rel="noreferrer">{String(evidenceProgress.cid)}</a>
+                        </div>
+                      )}
+                      {evidenceProgress.txHash && (
+                        <div style={{fontSize:12}}>
+                          Tx: <a href={`http://127.0.0.1:8545/tx/${String(evidenceProgress.txHash)}`} target="_blank" rel="noreferrer">{String(evidenceProgress.txHash)}</a>
+                        </div>
+                      )}
+                      {evidenceProgress.message && (
+                        <div style={{fontSize:12, color:'#a33'}}>Note: {evidenceProgress.message}</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{fontSize:12, color:'#888'}}>No evidence activity</div>
+              )}
+            </div>
+            <div>
+              <button type="button" className="btn-sm" onClick={onClose} disabled={submitting}>Cancel</button>
+            </div>
             <button
               type="submit"
               className="btn-sm primary"
               style={{marginLeft:8}}
+              data-testid="resolve-submit-btn"
               disabled={
                 submitting || (
                   // If approving a dispute that includes a payment, require explicit confirmation

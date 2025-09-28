@@ -250,15 +250,17 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     console.log('ADMIN_PRIVATE_KEY available on server: ' + (ADMIN_PRIV ? 'yes (using file or env)' : 'no'));
   } catch (e) {}
 
-  // wire up app routes (use same app instance defined above)
-  // Note: we re-create a new Express app here to avoid cross-test state
-  const localApp = express();
-  localApp.use(cors());
-  localApp.use(bodyParser.json({ limit: '2mb' }));
+  // Use a single exported Express app instance so other modules can reuse it.
+  // Exported app is created once and routes are attached to it.
+  if (!global.__evidence_exported_app) global.__evidence_exported_app = express();
+  const exportedApp = global.__evidence_exported_app;
+  // attach CORS and JSON body parsing (increase payload limit for file uploads)
+  exportedApp.use(cors());
+  exportedApp.use(bodyParser.json({ limit: '20mb' }));
 
   // TESTING: early middleware to log incoming requests quickly for Playwright traces
   if (process.env.TESTING) {
-    localApp.use((req, res, next) => {
+    exportedApp.use((req, res, next) => {
       try {
         const method = req.method;
         const url = req.originalUrl || req.url || '/';
@@ -269,7 +271,64 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     });
   }
 
-  localApp.post('/submit-evidence', async (req, res) => {
+  // Utility: persistent simple index for local storage fallback
+  const STORAGE_DIR = path.resolve(__dirname, '..', 'evidence_storage');
+  const INDEX_FILE = path.join(STORAGE_DIR, 'index.json');
+  function ensureStorage() {
+    ensureDir(STORAGE_DIR);
+    if (!fs.existsSync(INDEX_FILE)) fs.writeFileSync(INDEX_FILE, JSON.stringify({ entries: [] }, null, 2));
+  }
+  function saveIndex(entry) {
+    try {
+      const raw = fs.readFileSync(INDEX_FILE, 'utf8');
+      const json = JSON.parse(raw || '{"entries":[]}');
+      json.entries.unshift(entry);
+      fs.writeFileSync(INDEX_FILE, JSON.stringify(json, null, 2));
+    } catch (e) {
+      // best-effort: write fresh file
+      fs.writeFileSync(INDEX_FILE, JSON.stringify({ entries: [entry] }, null, 2));
+    }
+  }
+
+  function base64ToBuffer(b64) { return Buffer.from(b64, 'base64'); }
+
+  async function storeLocal(buf, filename) {
+    const dest = path.join(STORAGE_DIR, filename);
+    fs.writeFileSync(dest, buf);
+    return { cid: `file://${dest}`, uri: `file://${dest}` };
+  }
+
+  async function storeToHeliaOrLocal(buf, filename, app) {
+    // prefer Helia runtime if available (app.locals.heliaRuntime or heliaRuntime global)
+    const heliaLocal = (app && app.locals && app.locals.heliaRuntime) ? app.locals.heliaRuntime : heliaRuntime;
+    if (heliaLocal) {
+      try {
+        const data = (uint8arrays && uint8arrays.fromString) ? uint8arrays.fromString(buf.toString('utf8'), 'utf8') : buf;
+        // try multiple unixfs APIs
+        if (heliaLocal.ufs && typeof heliaLocal.ufs.addBytes === 'function') {
+          const cid = await heliaLocal.ufs.addBytes(data);
+          return { cid: cid.toString(), uri: `ipfs://${cid.toString()}` };
+        } else if (heliaLocal.ufs && typeof heliaLocal.ufs.add === 'function') {
+          const out = await heliaLocal.ufs.add(data);
+          if (out) return { cid: out.cid.toString(), uri: `ipfs://${out.cid.toString()}` };
+        } else if (heliaLocal.ufs && typeof heliaLocal.ufs.addAll === 'function') {
+          for await (const item of heliaLocal.ufs.addAll([{ content: data }])) {
+            if (item && item.cid) return { cid: item.cid.toString(), uri: `ipfs://${item.cid.toString()}` };
+          }
+        } else if (heliaLocal.node && heliaLocal.node.block && typeof heliaLocal.node.block.put === 'function') {
+          const p = await heliaLocal.node.block.put(data);
+          if (p && p.cid) return { cid: p.cid.toString(), uri: `ipfs://${p.cid.toString()}` };
+        }
+      } catch (e) {
+        console.warn('Helia storage failed, falling back to local:', e && e.message ? e.message : e);
+      }
+    }
+    // fallback
+    return await storeLocal(buf, filename);
+  }
+
+  // merge-in /submit-evidence route (improved: digest verification + Helia fallback + no decryption)
+  exportedApp.post('/submit-evidence', async (req, res) => {
     try {
       const payload = req.body;
       // TESTING-only: log that we received the request (method, url, headers.content-type, body length)
@@ -300,224 +359,87 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         if (Array.isArray(obj)) return '[' + obj.map(canon).join(',') + ']';
         return '{' + Object.keys(obj).sort().map(k => JSON.stringify(k) + ':' + canon(obj[k])).join(',') + '}';
       };
+      // Validate input: accept either a base64 ciphertext field or a canonical cipher JSON wrapper
+        const providedDigest = payload && payload.digest ? String(payload.digest) : null;
+        const base64Cipher = payload && payload.ciphertext ? payload.ciphertext : null;
+        const wrapper = payload && payload.version && payload.crypto && typeof payload.crypto === 'object' ? payload : null;
 
-      // Require an admin public key to be configured. We will not accept raw plaintext nor accept
-      // uploads when ADMIN_PUB is not set. This prevents accidental storage under ephemeral keys.
-      if (!ADMIN_PUB) {
-        return res.status(400).json({ error: 'ADMIN_PUBLIC_KEY not configured on the server. Configure ADMIN_PUBLIC_KEY or ADMIN_PRIVATE_KEY_FILE to accept evidence uploads.' });
-      }
+        if (!providedDigest) return res.status(400).json({ error: 'digest required (0x.. bytes32)' });
 
-      // If client supplied an already-encrypted wrapper { version: '1', crypto: { ... } }, validate it
-      // when the server holds the admin private key. Otherwise encrypt the provided plaintext with ADMIN_PUB.
-      let ciphertextJson;
-      const isWrapper = payload && typeof payload === 'object' && payload.version && payload.crypto && typeof payload.crypto === 'object';
-      if (isWrapper) {
-        // If server has admin private key, attempt to decrypt to ensure the wrapper targets our admin key.
-        if (ADMIN_PRIV) {
+        // Compute server digest depending on input form.
+        let serverDigest = null;
+        if (base64Cipher) {
+          // client provided raw ciphertext bytes (base64) — compute keccak256 over raw bytes
+          const buf = base64ToBuffer(base64Cipher);
+          serverDigest = (require('ethers').utils || require('ethers')).keccak256(buf);
+        } else if (wrapper) {
+          // compute canonical JSON digest (legacy form)
+          const canonical = canon(wrapper);
           try {
-            await EthCrypto.decryptWithPrivateKey(ADMIN_PRIV, payload.crypto);
-            // decryption succeeded -> wrapper is valid for this admin key
-            ciphertextJson = payload;
+            serverDigest = require('ethers').utils ? require('ethers').utils.keccak256(require('ethers').utils.toUtf8Bytes(canonical)) : keccak256(toUtf8Bytes(canonical));
           } catch (e) {
-            console.error('Wrapper decryption failed with server admin private key; rejecting upload.');
-            // Provide admin public key in response so client can re-encrypt to the correct admin key
-            const adminPubFull = ADMIN_PUB && ADMIN_PUB.startsWith('0x') ? ADMIN_PUB : (ADMIN_PUB ? '0x' + ADMIN_PUB : null);
-            return res.status(400).json({ error: 'ciphertext wrapper not encrypted for this admin key', adminPublicKey: adminPubFull });
+            const ethers = require('ethers');
+            serverDigest = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(canonical));
           }
         } else {
-          // If the server does NOT have the private key, do NOT silently accept an arbitrary wrapper.
-          // Instead, reject the upload and return the admin public key so the client can re-encrypt.
-          console.error('Server does not have admin private key; rejecting ciphertext wrapper uploads.');
-          const adminPubFull = ADMIN_PUB && ADMIN_PUB.startsWith('0x') ? ADMIN_PUB : (ADMIN_PUB ? '0x' + ADMIN_PUB : null);
-          return res.status(400).json({ error: 'server_missing_admin_private_key', adminPublicKey: adminPubFull });
+          // fallback: if payload is string/plaintext provided directly, hash UTF-8 bytes
+          const txt = typeof payload === 'string' ? payload : JSON.stringify(payload);
+          const ethers = require('ethers');
+          serverDigest = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(txt));
         }
-      } else {
-  const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  // use top-level normalizePublicKeyToBuffer (exported at module level)
 
-  let encrypted;
-  let usedPubForm = 'buffer-04-first';
-  try {
-  const normalizedBuf = normalizePublicKeyToBuffer(ADMIN_PUB);
-    // Try Buffer/Uint8Array form first (secp256k1 libs expect raw bytes)
-    encrypted = await EthCrypto.encryptWithPublicKey(normalizedBuf, plaintext);
-  } catch (e) {
-    // If Buffer form fails, fall back to hex-string form for compatibility with some eth-crypto versions
-    try {
-      const pubWith0x = ADMIN_PUB.startsWith('0x') ? ADMIN_PUB : '0x' + ADMIN_PUB;
-      let pubNorm = pubWith0x.replace(/^0x/, '');
-      if (pubNorm.length === 128 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm;
-      if (pubNorm.length === 130 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm;
-      usedPubForm = 'normalized-0x04-hex-fallback';
-      encrypted = await EthCrypto.encryptWithPublicKey(pubNorm, plaintext);
-    } catch (e2) {
-      console.error('Encryption failed with both Buffer and hex public key forms:', e && e.message ? e.message : e, e2 && e2.message ? e2.message : e2);
-      try { console.error('PUB_DEBUG adminPubRaw=' + (ADMIN_PUB || '<none>')); } catch (ee) {}
-      throw e2;
-    }
-  }
-        ciphertextJson = { version: '1', crypto: encrypted };
-        // TESTING: which pub form was used
-        try { if (process.env && process.env.TESTING) console.error('TESTING_ENCRYPT_PUB_FORM=' + usedPubForm); } catch (e) {}
-        // TESTING: log shapes of the generated cipher components to help trace Bad MAC issues
+        if (serverDigest !== providedDigest) {
+          return res.status(400).json({ error: 'digest_mismatch', serverDigest, providedDigest });
+        }
+
+        // store the raw data: prefer Helia if available, otherwise local storage. Do NOT decrypt.
+        ensureStorage();
+        const filename = `${Date.now()}-${serverDigest.replace(/^0x/, '')}.bin`;
+        let storeResult = null;
         try {
-          if (process.env && process.env.TESTING) {
-            const c = encrypted || {};
-            const diag = {
-              ephemPublicKeyPrefix: c.ephemPublicKey ? String(c.ephemPublicKey).slice(0,8) : null,
-              ephemPublicKeyLen: c.ephemPublicKey ? String(c.ephemPublicKey).length : null,
-              ivLen: c.iv ? String(c.iv).length : null,
-              ciphertextLen: c.ciphertext ? String(c.ciphertext).length : null,
-              macLen: c.mac ? String(c.mac).length : null
-            };
-            console.error('TESTING_ENCRYPT_DIAG=' + JSON.stringify(diag));
-          }
-        } catch (e) {}
-      }
-
-      try {
-        const Ajv = require('ajv');
-        const ajv = new Ajv();
-        const schema = {
-          type: 'object',
-          properties: {
-            version: { type: 'string' },
-            crypto: {
-              type: 'object',
-              properties: {
-                ephemPublicKey: { type: 'string' },
-                iv: { type: 'string' },
-                ciphertext: { type: 'string' },
-                mac: { type: 'string' }
-              },
-              required: ['ephemPublicKey','iv','ciphertext','mac']
-            }
-          },
-          required: ['version','crypto']
-        };
-        const valid = ajv.validate(schema, ciphertextJson);
-        if (!valid) {
-          console.error('Ciphertext schema validation failed:', ajv.errors);
-          return res.status(500).json({ error: 'ciphertext schema validation failed' });
-        }
-      } catch (e) {
-        console.warn('Schema validation skipped (ajv error):', e && e.message ? e.message : e);
-      }
-
-      // Normalize the crypto hex fields to deterministic forms before canonicalizing:
-      try {
-        if (ciphertextJson && ciphertextJson.crypto && typeof ciphertextJson.crypto === 'object') {
-          const c = ciphertextJson.crypto;
-          ['ephemPublicKey','iv','ciphertext','mac'].forEach(k => {
-            if (c[k] != null) {
-              let raw = c[k];
-              let s = '';
-              try {
-                // Buffer instance
-                if (Buffer.isBuffer(raw)) {
-                  s = raw.toString('hex');
-                } else if (raw && typeof raw === 'object' && raw.type === 'Buffer' && Array.isArray(raw.data)) {
-                  // JSON-serialized Buffer (from some libraries)
-                  s = Buffer.from(raw.data).toString('hex');
-                } else if (raw instanceof Uint8Array) {
-                  s = Buffer.from(raw).toString('hex');
-                } else {
-                  s = String(raw);
-                }
-              } catch (e) {
-                s = String(raw);
-              }
-              s = s.trim();
-              if (s.startsWith('0x')) s = s.slice(2);
-              s = s.toLowerCase();
-              // ensure ephemPublicKey has uncompressed 04 prefix when it's the 128-char x||y form
-              if (k === 'ephemPublicKey') {
-                if (s.length === 128 && !s.startsWith('04')) s = '04' + s;
-                if (s.length % 2 === 1) s = '0' + s;
-              }
-              c[k] = s;
-            }
-          });
-          // TESTING: log normalized cipher shapes
-          try { if (process.env && process.env.TESTING) {
-            const diag = {
-              ephemPublicKeyPrefix: ciphertextJson.crypto.ephemPublicKey ? String(ciphertextJson.crypto.ephemPublicKey).slice(0,8) : null,
-              ephemPublicKeyLen: ciphertextJson.crypto.ephemPublicKey ? String(ciphertextJson.crypto.ephemPublicKey).length : null,
-              ivLen: ciphertextJson.crypto.iv ? String(ciphertextJson.crypto.iv).length : null,
-              ciphertextLen: ciphertextJson.crypto.ciphertext ? String(ciphertextJson.crypto.ciphertext).length : null,
-              macLen: ciphertextJson.crypto.mac ? String(ciphertextJson.crypto.mac).length : null
-            };
-            console.error('TESTING_CANONICAL_CIPHER_NORMALIZED=' + JSON.stringify(diag));
-          } } catch (e) {}
-        }
-      } catch (e) {}
-
-      const canonical = canon(ciphertextJson);
-      let digest;
-      try {
-        digest = require('ethers').keccak256 ? require('ethers').keccak256(require('ethers').toUtf8Bytes(canonical)) : keccak256(toUtf8Bytes(canonical));
-      } catch (e) {
-        const ethers = require('ethers');
-        digest = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(canonical));
-      }
-
-      const fileName = digest.replace(/^0x/, '') + '.json';
-      const filePath = path.join(staticDirLocal, fileName);
-  fs.writeFileSync(filePath, canonical, 'utf8');
-  try { if (process.env && process.env.TESTING) console.error('TESTING_CANONICAL=' + canonical.slice(0,1000)); } catch (e) {}
-
-        // Publish canonical JSON using embedded Helia (no fallback allowed)
-        let ipfsCid = null;
-        let ipfsUri = null;
-        try {
-          // prefer helia runtime attached to the express app (req.app.locals) for in-process usage
-          const heliaLocal = (req && req.app && req.app.locals && req.app.locals.heliaRuntime) ? req.app.locals.heliaRuntime : heliaRuntime;
-          if (!useHelia || !heliaLocal) throw new Error('Helia not initialized');
-          const data = uint8arrays.fromString(canonical, 'utf8');
-          // try unixfs addBytes if available
-          if (heliaLocal.ufs && typeof heliaLocal.ufs.addBytes === 'function') {
-            const cid = await heliaLocal.ufs.addBytes(data);
-            ipfsCid = cid && cid.toString ? cid.toString() : String(cid);
-          } else if (heliaLocal.ufs && typeof heliaLocal.ufs.add === 'function') {
-            const out = await heliaLocal.ufs.add(data);
-            if (out) ipfsCid = (out.cid && out.cid.toString) ? out.cid.toString() : String(out);
-          } else if (heliaLocal.ufs && typeof heliaLocal.ufs.addAll === 'function') {
-            for await (const item of heliaLocal.ufs.addAll([{ content: data }])) {
-              if (item) ipfsCid = (item.cid && item.cid.toString) ? item.cid.toString() : String(item);
-            }
-          } else if (heliaLocal.node && heliaLocal.node.block && typeof heliaLocal.node.block.put === 'function') {
-            const p = await heliaLocal.node.block.put(data);
-            if (p && p.cid) ipfsCid = p.cid.toString();
+          if (base64Cipher) {
+            const buf = base64ToBuffer(base64Cipher);
+            storeResult = await storeToHeliaOrLocal(buf, filename, exportedApp);
+          } else if (wrapper) {
+            const canonical = canon(wrapper);
+            const buf = Buffer.from(canonical, 'utf8');
+            storeResult = await storeToHeliaOrLocal(buf, filename, exportedApp);
           } else {
-            throw new Error('no known Helia unixfs API available');
+            const txt = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            const buf = Buffer.from(txt, 'utf8');
+            storeResult = await storeToHeliaOrLocal(buf, filename, exportedApp);
           }
-          if (!ipfsCid) throw new Error('failed to obtain CID from Helia');
-          ipfsUri = 'ipfs://' + ipfsCid;
-          if (process.env.TESTING) console.error('TESTING_IPFS_ADDED=' + ipfsCid + '->' + filePath + ' (helia)');
-        } catch (ipfsErr) {
-          // Helia publish failed. Since this endpoint is required to publish to Helia,
-          // surface the failure (500) so tests and callers can observe and fix the
-          // underlying Helia issue instead of silently continuing.
-          const msg = ipfsErr && ipfsErr.message ? ipfsErr.message : String(ipfsErr);
-          console.error('Helia publish failed (fatal):', msg);
-          try { if (process.env && process.env.TESTING) console.error('TESTING_IPFS_PUBLISH_FAILED=' + msg); } catch (e) {}
-          throw ipfsErr;
+        } catch (e) {
+          // fallback to local storage on error
+          try { ensureStorage(); } catch (e2) {}
+          if (base64Cipher) {
+            const buf = base64ToBuffer(base64Cipher);
+            storeResult = await storeLocal(buf, filename);
+          } else if (wrapper) {
+            const canonical = canon(wrapper);
+            const buf = Buffer.from(canonical, 'utf8');
+            storeResult = await storeLocal(buf, filename);
+          } else {
+            const txt = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            const buf = Buffer.from(txt, 'utf8');
+            storeResult = await storeLocal(buf, filename);
+          }
         }
 
-      // TESTING-only logging: print which public key was used and which file/digest were written
-      try {
-        if (process.env.TESTING) {
-          console.error('TESTING_ADMIN_PUB=' + ADMIN_PUB);
-          console.error('TESTING_WRITTEN=' + digest + '->' + filePath);
-        }
-      } catch (e) {}
+        // record metadata in index
+        const entry = {
+          digest: serverDigest,
+          cid: storeResult.cid,
+          uri: storeResult.uri,
+          reporterAddress: payload.reporterAddress || null,
+          contractAddress: payload.contractAddress || null,
+          note: payload.note || null,
+          encryption: payload.encryption || null,
+          timestamp: payload.timestamp || new Date().toISOString()
+        };
+        saveIndex(entry);
 
-  // Include IPFS CID/URI when available so clients can pass the URI on-chain
-  const responseBody = { digest, path: `/static/${fileName}`, file: filePath };
-  if (ipfsCid) responseBody.ipfsCid = ipfsCid;
-  if (ipfsUri) responseBody.ipfsUri = ipfsUri;
-  if (typeof ipfsErrorMsg !== 'undefined' && ipfsErrorMsg) responseBody.ipfsError = ipfsErrorMsg;
-  return res.json(responseBody);
+    return res.json({ success: true, cid: storeResult.cid, uri: storeResult.uri, digest: serverDigest });
     } catch (err) {
       try { if (process.env && process.env.TESTING) console.error('TESTING_SUBMIT_ERROR=' + (err && err.stack ? err.stack : String(err))); } catch (e) {}
       console.error('submit-evidence error', err && err.stack ? err.stack : err);
@@ -526,24 +448,48 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
   });
 
   // Lightweight ping endpoint useful for Playwright to confirm connectivity from the browser
-  localApp.get('/ping', (req, res) => {
-    try {
-      return res.json({ ok: true, ts: Date.now() });
-    } catch (e) {
-      return res.status(500).json({ ok: false });
-    }
+  exportedApp.get('/ping', (req, res) => {
+    try { return res.json({ ok: true, ts: Date.now() }); } catch (e) { return res.status(500).json({ ok: false }); }
   });
 
-  localApp.get('/health', (req, res) => res.json({ ok: true, staticDir: staticDirLocal }));
+  exportedApp.get('/health', (req, res) => res.json({ ok: true, staticDir: staticDirLocal }));
+
+  // register-dispute endpoint to link txHash to existing digest/cid
+  exportedApp.post('/register-dispute', async (req, res) => {
+    try {
+      const { txHash, digest, cid, contractAddress, reporterAddress } = req.body || {};
+      if (!txHash || !digest) return res.status(400).json({ error: 'txHash and digest required' });
+      ensureStorage();
+      const raw = fs.readFileSync(INDEX_FILE, 'utf8');
+      const json = JSON.parse(raw || '{"entries":[]}');
+      const idx = json.entries.findIndex(e => e.digest === digest);
+      if (idx >= 0) {
+        json.entries[idx].txHash = txHash;
+        json.entries[idx].registeredAt = new Date().toISOString();
+        if (cid) json.entries[idx].cid = cid;
+        if (contractAddress) json.entries[idx].contractAddress = contractAddress;
+        if (reporterAddress) json.entries[idx].reporterAddress = reporterAddress;
+        fs.writeFileSync(INDEX_FILE, JSON.stringify(json, null, 2));
+        return res.json({ success: true, entry: json.entries[idx] });
+      }
+      const newEntry = { digest, txHash, cid: cid || null, contractAddress: contractAddress || null, reporterAddress: reporterAddress || null, registeredAt: new Date().toISOString() };
+      json.entries.unshift(newEntry);
+      fs.writeFileSync(INDEX_FILE, JSON.stringify(json, null, 2));
+      return res.json({ success: true, entry: newEntry });
+    } catch (err) {
+      console.error('register-dispute error', err && err.stack ? err.stack : err);
+      return res.status(500).json({ error: err && err.message ? err.message : String(err) });
+    }
+  });
 
   // Initialize Helia modules and runtime now (Helia is required). Start Helia before listening
   // so the server only announces readiness once Helia is available. This prevents tests
   // that rely on publish functionality from racing with Helia startup.
   await initHeliaIfNeeded();
-  attachHeliaToApp(localApp);
+  attachHeliaToApp(exportedApp);
 
   const server = await new Promise((resolve, reject) => {
-    const s = localApp.listen(port, '127.0.0.1', function() {
+    const s = exportedApp.listen(port, '127.0.0.1', function() {
       resolve(s);
     });
     s.on('error', reject);

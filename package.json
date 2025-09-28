@@ -22,7 +22,8 @@
     "node": "npx hardhat node",
     "build:all": "npm run compile && npm run copy-abi && npm run build",
     "test:playwright": "npx playwright test",
-    "test:vitest": "vitest"
+    "test:vitest": "vitest",
+    "evidence-server": "node tools/evidence-endpoint.cjs"
   },
   "keywords": [],
   "author": "",
