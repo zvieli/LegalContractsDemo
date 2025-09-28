@@ -2,7 +2,7 @@
 
 ---
 
-# 🕳️ חורים לוגיים בפלואו של **LegalContractsDemo**
+# 🕳️ חורים לוגיים בפלואו של **ArbiTrust**
 
 ## 1. שלב ההתקשרות (Contract Initialization)
 

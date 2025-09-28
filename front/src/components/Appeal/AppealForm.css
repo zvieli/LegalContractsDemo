@@ -1,0 +1,4 @@
+/* Minimal styles for AppealForm */
+.appeal-form { margin: 1rem 0; padding: 1rem; border: 1px solid #eee; border-radius: 6px; background: #fff; }
+.appeal-evidence-result, .appeal-tx-result { margin-top: 1rem; padding: 0.5rem; background:#fafafa; border-radius:4px; }
+.error { color: #b00020; }

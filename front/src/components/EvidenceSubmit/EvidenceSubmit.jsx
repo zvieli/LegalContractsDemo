@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import './EvidenceSubmit.css';
 import { prepareEvidencePayload } from '../../utils/evidence';
 
-export default function EvidenceSubmit() {
+export default function EvidenceSubmit({ onSubmitted, submitHandler } = {}) {
   const [payload, setPayload] = useState('');
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -20,11 +20,27 @@ export default function EvidenceSubmit() {
       // leave body as raw string
     }
     try {
+      const payloadStr = typeof body === 'string' ? body : JSON.stringify(body);
+
+      // If an external submit handler is provided, use it and return its result
+      if (typeof submitHandler === 'function') {
+        try {
+          const result = await submitHandler(payloadStr);
+          setStatus({ ok: true, message: 'Evidence submitted', details: result });
+          if (typeof onSubmitted === 'function') {
+            try { onSubmitted(result); } catch (e) {}
+          }
+          return;
+        } catch (err) {
+          setStatus({ ok: false, message: String(err) });
+          return;
+        }
+      }
+
+      // Otherwise, fall back to internal submit logic (keeps previous behavior)
       // Use runtime-configured endpoint if present
       const apiBase = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || '/submit-evidence';
       const adminPub = (import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_ADMIN_PUBLIC_KEY) || undefined;
-
-      const payloadStr = typeof body === 'string' ? body : JSON.stringify(body);
 
       // prepareEvidencePayload will return { ciphertext, digest } if encryption used, or { digest } otherwise
       let prep = null;
@@ -74,8 +90,13 @@ export default function EvidenceSubmit() {
       } else {
         // Show CID/URI if present for user convenience
         setStatus({ ok: true, message: 'Evidence submitted', details: json });
-        // Optionally clear the payload on success
-        // setPayload('');
+        if (typeof onSubmitted === 'function') {
+          try {
+            onSubmitted(json);
+          } catch (e) {
+            // swallow callback errors
+          }
+        }
       }
     } catch (err) {
       setStatus({ ok: false, message: String(err) });

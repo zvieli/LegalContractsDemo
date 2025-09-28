@@ -1,8 +1,8 @@
 <div align="center">
 
-# LegalContractsDemo
+# ArbiTrust
 
-Arbitration-driven legal contracts (NDA & Rent). This repository provides smart-contract templates that rely on on‑chain arbitrator contracts for dispute resolution. All oracle and AI components have been removed.
+Arbitration-driven on-chain contract templates (NDA & Rent). This repository provides smart-contract templates that rely on on‑chain arbitrator contracts for dispute resolution. All oracle and AI components have been removed.
 
 </div>
 

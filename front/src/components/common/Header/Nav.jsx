@@ -6,6 +6,7 @@ function Nav({ isMobileMenuOpen }) {
     { label: 'Dashboard', path: '/dashboard', icon: 'fas fa-th-large' },
     { label: 'Create Rental', path: '/create-rent', icon: 'fas fa-plus' },
     { label: 'My Contracts', path: '/contracts', icon: 'fas fa-file-contract' },
+    { label: 'Appeal', path: '/appeal', icon: 'fas fa-gavel' },
     { label: 'Arbitration', path: '/arbitration', icon: 'fas fa-scale-balanced' }
   ];
 

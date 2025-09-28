@@ -19,7 +19,7 @@ function Footer() {
                 <path d="M256 124v172M164 184h184" stroke="currentColor" strokeWidth="16" strokeLinecap="round" fill="none"/>
                 <circle cx="256" cy="112" r="6" fill="currentColor"/>
               </svg>
-              <span>LegalContracts</span>
+              <span>ArbiTrust</span>
             </div>
             <p>Advanced platform for creating and managing smart contracts on blockchain</p>
           </div>
@@ -70,7 +70,7 @@ function Footer() {
         </div>
 
         <div className="footer-bottom">
-          <p>&copy; {currentYear} LegalContracts. All rights reserved.</p>
+          <p>&copy; {currentYear} ArbiTrust. All rights reserved.</p>
         </div>
       </div>
     </footer>

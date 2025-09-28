@@ -1,5 +1,5 @@
 {
-  "name": "legal-contracts-frontend",
+  "name": "arbitrust-frontend",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -18,8 +18,8 @@
     "date-fns": "^4.1.0",
     "eth-crypto": "^1.2.0",
     "ethers": "^6.15.0",
-    "legal-contracts-frontend": "file:",
-    "legalcontractsdemo": "file:..",
+  "legal-contracts-frontend": "file:",
+  "legalcontractsdemo": "file:..",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

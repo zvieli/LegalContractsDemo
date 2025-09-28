@@ -1,6 +1,6 @@
 Purpose
 -------
-This file gives short, concrete guidance for AI coding agents working in LegalContractsDemo so they become productive quickly. It focuses on the repo's architecture, dev workflows, conventions, and important file locations you should read and update when making changes.
+This file gives short, concrete guidance for AI coding agents working in ArbiTrust so they become productive quickly. It focuses on the repo's architecture, dev workflows, conventions, and important file locations you should read and update when making changes.
 
 High level architecture (read these files together)
 - Smart contracts: `contracts/NDATemplate.sol`, `contracts/TemplateRentContract.sol`, `contracts/Arbitrator.sol`, `contracts/ArbitrationService.sol`, `contracts/ContractFactory.sol` — templates are intended to be created via `ContractFactory` and accept resolutions only from a configured `ArbitrationService`.

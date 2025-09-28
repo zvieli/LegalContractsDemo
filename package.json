@@ -1,7 +1,7 @@
 {
-  "name": "legalcontractsdemo",
+  "name": "arbitrust",
   "version": "1.0.0",
-  "description": "",
+  "description": "ArbiTrust - arbitration-driven on-chain contract templates and frontend",
   "main": "index.js",
   "scripts": {
     "dev": "vite",

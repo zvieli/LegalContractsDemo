@@ -73,7 +73,7 @@ function Header() {
               <circle cx="256" cy="112" r="6" fill="currentColor"/>
             </svg>
             <div className="logo-text">
-              <h1>LegalContracts</h1>
+              <h1>ArbiTrust</h1>
               <span>On-chain Agreements</span>
             </div>
           </div>

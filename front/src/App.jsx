@@ -7,6 +7,7 @@ import CreateRent from './pages/CreateRent/CreateRent';
 import CreateNDA from './pages/CreateNDA/CreateNDA';
 import Arbitration from './pages/Arbitration/Arbitration';
 import About from './pages/About/About';
+import AppealPage from './pages/Appeal/AppealPage';
 import './App.css';
 
 function App() {
@@ -30,6 +31,8 @@ function App() {
     // No platform redirect — platform page is removed per user request
 
     switch (currentPath) {
+      case '/appeal':
+        return <AppealPage />;
       
       case '/dashboard':
         return <Dashboard />;

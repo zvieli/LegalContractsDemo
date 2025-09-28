@@ -4,7 +4,7 @@ export async function idbPut(key, value) {
   if (typeof indexedDB !== 'undefined') {
     return new Promise((resolve, reject) => {
       try {
-        const req = indexedDB.open('legalcontracts-idb', 1);
+  const req = indexedDB.open('arbitrust-idb', 1);
         req.onupgradeneeded = () => {
           req.result.createObjectStore('store');
         };
@@ -35,7 +35,7 @@ export async function idbGet(key) {
   if (typeof indexedDB !== 'undefined') {
     return new Promise((resolve, reject) => {
       try {
-        const req = indexedDB.open('legalcontracts-idb', 1);
+  const req = indexedDB.open('arbitrust-idb', 1);
         req.onupgradeneeded = () => {
           req.result.createObjectStore('store');
         };
