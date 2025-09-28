@@ -1,5 +1,6 @@
 import './Home.css';
 import MyContracts from '../../components/MyContracts/MyContracts';
+import EvidenceSubmit from '../../components/EvidenceSubmit/EvidenceSubmit';
 import { useEthers } from '../../contexts/EthersContext';
 
 function Home() {
@@ -93,6 +94,9 @@ function Home() {
             
             <div className="dashboard-card">
               <MyContracts />
+            </div>
+            <div className="dashboard-card">
+              <EvidenceSubmit />
             </div>
             
             <p>Connect your wallet to view and manage all your contracts</p>

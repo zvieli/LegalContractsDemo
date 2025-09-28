@@ -2,17 +2,13 @@ import EthCrypto from 'eth-crypto';
 
 // Determine secp256k1 availability and provide a consistent diagnostic across processes.
 let SECP_BACKEND = 'none';
-try {
-  require('secp256k1');
-  SECP_BACKEND = 'native';
-} catch (e) {
-  try {
-    // try noble as a pure-js fallback
-    // eslint-disable-next-line node/no-missing-require
-    require('@noble/secp256k1');
-    SECP_BACKEND = 'noble';
-  } catch (e2) {
-    SECP_BACKEND = 'browser-js';
+// Allow forcing the noble backend for deterministic behavior in CI/tests via env var
+const FORCE_NOBLE = Boolean(process && process.env && process.env.SUPPORT_NOBLE_SECP === '1');
+if (FORCE_NOBLE) {
+  try { require('@noble/secp256k1'); SECP_BACKEND = 'noble'; } catch (e) { SECP_BACKEND = 'browser-js'; }
+} else {
+  try { require.resolve('secp256k1'); SECP_BACKEND = 'native'; } catch (e) {
+    try { require.resolve('@noble/secp256k1'); SECP_BACKEND = 'noble'; } catch (e2) { SECP_BACKEND = 'browser-js'; }
   }
 }
 
@@ -33,7 +29,7 @@ export async function decryptEvidencePayload(payloadOrString, privateKey) {
   try {
     if (process && process.env && process.env.TESTING) {
   let hasSecp = false;
-  try { require('secp256k1'); hasSecp = true; } catch (e) {}
+  try { require.resolve('secp256k1'); hasSecp = true; } catch (e) {}
   try { console.error('TESTING_DECRYPT_ENV node=' + (process && process.versions && process.versions.node) + ' secp256k1=' + String(hasSecp) + ' backend=' + SECP_BACKEND); } catch (e) {}
     }
   } catch (e) {}
@@ -53,8 +49,16 @@ export async function decryptEvidencePayload(payloadOrString, privateKey) {
     // Normalize cipher hex fields to deterministic form (strip 0x, lowercase)
     const normCipher = Object.assign({}, cipher);
     ['ephemPublicKey','iv','ciphertext','mac'].forEach(k => {
-      if (normCipher[k] && typeof normCipher[k] === 'string') {
-        let s = normCipher[k].trim();
+      if (normCipher[k] != null) {
+        let raw = normCipher[k];
+        let s = '';
+        try {
+          if (Buffer.isBuffer(raw)) s = raw.toString('hex');
+          else if (raw && typeof raw === 'object' && raw.type === 'Buffer' && Array.isArray(raw.data)) s = Buffer.from(raw.data).toString('hex');
+          else if (raw instanceof Uint8Array) s = Buffer.from(raw).toString('hex');
+          else s = String(raw);
+        } catch (e) { s = String(raw); }
+        s = s.trim();
         if (s.startsWith('0x')) s = s.slice(2);
         normCipher[k] = s.toLowerCase();
       }

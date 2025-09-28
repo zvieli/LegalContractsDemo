@@ -5,13 +5,23 @@ const http = require('http');
 const EthCrypto = require('eth-crypto');
 
 (async ()=>{
-  const tmpDir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-e2e-'));
-  const id = EthCrypto.createIdentity();
-  const keyFile = path.join(tmpDir, 'admin.key');
-  fs.writeFileSync(keyFile, id.privateKey, 'utf8');
+  // Prefer repo admin.key when present; otherwise create a tmp dir and key
+  let tmpDir = null;
+  let keyFile = null;
+  let id = null;
+  const repoKey = path.join(process.cwd(), 'admin.key');
+  if (fs.existsSync(repoKey)) {
+    const repoPriv = fs.readFileSync(repoKey, 'utf8').trim();
+    id = { privateKey: repoPriv, publicKey: EthCrypto.publicKeyByPrivateKey(repoPriv.startsWith('0x') ? repoPriv.slice(2) : repoPriv) };
+    keyFile = repoKey;
+  } else {
+    tmpDir = fs.mkdtempSync(path.join(process.cwd(), 'tmp-e2e-'));
+    id = EthCrypto.createIdentity();
+    keyFile = path.join(tmpDir, 'admin.key');
+    fs.writeFileSync(keyFile, id.privateKey, 'utf8');
+    console.log('tmpDir', tmpDir);
+  }
   const adminPub = id.publicKey.startsWith('0x') ? id.publicKey.slice(2) : id.publicKey;
-
-  console.log('tmpDir', tmpDir);
   console.log('adminPub', adminPub.slice(0,10)+'...');
 
   const epPath = path.join(process.cwd(), 'tools', 'evidence-endpoint.cjs');
@@ -113,4 +123,5 @@ const EthCrypto = require('eth-crypto');
   }
 
   try { child.kill(); } catch(e){}
+  try { if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (e) {}
 })().catch(e=>{ console.error('runner error', e && e.stack ? e.stack : e); process.exit(1); });

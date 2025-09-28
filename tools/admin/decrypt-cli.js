@@ -64,10 +64,11 @@ async function main() {
   try {
     if (process.env && process.env.TESTING) {
       try {
-        let hasSecp = false;
-        try { require('secp256k1'); hasSecp = true; } catch (e) {}
+  let hasSecp = false;
+  try { require.resolve('secp256k1'); hasSecp = true; } catch (e) {}
         const k = key ? String(key).trim() : '';
-        console.error('TESTING_CLI_ENV node=' + (process && process.versions && process.versions.node) + ' secp256k1=' + String(hasSecp));
+        const forced = process && process.env && process.env.SUPPORT_NOBLE_SECP === '1';
+        console.error('TESTING_CLI_ENV node=' + (process && process.versions && process.versions.node) + ' secp256k1=' + String(hasSecp) + ' force_noble=' + String(forced));
         console.error('TESTING_CLI_KEY=' + JSON.stringify({ startsWith0x: k.startsWith('0x'), len: k.length }));
       } catch (e) {}
     }

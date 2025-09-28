@@ -1,0 +1,8 @@
+.evidence-submit { margin: 1rem 0; padding: 1rem; border: 1px solid #e6e6e6; border-radius: 6px; background: #fff; }
+.evidence-submit h3 { margin-top: 0; }
+.evidence-submit textarea { width: 100%; min-height: 120px; font-family: monospace; padding: 8px; margin-top: 8px; border: 1px solid #ddd; border-radius: 4px; }
+.evidence-submit .controls { margin-top: 8px; }
+.submit-status { margin-top: 10px; padding: 8px; border-radius: 4px; }
+.submit-status.success { background: #e6ffed; border: 1px solid #b7f0c7; }
+.submit-status.error { background: #ffecec; border: 1px solid #ffbdbd; }
+.submit-status .details { margin-top:8px; background:#f5f5f5; padding:8px; border-radius:4px; overflow:auto; max-height:200px; }

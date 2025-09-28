@@ -31,6 +31,57 @@ async function loadHeliaModules() {
   }
 }
 
+// Initialize Helia runtime once and return runtime object. Keeps heliaRuntime populated for reuse.
+async function initHeliaIfNeeded() {
+  if (!useHelia) return null;
+  if (heliaRuntime) return heliaRuntime;
+  try {
+    const { heliaPkg, unixfsPkg } = await loadHeliaModules();
+    const node = await heliaPkg.createHelia();
+    // Create UnixFS using the helia node instance (this is the correct form)
+    let ufs = null;
+    try {
+      ufs = unixfsPkg.unixfs(node);
+    } catch (e) {
+      console.warn('unixfs(node) failed, attempting fallback:', e && e.message ? e.message : e);
+      try { ufs = unixfsPkg.unixfs({ dag: node.dag }); } catch (e2) { ufs = null; }
+    }
+    heliaRuntime = { node, ufs, heliaPkg, unixfsPkg };
+    console.log('Helia in-process IPFS node started for evidence publishing.');
+    return heliaRuntime;
+  } catch (e) {
+    console.error('Failed to start Helia node at startup:', e && e.message ? e.message : e);
+    throw e;
+  }
+}
+
+// Attach helia runtime to an express app so routes can access it via req.app.locals.heliaRuntime
+function attachHeliaToApp(app) {
+  try {
+    if (app && heliaRuntime) app.locals.heliaRuntime = heliaRuntime;
+  } catch (e) {}
+}
+
+// Normalize EthCrypto/EVM public key hex forms into Buffer (uncompressed 65-byte or compressed 33-byte)
+function normalizePublicKeyToBuffer(pub) {
+  if (!pub) throw new Error('no public key to normalize');
+  let s = String(pub);
+  if (s.startsWith('0x')) s = s.slice(2);
+  s = s.trim();
+  // If the key is 128 hex chars (x||y) add uncompressed 04 prefix
+  if (s.length === 128 && !s.startsWith('04')) s = '04' + s;
+  // Defensive: if it's 130 but missing 04, add it
+  if (s.length === 130 && !s.startsWith('04')) s = '04' + s;
+  if (s.length % 2 === 1) s = '0' + s; // ensure even length
+  const buf = Buffer.from(s, 'hex');
+  // If library expects 65 bytes uncompressed, ensure it's 65
+  if (buf.length === 65 || buf.length === 33) return buf;
+  // If it's 64 (raw x+y without prefix), try adding 0x04
+  if (buf.length === 64) return Buffer.concat([Buffer.from([0x04]), buf]);
+  // Otherwise return as-is and let encrypt call decide/fail
+  return buf;
+}
+
 // Load .env from repository root (if present) so the endpoint can pick up ADMIN_* variables
 try {
   // project root is one level above tools/
@@ -46,13 +97,13 @@ try {
 
 function parsePort(v) {
   const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 // Default port resolution order: CLI arg > EVIDENCE_PORT env > PORT env > 3000
-const cliPort = process.argv[2] ? parsePort(process.argv[2]) : null;
-const envPort = parsePort(process.env.EVIDENCE_PORT || process.env.PORT || 0);
-const defaultPort = cliPort || envPort || 5001;
+const cliPort = (typeof process.argv[2] !== 'undefined') ? parsePort(process.argv[2]) : null;
+const envPort = parsePort(process.env.EVIDENCE_PORT || process.env.PORT);
+const defaultPort = (cliPort !== null ? cliPort : (envPort !== null ? envPort : 5001));
 const defaultStaticDir = process.argv[3] ? process.argv[3] : path.join(__dirname, '..', 'front', 'e2e', 'static');
 
 function stableStringify(obj) {
@@ -282,23 +333,28 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         }
       } else {
   const plaintext = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  const pubWith0x = ADMIN_PUB.startsWith('0x') ? ADMIN_PUB : '0x' + ADMIN_PUB;
-  // EthCrypto.encryptWithPublicKey accepts the public key as a hex string (uncompressed, with 04 prefix)
-  // Passing the hex string avoids platform/browser-specific Buffer/Uint8Array subtle differences that
-  // can lead to MAC failures when decrypting with the browser polyfill (eccrypto). Keep key with 0x prefix.
-  // Build a normalized uncompressed public key and always pass it as 0x-prefixed
-  let pubNorm = pubWith0x.replace(/^0x/, '');
-  if (pubNorm.length === 128 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm;
-  if (pubNorm.length === 130 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm; // defensive
-  // eth-crypto expects a hex string (no 0x) for its public-key helpers
-  const pubForEncrypt = pubNorm;
+  // use top-level normalizePublicKeyToBuffer (exported at module level)
+
   let encrypted;
-  let usedPubForm = 'normalized-0x04';
+  let usedPubForm = 'buffer-04-first';
   try {
-  encrypted = await EthCrypto.encryptWithPublicKey(pubForEncrypt, plaintext);
+  const normalizedBuf = normalizePublicKeyToBuffer(ADMIN_PUB);
+    // Try Buffer/Uint8Array form first (secp256k1 libs expect raw bytes)
+    encrypted = await EthCrypto.encryptWithPublicKey(normalizedBuf, plaintext);
   } catch (e) {
-    console.error('Encryption failed with normalized public key:', e && e.message ? e.message : e);
-    throw e;
+    // If Buffer form fails, fall back to hex-string form for compatibility with some eth-crypto versions
+    try {
+      const pubWith0x = ADMIN_PUB.startsWith('0x') ? ADMIN_PUB : '0x' + ADMIN_PUB;
+      let pubNorm = pubWith0x.replace(/^0x/, '');
+      if (pubNorm.length === 128 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm;
+      if (pubNorm.length === 130 && !pubNorm.startsWith('04')) pubNorm = '04' + pubNorm;
+      usedPubForm = 'normalized-0x04-hex-fallback';
+      encrypted = await EthCrypto.encryptWithPublicKey(pubNorm, plaintext);
+    } catch (e2) {
+      console.error('Encryption failed with both Buffer and hex public key forms:', e && e.message ? e.message : e, e2 && e2.message ? e2.message : e2);
+      try { console.error('PUB_DEBUG adminPubRaw=' + (ADMIN_PUB || '<none>')); } catch (ee) {}
+      throw e2;
+    }
   }
         ciphertextJson = { version: '1', crypto: encrypted };
         // TESTING: which pub form was used
@@ -353,15 +409,30 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         if (ciphertextJson && ciphertextJson.crypto && typeof ciphertextJson.crypto === 'object') {
           const c = ciphertextJson.crypto;
           ['ephemPublicKey','iv','ciphertext','mac'].forEach(k => {
-            if (c[k] && typeof c[k] === 'string') {
-              let s = String(c[k]).trim();
+            if (c[k] != null) {
+              let raw = c[k];
+              let s = '';
+              try {
+                // Buffer instance
+                if (Buffer.isBuffer(raw)) {
+                  s = raw.toString('hex');
+                } else if (raw && typeof raw === 'object' && raw.type === 'Buffer' && Array.isArray(raw.data)) {
+                  // JSON-serialized Buffer (from some libraries)
+                  s = Buffer.from(raw.data).toString('hex');
+                } else if (raw instanceof Uint8Array) {
+                  s = Buffer.from(raw).toString('hex');
+                } else {
+                  s = String(raw);
+                }
+              } catch (e) {
+                s = String(raw);
+              }
+              s = s.trim();
               if (s.startsWith('0x')) s = s.slice(2);
               s = s.toLowerCase();
               // ensure ephemPublicKey has uncompressed 04 prefix when it's the 128-char x||y form
               if (k === 'ephemPublicKey') {
-                // If the key is in x||y (128 hex chars) form, add the uncompressed '04' prefix.
                 if (s.length === 128 && !s.startsWith('04')) s = '04' + s;
-                // If length is odd (malformed), prefix a '0' to make it even-length hex string.
                 if (s.length % 2 === 1) s = '0' + s;
               }
               c[k] = s;
@@ -399,21 +470,23 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         let ipfsCid = null;
         let ipfsUri = null;
         try {
-          if (!useHelia || !heliaRuntime) throw new Error('Helia not initialized');
+          // prefer helia runtime attached to the express app (req.app.locals) for in-process usage
+          const heliaLocal = (req && req.app && req.app.locals && req.app.locals.heliaRuntime) ? req.app.locals.heliaRuntime : heliaRuntime;
+          if (!useHelia || !heliaLocal) throw new Error('Helia not initialized');
           const data = uint8arrays.fromString(canonical, 'utf8');
           // try unixfs addBytes if available
-          if (heliaRuntime.ufs && typeof heliaRuntime.ufs.addBytes === 'function') {
-            const cid = await heliaRuntime.ufs.addBytes(data);
+          if (heliaLocal.ufs && typeof heliaLocal.ufs.addBytes === 'function') {
+            const cid = await heliaLocal.ufs.addBytes(data);
             ipfsCid = cid && cid.toString ? cid.toString() : String(cid);
-          } else if (heliaRuntime.ufs && typeof heliaRuntime.ufs.add === 'function') {
-            const out = await heliaRuntime.ufs.add(data);
+          } else if (heliaLocal.ufs && typeof heliaLocal.ufs.add === 'function') {
+            const out = await heliaLocal.ufs.add(data);
             if (out) ipfsCid = (out.cid && out.cid.toString) ? out.cid.toString() : String(out);
-          } else if (heliaRuntime.ufs && typeof heliaRuntime.ufs.addAll === 'function') {
-            for await (const item of heliaRuntime.ufs.addAll([{ content: data }])) {
+          } else if (heliaLocal.ufs && typeof heliaLocal.ufs.addAll === 'function') {
+            for await (const item of heliaLocal.ufs.addAll([{ content: data }])) {
               if (item) ipfsCid = (item.cid && item.cid.toString) ? item.cid.toString() : String(item);
             }
-          } else if (heliaRuntime.node && heliaRuntime.node.block && typeof heliaRuntime.node.block.put === 'function') {
-            const p = await heliaRuntime.node.block.put(data);
+          } else if (heliaLocal.node && heliaLocal.node.block && typeof heliaLocal.node.block.put === 'function') {
+            const p = await heliaLocal.node.block.put(data);
             if (p && p.cid) ipfsCid = p.cid.toString();
           } else {
             throw new Error('no known Helia unixfs API available');
@@ -422,8 +495,13 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
           ipfsUri = 'ipfs://' + ipfsCid;
           if (process.env.TESTING) console.error('TESTING_IPFS_ADDED=' + ipfsCid + '->' + filePath + ' (helia)');
         } catch (ipfsErr) {
-          console.error('Helia publish failed:', ipfsErr && ipfsErr.message ? ipfsErr.message : ipfsErr);
-          return res.status(500).json({ error: 'helia_publish_failed', message: ipfsErr && ipfsErr.message ? ipfsErr.message : String(ipfsErr) });
+          // Helia publish failed. Since this endpoint is required to publish to Helia,
+          // surface the failure (500) so tests and callers can observe and fix the
+          // underlying Helia issue instead of silently continuing.
+          const msg = ipfsErr && ipfsErr.message ? ipfsErr.message : String(ipfsErr);
+          console.error('Helia publish failed (fatal):', msg);
+          try { if (process.env && process.env.TESTING) console.error('TESTING_IPFS_PUBLISH_FAILED=' + msg); } catch (e) {}
+          throw ipfsErr;
         }
 
       // TESTING-only logging: print which public key was used and which file/digest were written
@@ -435,10 +513,11 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
       } catch (e) {}
 
   // Include IPFS CID/URI when available so clients can pass the URI on-chain
-  const resp = { digest, path: `/static/${fileName}`, file: filePath };
-  if (ipfsCid) resp.ipfsCid = ipfsCid;
-  if (ipfsUri) resp.ipfsUri = ipfsUri;
-  return res.json(resp);
+  const responseBody = { digest, path: `/static/${fileName}`, file: filePath };
+  if (ipfsCid) responseBody.ipfsCid = ipfsCid;
+  if (ipfsUri) responseBody.ipfsUri = ipfsUri;
+  if (typeof ipfsErrorMsg !== 'undefined' && ipfsErrorMsg) responseBody.ipfsError = ipfsErrorMsg;
+  return res.json(responseBody);
     } catch (err) {
       try { if (process.env && process.env.TESTING) console.error('TESTING_SUBMIT_ERROR=' + (err && err.stack ? err.stack : String(err))); } catch (e) {}
       console.error('submit-evidence error', err && err.stack ? err.stack : err);
@@ -457,6 +536,12 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
 
   localApp.get('/health', (req, res) => res.json({ ok: true, staticDir: staticDirLocal }));
 
+  // Initialize Helia modules and runtime now (Helia is required). Start Helia before listening
+  // so the server only announces readiness once Helia is available. This prevents tests
+  // that rely on publish functionality from racing with Helia startup.
+  await initHeliaIfNeeded();
+  attachHeliaToApp(localApp);
+
   const server = await new Promise((resolve, reject) => {
     const s = localApp.listen(port, '127.0.0.1', function() {
       resolve(s);
@@ -464,27 +549,12 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     s.on('error', reject);
   });
 
-  // Initialize Helia modules and runtime now (Helia is required)
-  if (useHelia && !heliaRuntime) {
-    try {
-      const { heliaPkg, unixfsPkg } = await loadHeliaModules();
-      const node = await heliaPkg.createHelia();
-      // Create UnixFS using the helia node instance (this is the correct form)
-      let ufs = null;
-      try {
-        ufs = unixfsPkg.unixfs(node);
-      } catch (e) {
-        console.warn('unixfs(node) failed, attempting fallback:', e && e.message ? e.message : e);
-        try { ufs = unixfsPkg.unixfs({ dag: node.dag }); } catch (e2) { ufs = null; }
-      }
-      heliaRuntime = { node, ufs, heliaPkg, unixfsPkg };
-      console.log('Helia in-process IPFS node started for evidence publishing.');
-    } catch (e) {
-      console.error('Failed to start Helia node at startup:', e && e.message ? e.message : e);
-      try { server.close(); } catch (ee) {}
-      throw e;
-    }
-  }
+  // Log listening immediately so test harnesses can detect readiness quickly
+  try {
+    const addrNow = server.address && server.address();
+    const listenPortNow = addrNow && addrNow.port ? addrNow.port : port;
+    console.log(`Evidence endpoint listening on http://127.0.0.1:${listenPortNow} (static dir: ${staticDirLocal})`);
+  } catch (e) {}
 
   let actualPort = port;
   try {
@@ -495,11 +565,37 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
   try {
     if (process.env && process.env.TESTING) {
       let hasSecp = false;
-      try { require('secp256k1'); hasSecp = true; } catch (e) {}
+      try { require.resolve('secp256k1'); hasSecp = true; } catch (e) {}
       console.error('TESTING_ENDPOINT_ENV node=' + (process && process.versions && process.versions.node) + ' secp256k1=' + String(hasSecp));
     }
   } catch (e) {}
   return server;
+}
+
+// Stop server and gracefully shutdown Helia runtime (if running). Returns a Promise that resolves when shutdown completes.
+async function stopEvidenceEndpoint(server) {
+  try {
+    if (server && typeof server.close === 'function') {
+      await new Promise((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+  } catch (e) {
+    // ignore server close errors
+  }
+  // Shutdown helia runtime
+  if (heliaRuntime && heliaRuntime.node) {
+    try {
+      if (typeof heliaRuntime.node.stop === 'function') {
+        await heliaRuntime.node.stop();
+      } else if (typeof heliaRuntime.node.close === 'function') {
+        await heliaRuntime.node.close();
+      }
+    } catch (e) {
+      // best-effort
+    }
+  }
+  heliaRuntime = null;
 }
 
 // Graceful shutdown for Helia
@@ -517,6 +613,7 @@ function _maybeShutdownHelia() {
 process.on('exit', _maybeShutdownHelia);
 process.on('SIGINT', () => { _maybeShutdownHelia(); process.exit(0); });
 
+
 // If script executed directly, start server with CLI args
 if (require.main === module) {
   startEvidenceEndpoint(defaultPort, defaultStaticDir).catch((e) => {
@@ -526,4 +623,4 @@ if (require.main === module) {
 
 }
 
-module.exports = { startEvidenceEndpoint };
+module.exports = { startEvidenceEndpoint, stopEvidenceEndpoint, initHeliaIfNeeded, attachHeliaToApp, normalizePublicKeyToBuffer };

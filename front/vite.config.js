@@ -33,5 +33,20 @@ export default defineConfig({
         }
       }
     }
+  },
+  server: {
+    // Dev proxy to forward evidence endpoint requests to the backend running locally
+    proxy: {
+      '/submit-evidence': {
+        target: 'http://127.0.0.1:5001',
+        changeOrigin: true,
+        secure: false
+      },
+      '/ping': {
+        target: 'http://127.0.0.1:5001',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   }
 })
