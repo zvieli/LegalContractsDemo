@@ -439,7 +439,23 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         };
         saveIndex(entry);
 
-    return res.json({ success: true, cid: storeResult.cid, uri: storeResult.uri, digest: serverDigest });
+    // Prepare response object
+    const responseObj = { success: true, cid: storeResult.cid, uri: storeResult.uri, digest: serverDigest };
+
+    // Send response to client
+    res.json(responseObj);
+
+    // Persist a copy of the response JSON to evidence_storage for debugging/audit
+    try {
+      ensureStorage();
+      const respFilename = `${Date.now()}-${String(serverDigest).replace(/^0x/, '')}.json`;
+      const respPath = path.join(STORAGE_DIR, respFilename);
+      fs.writeFileSync(respPath, JSON.stringify(responseObj, null, 2), { encoding: 'utf8' });
+      console.log('Saved submit-evidence response to', respPath);
+    } catch (e) {
+      console.error('Failed to persist submit-evidence response:', e && e.message ? e.message : e);
+    }
+    return;
     } catch (err) {
       try { if (process.env && process.env.TESTING) console.error('TESTING_SUBMIT_ERROR=' + (err && err.stack ? err.stack : String(err))); } catch (e) {}
       console.error('submit-evidence error', err && err.stack ? err.stack : err);

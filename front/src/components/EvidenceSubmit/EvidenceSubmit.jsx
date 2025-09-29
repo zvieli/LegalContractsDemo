@@ -2,6 +2,29 @@ import React, { useState } from 'react';
 import './EvidenceSubmit.css';
 import { prepareEvidencePayload } from '../../utils/evidence';
 
+// Small helper to prompt download of a JSON object in the browser
+function downloadJSON(obj, filename) {
+  try {
+    const content = JSON.stringify(obj, null, 2);
+    if (typeof window !== 'undefined' && typeof window.document !== 'undefined') {
+      const blob = new Blob([content], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `evidence-response-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } else {
+      // non-browser environment: log the JSON
+      console.log('downloadJSON (non-browser) ->', content);
+    }
+  } catch (e) {
+    console.error('downloadJSON failed', e);
+  }
+}
+
 export default function EvidenceSubmit({ onSubmitted, submitHandler } = {}) {
   const [payload, setPayload] = useState('');
   const [status, setStatus] = useState(null);
@@ -90,6 +113,10 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler } = {}) {
       } else {
         // Show CID/URI if present for user convenience
         setStatus({ ok: true, message: 'Evidence submitted', details: json });
+        // Log backend response for debugging
+        try { console.log('submit-evidence response:', json); } catch (e) {}
+        // Prompt browser to download the backend response JSON for offline debugging
+        try { downloadJSON(json, `evidence-response-${(json && json.digest) ? json.digest.replace(/^0x/, '') : Date.now()}.json`); } catch (e) { console.error(e); }
         if (typeof onSubmitted === 'function') {
           try {
             onSubmitted(json);
