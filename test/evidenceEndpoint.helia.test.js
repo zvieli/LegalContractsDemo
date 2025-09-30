@@ -1,5 +1,5 @@
 import { strict as assert } from 'assert';
-import { normalizePublicKeyToBuffer, initHeliaIfNeeded, stopEvidenceEndpoint } from '../tools/evidence-endpoint.cjs';
+import { normalizePublicKeyToBuffer, initHeliaIfNeeded, stopEvidenceEndpoint } from '../tools/evidence-endpoint.js';
 
 describe('evidence-endpoint helpers', function() {
   this.timeout(20000);

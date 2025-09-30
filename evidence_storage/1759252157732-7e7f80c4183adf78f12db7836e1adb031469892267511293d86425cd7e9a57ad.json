@@ -1,0 +1,40 @@
+{
+  "version": "1",
+  "digest": "0x7e7f80c4183adf78f12db7836e1adb031469892267511293d86425cd7e9a57ad",
+  "txHash": null,
+  "contractAddress": null,
+  "type": "rationale",
+  "timestamp": "2025-09-30T17:09:17.721Z",
+  "encryption": {
+    "scheme": "hybrid-aes256gcm-ecies-secp256k1",
+    "aes": {
+      "iv": "7dYgRybWj9MKJjRb",
+      "tag": "x4YW7T+emxNgZQ4ZB4lf6w=="
+    }
+  },
+  "recipients": [
+    {
+      "address": "0x8b39d3913cc0bd6f08cdcaeab7ffdaaf1022b574",
+      "pubkey": "04bc81c7807991316d6358f67b4acf90f9f0c7b82a688a6b45c5907b929233e502d8a4c33874d2bb3e3235d32012b5bd67d42d7a6240c7c51e83fbe70724cd6a94",
+      "encryptedKey": {
+        "iv": "b938c804ce0ee008df6b2a63a6a380a3",
+        "ephemPublicKey": "047bb63b08efa09a50fa8f5d3aa3f6f8839508112daf7eccba78b1716d099b5d0d21ff019ae609ae71232be4c464aeebeafec7bceec666301b05a7abfca494e7aa",
+        "ciphertext": "8ec19f6b283b25321e16298cc6ebf231f22c47da0323fbc39ad864e435058bf1541c68e668eef48011a5b8e4fedeab12",
+        "mac": "b198d3daf9ac995a65f44486becfd99f23159647c730c8b6f86cca1579524288"
+      },
+      "encryptedKey_ecc": {
+        "iv": "b938c804ce0ee008df6b2a63a6a380a3",
+        "ephemPublicKey": "047bb63b08efa09a50fa8f5d3aa3f6f8839508112daf7eccba78b1716d099b5d0d21ff019ae609ae71232be4c464aeebeafec7bceec666301b05a7abfca494e7aa",
+        "ciphertext": "8ec19f6b283b25321e16298cc6ebf231f22c47da0323fbc39ad864e435058bf1541c68e668eef48011a5b8e4fedeab12",
+        "mac": "b198d3daf9ac995a65f44486becfd99f23159647c730c8b6f86cca1579524288"
+      }
+    }
+  ],
+  "ciphertext": "VJZOa7hwY7A/13EdDwXO1+DQiRbt9ASfYUKFuBpAB8F9xSzFmIQSmZ+vMNqc7A1b7AzZ10k=",
+  "crypto": {
+    "iv": "15e278c6d5183f17fc8d9af64beb6170",
+    "ephemPublicKey": "044754aa918ff8d0f1abf428831216045e3ecaf402c446bd54db566a003a9781bc6939373dd91038d6b65ac186c2820d0c1e5981d5d732be9ee172354b753a2204",
+    "ciphertext": "6d3adf55beecff0e8aa3b291e19e524e3f55fb62d024cb2cecbd0b4755fd8796cc9a8a3a338b2aa6b5eac246e07635112cd4ce8cda9bc325c2c0365aeba64536",
+    "mac": "c1c48440fe7f3be39301ce399b33be4e85e5be4de82807f84e03c87a0f0df74b"
+  }
+}

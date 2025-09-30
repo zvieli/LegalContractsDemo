@@ -1,0 +1,37 @@
+{
+  "version": "1",
+  "digest": "0x528b546adacad7976fb18f72d741df1fb5e447e03c2c68030088e6729f2506c8",
+  "txHash": null,
+  "contractAddress": null,
+  "type": "rationale",
+  "timestamp": "2025-09-30T17:16:32.329Z",
+  "encryption": {
+    "scheme": "hybrid-aes256gcm-ecies-secp256k1",
+    "aes": {
+      "iv": "jN9oyJZxUG4UWWKA",
+      "tag": "K161NqUqWkDUjwSf/N7N5Q=="
+    }
+  },
+  "recipients": [
+    {
+      "address": "0x4361e014c909648719cb7c1594768af55ad33bc8",
+      "pubkey": "04bc81c7807991316d6358f67b4acf90f9f0c7b82a688a6b45c5907b929233e502d8a4c33874d2bb3e3235d32012b5bd67d42d7a6240c7c51e83fbe70724cd6a94",
+      "encryptedKey": {
+        "ciphertext": "a21be93631a541a46362bb878a190e89d7adb3834388ea053b9186b576cc4585"
+      },
+      "encryptedKey_ecc": {
+        "iv": "3a729f44b107c1319cf12e13980fac83",
+        "ephemPublicKey": "041d3becda7cb9fa77377f3c299122eee737c71985ee8ed8d1e0876474dff58c2d5b8c514f6fa6f992a3fa6cfbf62276586b746430b5aba2e8c4b3b31cfecd6e53",
+        "ciphertext": "2eb7b450fcadb94d8aee41d80d3dccbcde6543f4eee55d71016efd5315d5d425d877d28463d20477b61f76bb01994a15",
+        "mac": "edd9195792fc9be6d51c7eba4136b36f348eacb0844febe1aa07f30eb7959ca0"
+      }
+    }
+  ],
+  "ciphertext": "+oSFF/+MVqGeV/gOSxEYJmoICzdeqFmWPIDIyEytwYIgIW88ByUS/DrU5H+S9sbE+iGkB8k=",
+  "crypto": {
+    "iv": "6ee6bc5e4b07ef36212472eb53828a80",
+    "ephemPublicKey": "04d82dc8e547def3a2c544e46806c8297e9ffcbd9eeb5909d949155cf5dcf5be435e6d03427e6064622b492c56c23de7d7eaffef7ddc0aec0f7cf45ecd1fa14107",
+    "ciphertext": "93f2b32f5cf82fe0f11b1a7fe3998d455989f3ae90e4e92bbd5e531cd4fc4324c6a374b23b11bb39551755bd08e9608404a5b5a57430ddc6145dc8c00aec9e05",
+    "mac": "df25301ec4eaf743cf00c84df95229543411c765b571a4a3b3efe5233f4ac9fb"
+  }
+}

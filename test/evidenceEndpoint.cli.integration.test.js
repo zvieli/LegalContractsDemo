@@ -86,7 +86,7 @@ describe('evidence endpoint CLI integration', function() {
     }
 
     const adminPub = identity.publicKey.startsWith('0x') ? identity.publicKey.slice(2) : identity.publicKey;
-    const epPath = path.join(process.cwd(), 'tools', 'evidence-endpoint.cjs');
+  const epPath = path.join(process.cwd(), 'tools', 'evidence-endpoint.js');
     const epEnv = Object.assign({}, process.env);
     delete epEnv.ADMIN_PRIVATE_KEY;
     delete epEnv.ADMIN_PRIVATE_KEY_FILE;

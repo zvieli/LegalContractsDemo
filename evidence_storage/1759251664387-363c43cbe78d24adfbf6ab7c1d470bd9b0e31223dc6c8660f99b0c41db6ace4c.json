@@ -1,0 +1,40 @@
+{
+  "version": "1",
+  "digest": "0x363c43cbe78d24adfbf6ab7c1d470bd9b0e31223dc6c8660f99b0c41db6ace4c",
+  "txHash": null,
+  "contractAddress": null,
+  "type": "rationale",
+  "timestamp": "2025-09-30T17:01:04.384Z",
+  "encryption": {
+    "scheme": "hybrid-aes256gcm-ecies-secp256k1",
+    "aes": {
+      "iv": "f3O69R48jPlyyUut",
+      "tag": "35fkzMt72eEx2Oq6oVZYgQ=="
+    }
+  },
+  "recipients": [
+    {
+      "address": "0xd0d3b60d3e49895c9340a7c3c415a6f77daa38ae",
+      "pubkey": "04bc81c7807991316d6358f67b4acf90f9f0c7b82a688a6b45c5907b929233e502d8a4c33874d2bb3e3235d32012b5bd67d42d7a6240c7c51e83fbe70724cd6a94",
+      "encryptedKey": {
+        "iv": "197c4659c87c346def57ba94d1d1f156",
+        "ephemPublicKey": "045beebbb7bdea7419c4fb9601a5563ff040dab6622ea9184e3c732c0c2dc8d8c2d5acb5028a4b6e5052f3a871ef576886e5431ddb0e3500f534d175f3157250d3",
+        "ciphertext": "71b6ed8313f50dafbe4e3cd85fcffb777f4def7896999dafac8f5280f94ff81ae0bd1345321b19e5745e3d0082375c091801e33ff2b73b90fcc282aa1a3b6a01ba08a4552c5aa19c07edbd1a680e62b0",
+        "mac": "2ebcba98f56399a794cc738450b07803cb240794fb8d98290486371fbbff591a"
+      },
+      "encryptedKey_ecc": {
+        "iv": "4482be13d34f5a46ccf30956b0936a8a",
+        "ephemPublicKey": "046055564c441e33b9850b0e670411cd4ed4050eb550970b782007e3a64a107670ee0ced6ea51a9a033401248352087cb736f64fab86517c706e018a470c2fda9c",
+        "ciphertext": "e06e516a99ff74e641c57ae7bc74bdf628b90c8ea1363763594891ae7951775d5cc1948cb7189995d2e51e6253bd6410d0ecd7da88d67b309440d3118cb943005d355177dfa35831f8847102340c5f9a",
+        "mac": "cec6b9e7c14db415fee23dac23d7c100b5a0aaad647464e0fb39f7b5cd0594f4"
+      }
+    }
+  ],
+  "ciphertext": "kx/8YyMKKB/zUibHap2lyO+WBCxwJsaV1W0s9x6XiznigvNQOE25zFJMB+MYbnUnvkQSIHk=",
+  "crypto": {
+    "iv": "e77682eab1485a571ce424898c70c585",
+    "ephemPublicKey": "040e38454184b113bcf8e93efdd6434e37b91718895a714f0c389eb09bd930280c202c200147ea0803ceff3b441bfb8b782be1820463de62a2507b7d73a2bb6fa3",
+    "ciphertext": "4e7b5edec5f6bae27ca0016a7fccd71c57a425132f54346fee5bdc44527d8f07b928ef968e8654b6114f5746d2747c50423aead3c588b4c8f7ae975bfeaf9575",
+    "mac": "82b5c90d3835af75efac7ca846b598700f659a3ac2d75b3e4e62ffcdf18d2d22"
+  }
+}

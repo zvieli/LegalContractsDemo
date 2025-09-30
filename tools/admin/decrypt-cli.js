@@ -64,8 +64,13 @@ async function main() {
   try {
     if (process.env && process.env.TESTING) {
       try {
-  let hasSecp = false;
-  try { require.resolve('secp256k1'); hasSecp = true; } catch (e) {}
+        let hasSecp = false;
+        try {
+          // ESM: use createRequire to emulate require.resolve
+          const { createRequire } = await import('module');
+          const req = createRequire(import.meta.url);
+          try { req.resolve('secp256k1'); hasSecp = true; } catch (e) { hasSecp = false; }
+        } catch (e) { hasSecp = false; }
         const k = key ? String(key).trim() : '';
         const forced = process && process.env && process.env.SUPPORT_NOBLE_SECP === '1';
         console.error('TESTING_CLI_ENV node=' + (process && process.versions && process.versions.node) + ' secp256k1=' + String(hasSecp) + ' force_noble=' + String(forced));

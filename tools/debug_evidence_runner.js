@@ -25,7 +25,7 @@ function waitForLine(child, re, timeout = 5000) {
 async function main() {
   const identity = EthCrypto.createIdentity();
   const adminPub = identity.publicKey.startsWith('0x') ? identity.publicKey.slice(2) : identity.publicKey;
-  const epPath = path.join(process.cwd(), 'tools', 'evidence-endpoint.cjs');
+  const epPath = path.join(process.cwd(), 'tools', 'evidence-endpoint.js');
   const child = spawn(process.execPath, [epPath, '0', path.join(process.cwd(), 'front','e2e','static')], {
     env: Object.assign({}, process.env, { ADMIN_PUBLIC_KEY: adminPub, TESTING: '1' }),
     stdio: ['ignore','pipe','pipe']

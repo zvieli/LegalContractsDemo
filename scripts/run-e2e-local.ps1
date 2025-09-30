@@ -67,7 +67,7 @@ try {
 
   Write-Log 'Starting evidence endpoint (Helia) in a new PowerShell window...'
   # Set env vars only for that process and run the endpoint
-  $endpointCmd = "Set-Location -LiteralPath '$repoRoot'; `$env:SUPPORT_NOBLE_SECP='1'; `$env:TESTING='1'; node 'tools\evidence-endpoint.cjs'"
+  $endpointCmd = "Set-Location -LiteralPath '$repoRoot'; `$env:SUPPORT_NOBLE_SECP='1'; `$env:TESTING='1'; node 'tools\evidence-endpoint.js'"
   $endpointProc = Start-Process -FilePath 'powershell' -ArgumentList '-NoExit','-Command',$endpointCmd -WorkingDirectory $repoRoot -PassThru
 
   # Wait until both servers are reachable

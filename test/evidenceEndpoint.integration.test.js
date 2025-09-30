@@ -58,7 +58,7 @@ describe('evidence endpoint integration', function() {
     }
 
     // spawn the endpoint on port 0 (let OS pick)
-    const epPath = path.join(process.cwd(), 'tools', 'evidence-endpoint.cjs');
+  const epPath = path.join(process.cwd(), 'tools', 'evidence-endpoint.js');
     const adminPub = identity.publicKey.startsWith('0x') ? identity.publicKey.slice(2) : identity.publicKey;
     child = spawn(process.execPath, [epPath, '0', path.join(process.cwd(), 'front','e2e','static')], {
       env: Object.assign({}, process.env, { ADMIN_PUBLIC_KEY: adminPub }),

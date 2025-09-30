@@ -15,9 +15,9 @@
     "verify:sepolia": "npx hardhat run scripts/verify.js --network sepolia",
     "verify:goerli": "npx hardhat run scripts/verify.js --network goerli",
     "verify:mainnet": "npx hardhat run scripts/verify.js --network mainnet",
-  "test": "npx hardhat test",
-  "test:crypto": "npx mocha test/crypto.roundtrip.test.cjs --exit",
-  "test:evidence-e2e": "npx mocha test/evidence.e2e.test.cjs --exit",
+    "test": "npx hardhat test",
+    "test:crypto": "npx mocha test/crypto.roundtrip.test.js --exit",
+    "test:evidence-e2e": "npx mocha test/evidence.e2e.test.js --exit",
     "test:gas": "REPORT_GAS=true npx hardhat test",
     "compile": "npx hardhat compile",
     "copy-abi": "node scripts/copy-abi.js",
@@ -25,7 +25,7 @@
     "build:all": "npm run compile && npm run copy-abi && npm run build",
     "test:playwright": "npx playwright test",
     "test:vitest": "vitest",
-    "evidence-server": "node tools/evidence-endpoint.cjs"
+    "evidence-server": "node tools/evidence-endpoint.js"
   },
   "keywords": [],
   "author": "",
@@ -66,6 +66,7 @@
     "helia": "^5.5.1",
     "node-fetch": "^3.3.2",
     "secp256k1": "^5.0.1",
+    "tsyringe": "^4.10.0",
     "uint8arrays": "^5.1.0",
     "uuid": "^13.0.0"
   }
