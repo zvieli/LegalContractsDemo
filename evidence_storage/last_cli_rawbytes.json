@@ -1,24 +1,29 @@
 {
-  "timestamp": "2025-09-30T17:24:25.767Z",
-  "file": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\evidence_storage\\1759253065448-0fc2e3a150d431251e7e968dab6f0d84d44695e0aac38512645858a3f1c77737.json",
+  "timestamp": "2025-09-30T21:44:20.985Z",
+  "file": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\evidence_storage\\1759268660684-3a33912ac24bc7899020be47262fa331f6ac0f2ec90f0a98d896281fa74e44c6.json",
   "recipients": [
     {
-      "address": "0x44fec8b66161b501a38a9f5b40109dfaf257be23",
+      "address": "0x4e29ae17c3146133218af6907d2131f749b66aaf",
       "pubkey": "04bc81c7807991316d6358f67b4acf90f9f0c7b82a688a6b45c5907b929233e502d8a4c33874d2bb3e3235d32012b5bd67d42d7a6240c7c51e83fbe70724cd6a94",
       "encryptedKey_raw": {
-        "ciphertext": "a819fcf30653851a20511adc91cc1567531556c46c02cc595299d532b3021b89"
+        "iv": "9c8b66c051c49bb7bb9485c1",
+        "ephemPublicKey": "04740c38abb210d684d8f9b3cccecdf64f00cc4a28d2caedb022918945f82837302fec844776b2446b9c232a60c246f8b7300316bc78d29bd95d75841a6ba203e0",
+        "ciphertext": "5d67ba7e601149f0900654aefce19005944df136c09feb2ca68f93456a85fd98635c1afb60abb53e37f96e9991e2014ded1b4b48b9d42e13258b7d9f317e1d92",
+        "mac": "71debf0b4840a60c9e3f766bf6cfda82",
+        "_ephemeralPrivate": "a6f90499b65f2b72c509d1cfb190a8d79f708e501235462725a44302c1b4bd22",
+        "_plaintextHex": "62396337396634363666633034636363376133613931396162383163393933663266383966323461613430376430666532643834643032353436643431613536"
       },
       "encryptedKey_hex": {
-        "iv": null,
-        "ephemPublicKey": null,
-        "ciphertext": "a819fcf30653851a20511adc91cc1567531556c46c02cc595299d532b3021b89",
-        "mac": null
+        "iv": "9c8b66c051c49bb7bb9485c1",
+        "ephemPublicKey": "04740c38abb210d684d8f9b3cccecdf64f00cc4a28d2caedb022918945f82837302fec844776b2446b9c232a60c246f8b7300316bc78d29bd95d75841a6ba203e0",
+        "ciphertext": "5d67ba7e601149f0900654aefce19005944df136c09feb2ca68f93456a85fd98635c1afb60abb53e37f96e9991e2014ded1b4b48b9d42e13258b7d9f317e1d92",
+        "mac": "71debf0b4840a60c9e3f766bf6cfda82"
       },
       "crypto_hex": {
-        "iv": "f631c5c7812d03cbc7d8d773895aa801",
-        "ephemPublicKey": "04b2edf25ebf2fbcac62d6ea2c55f976b862fd8b088e5abce5beaf8437ac68d0b9216d3043e345fdf03abd7a32aa68257b23265406d9722504c66b1c27eaf2ae1c",
-        "ciphertext": "b61be16e5172d01c9ff9f93fc3e34bcf1e716d015b8a0cd6c1d96739b40db25ccc88663c9b8118eb5a1b7496a8a23e9cf6d191e751a2fcadec1ca7269d5a90f4",
-        "mac": "94d76c29670b784ba242dc257a2b5fbbfcd3e2e111bfa1b14b39cf54290b6802"
+        "iv": "8efeaa51d550efe99fcc5ba3",
+        "ephemPublicKey": "0456ac24e88cd45b6b4b39ee2d73b592fb8a4c815fbccb60f3aa05e27ca25e5474fdc6e7581e91dad274f663d2fb4e20c8dc2f707e4539bb3ec967f9c3babbaa0d",
+        "ciphertext": "ce60be94075b7b4c43c3b2c75604f568327538bbf6f3cd1303be911529b09dcdb5e899cae315a2f2c557427fb811ea88642c318fb9",
+        "mac": "5ae4e15b47ecf8e6ee3d82862a2f8065"
       }
     }
   ]

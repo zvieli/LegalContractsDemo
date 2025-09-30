@@ -1,4 +1,5 @@
 import * as ethers from 'ethers';
+import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
 
 /**
  * Client-side evidence helpers (Option A flow).
@@ -38,20 +39,31 @@ export async function encryptToAdminPubKey(payload, adminPublicKeyRaw) {
   if (!payload) throw new Error('payload required');
   if (!adminPublicKeyRaw) throw new Error('adminPublicKey required for encryption');
 
-  // Dynamic import so front can omit the dependency if not using client-side encryption.
+  // Prefer the canonical browser ECIES implementation
+  const norm = normalizePublicKeyHex(String(adminPublicKeyRaw));
+  try {
+    const eciesBrowser = await import('./ecies-browser.js');
+    const eciesMod = eciesBrowser && (eciesBrowser.default || eciesBrowser);
+    if (eciesMod && typeof eciesMod.encryptWithPublicKey === 'function') {
+      const enc = await eciesMod.encryptWithPublicKey(norm, String(payload));
+      const ctStr = typeof enc === 'string' ? enc : JSON.stringify(enc);
+      const digest = computeDigestForCiphertext(ctStr);
+      return { ciphertext: ctStr, digest };
+    }
+  } catch (e) {
+    // fallthrough to eth-crypto fallback
+  }
+
+  // Fallback: dynamic import of eth-crypto (opt-in for demos)
   let EthCrypto;
   try {
     EthCrypto = (await import('eth-crypto')).default || (await import('eth-crypto'));
   } catch (e) {
-    // Do not instruct users to install admin crypto into production frontends.
-    // Instead point them to the admin tooling or explain opt-in.
-    throw new Error('Client-side encryption requested but `eth-crypto` is not available. For production keep encryption/decryption in `tools/admin`. For local demos you may install `eth-crypto` in `front/` as an explicit opt-in.');
+    throw new Error('Client-side encryption requested but no encryption module is available. For production keep encryption in `tools/admin`. For local demos install `eth-crypto` in `front/`.');
   }
-
-  // Normalize pubkey: remove 0x prefix if present
-  const pub = String(adminPublicKeyRaw).replace(/^0x/, '');
-  // EthCrypto.encryptWithPublicKey expects the raw public key string (no 0x prefix)
-  const ciphertext = await EthCrypto.encryptWithPublicKey(pub, String(payload));
+  // EthCrypto expects the public key string without 0x prefix
+  const pubForEthCrypto = norm.startsWith('0x') ? norm.slice(2) : norm;
+  const ciphertext = await EthCrypto.encryptWithPublicKey(pubForEthCrypto, String(payload));
   // Return ciphertext (may be a string or object depending on EthCrypto usage) and its digest
   const ctStr = typeof ciphertext === 'string' ? ciphertext : JSON.stringify(ciphertext);
   const digest = computeDigestForCiphertext(ctStr);

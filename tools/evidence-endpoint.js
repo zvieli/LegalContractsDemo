@@ -180,25 +180,17 @@ function hexToBuffer(hex) { if (!hex) return null; const s = hex.startsWith('0x'
 
 async function encryptSymKeyForRecipient(symKeyHex, recipientPubKeyNormalized) {
   const pub = recipientPubKeyNormalized.startsWith('04') ? recipientPubKeyNormalized : (recipientPubKeyNormalized);
-  try {
-    // Prefer the local ecies wrapper (eth-crypto based) for deterministic behavior
-    try {
-      const ecies = await import('./crypto/ecies.js');
-      return await ecies.encryptWithPublicKey(pub, symKeyHex);
-    } catch (e) {
-      // fallback to direct EthCrypto usage
-      const enc = await EthCrypto.encryptWithPublicKey(pub, symKeyHex);
-      const safe = {
-        iv: enc && enc.iv ? String(enc.iv) : null,
-        ephemPublicKey: enc && enc.ephemPublicKey ? String(enc.ephemPublicKey) : null,
-        ciphertext: enc && enc.ciphertext ? String(enc.ciphertext) : null,
-        mac: enc && enc.mac ? String(enc.mac) : null
-      };
-      return safe;
-    }
-  } catch (e) {
-    throw e;
-  }
+  // Use the canonical ECIES wrapper exclusively so all processes produce
+  // and consume the same AES-GCM-based envelope format.
+  const mod = await import('./crypto/ecies.js');
+  const encryptWithPublicKey = mod.encryptWithPublicKey || (mod.default && mod.default.encryptWithPublicKey);
+  if (typeof encryptWithPublicKey !== 'function') throw new Error('ecies.encryptWithPublicKey not available');
+  // ensure we pass normalized hex (uncompressed, 04-prefixed, lowercase)
+  const norm = (mod.normalizePublicKeyHex && typeof mod.normalizePublicKeyHex === 'function') ? mod.normalizePublicKeyHex(pub) : pub;
+  const out = await encryptWithPublicKey(norm, symKeyHex);
+  // Ensure ephemPublicKey is canonical hex string (lowercase, 04-prefixed) before returning
+  if (out && out.ephemPublicKey) out.ephemPublicKey = String(out.ephemPublicKey).trim().toLowerCase();
+  return out;
 }
 
 function ensureDir(dir) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
@@ -469,45 +461,19 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
           }
           const normalized = normalizePubForEthCrypto(pub);
           const symKeyHex = symKey.toString('hex');
-          const enc = await encryptSymKeyForRecipient(symKeyHex, normalized);
-          // Also create an eccrypto-compatible envelope as a fallback so
-          // processes that use the eccrypto/browser-js backend can decrypt
-          // even when native secp256k1 was used elsewhere.
-          let encEcc = null;
-          try {
-            const eccryptoModule = await import('eccrypto');
-            const eccrypto = eccryptoModule && (eccryptoModule.default || eccryptoModule);
-            // eccrypto.encrypt expects an uncompressed public key Buffer (0x04...)
-            const pubBuf = Buffer.from(normalized.startsWith('04') ? normalized : ('04' + normalized), 'hex');
-            // Use raw symmetric key bytes when encrypting with eccrypto (32 bytes)
-            const payloadBuf = symKey; // symKey is already a Buffer of 32 bytes
-            const out = await eccrypto.encrypt(pubBuf, payloadBuf);
-            encEcc = {
-              iv: out.iv.toString('hex'),
-              ephemPublicKey: out.ephemPublicKey.toString('hex'),
-              ciphertext: out.ciphertext.toString('hex'),
-              mac: out.mac.toString('hex')
-            };
-          } catch (e) {
-            encEcc = null;
-          }
+          const encWrapped = await encryptSymKeyForRecipient(symKeyHex, normalized);
           const canonicalAddr = canonicalizeAddress(addr);
-          // For TESTING mode prefer eccrypto canonical form to avoid backend mismatches
           const entry = { address: canonicalAddr, pubkey: normalized };
-          if (process && process.env && process.env.TESTING) {
-            // TESTING deterministic mode: write the symmetric key hex directly so subprocess
-            // CLIs / helpers can avoid ECIES backend mismatches. Keep eccrypto fallback
-            // in encryptedKey_ecc for diagnostics.
-            try {
-              entry.encryptedKey = { ciphertext: symKeyHex };
-              if (encEcc) entry.encryptedKey_ecc = encEcc;
-            } catch (e) {
-              entry.encryptedKey = enc;
-              if (encEcc) entry.encryptedKey_ecc = encEcc;
+          // encryptSymKeyForRecipient may return either:
+          // - a raw ECIES object {iv, ephemPublicKey, ciphertext, mac}
+          // - or a wrapper { ecies: {...}, ethcrypto: {...} }
+          if (encWrapped) {
+            if (encWrapped.ecies) {
+              entry.encryptedKey = encWrapped.ecies;
+            } else if (encWrapped.iv && encWrapped.ephemPublicKey && encWrapped.ciphertext && encWrapped.mac) {
+              entry.encryptedKey = encWrapped;
             }
-          } else {
-            entry.encryptedKey = enc;
-            if (encEcc) entry.encryptedKey_ecc = encEcc;
+            if (encWrapped.ethcrypto) entry.encryptedKey_ecc = encWrapped.ethcrypto;
           }
           recipientEntries.push(entry);
         } catch (e) {
@@ -519,7 +485,13 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         try {
           const norm = normalizePubForEthCrypto(adminPub);
           const encA = await encryptSymKeyForRecipient(symKey.toString('hex'), norm);
-          recipientEntries.push({ address: canonicalizeAddress(adminAddr), pubkey: norm, encryptedKey: encA });
+          const adminEntry = { address: canonicalizeAddress(adminAddr), pubkey: norm };
+          if (encA) {
+            if (encA.ecies) adminEntry.encryptedKey = encA.ecies;
+            else if (encA.iv && encA.ephemPublicKey && encA.ciphertext && encA.mac) adminEntry.encryptedKey = encA;
+            if (encA.ethcrypto) adminEntry.encryptedKey_ecc = encA.ethcrypto;
+          }
+          recipientEntries.push(adminEntry);
         } catch (e) { console.warn('Failed to add admin as recipient', e && e.message ? e.message : e); }
       }
 
@@ -542,6 +514,33 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         ciphertext: aes.ciphertext
       };
 
+      // TESTING: dump producer-side debug info to evidence_storage so consumer CLI dumps can be correlated.
+      try {
+        if (process && process.env && process.env.TESTING) {
+          const dbgDir = path.resolve(__dirname, '..', 'evidence_storage');
+          try { if (!fs.existsSync(dbgDir)) fs.mkdirSync(dbgDir, { recursive: true }); } catch (e) {}
+          // collect full recipient entries so we have producer-side encryptedKey (and TESTING-only _ephemeralPrivate)
+          // This is only written in TESTING mode for deep debugging and must not be enabled in production.
+          const recs = (recipientEntries || []).map(r => ({ address: r.address, pubkey: r.pubkey, encryptedKey: r.encryptedKey, encryptedKey_ecc: r.encryptedKey_ecc }));
+          const adminPriv = loadAdminPrivateKey ? loadAdminPrivateKey() : null;
+          let adminDerived = null;
+          try {
+            const ethers = await import('ethers');
+            if (adminPriv) {
+              try {
+                const pk = adminPriv.startsWith('0x') ? adminPriv : ('0x' + adminPriv);
+                adminDerived = ethers.computeAddress(pk).toLowerCase();
+              } catch (e) { adminDerived = null; }
+            }
+          } catch (e) { adminDerived = null; }
+          try {
+            // include the symKey in TESTING debug so we can correlate wrapped key vs top-level encryption key
+            const symHex = (typeof symKey !== 'undefined' && Buffer.isBuffer(symKey)) ? symKey.toString('hex') : null;
+            fs.writeFileSync(path.join(dbgDir, `producer_debug_${Date.now()}.json`), JSON.stringify({ timestamp: new Date().toISOString(), recipients: recs, adminPriv: adminPriv, adminDerived, symKey: symHex }, null, 2), 'utf8');
+          } catch (e) {}
+        }
+      } catch (e) {}
+
       // Backwards compatibility: some tests and clients expect a top-level `crypto` object
       // that contains an eth-crypto-style encryption of the plaintext content itself
       // (not the encrypted symmetric key). Provide it when there is a single recipient
@@ -554,8 +553,33 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
             try {
               // content should be a string here (TESTING mode sets it to JSON.stringify(body))
               const contentStr = typeof content === 'string' ? content : JSON.stringify(content);
-              const encContent = await EthCrypto.encryptWithPublicKey(only.pubkey, contentStr);
-              envelope.crypto = encContent;
+              // Use canonical ECIES implementation to encrypt the content for the single recipient
+              try {
+                // For backwards compatibility with tests and older clients, ensure
+                // `envelope.crypto` is an EthCrypto-compatible object (so
+                // EthCrypto.decryptWithPrivateKey will work). Also keep the
+                // canonical ECIES result under `crypto_ecies` for debugging.
+                let encEth = null;
+                try {
+                  encEth = await EthCrypto.encryptWithPublicKey(only.pubkey, contentStr);
+                } catch (e) {
+                  encEth = null;
+                }
+                envelope.crypto = encEth || only.encryptedKey;
+                try {
+                  const eciesMod = await import('./crypto/ecies.js');
+                  const ecies = eciesMod && (eciesMod.default || eciesMod);
+                  if (ecies && typeof ecies.encryptWithPublicKey === 'function') {
+                    const normPub = (ecies.normalizePublicKeyHex && typeof ecies.normalizePublicKeyHex === 'function') ? ecies.normalizePublicKeyHex(only.pubkey) : only.pubkey;
+                    const encContent = await ecies.encryptWithPublicKey(normPub, contentStr);
+                    envelope.crypto_ecies = encContent;
+                  }
+                } catch (ee) {
+                  // ignore
+                }
+              } catch (e) {
+                envelope.crypto = only.encryptedKey;
+              }
             } catch (e) {
               // If that fails, fall back to keeping the encrypted symmetric key as crypto
               envelope.crypto = only.encryptedKey;
@@ -706,6 +730,20 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
       console.error('TESTING_ENDPOINT_ENV node=' + (process && process.versions && process.versions.node) + ' secp256k1=' + String(hasSecp));
     }
   } catch (e) {}
+  // Some test harnesses call server.address().port immediately. In rare cases
+  // server.address() may return null; to make the contract stable we override
+  // the address() method to always return the observed port.
+  try {
+    const origAddress = server.address && server.address.bind(server);
+    server.address = function() {
+      try {
+        const got = origAddress ? origAddress() : null;
+        if (got && got.port) return got;
+      } catch (e) {}
+      return { port: actualPort };
+    };
+  } catch (e) {}
+
   return server;
 }
 

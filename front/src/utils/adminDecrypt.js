@@ -1,6 +1,8 @@
 // Client-side decryption helper (admin-only UI use).
 // WARNING: This runs in the browser. Do NOT store admin private keys in frontend persistent storage.
 
+import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
+
 export async function decryptCiphertextJson(ciphertextJson, privateKey) {
   if (!ciphertextJson) throw new Error('ciphertextJson required');
   if (!privateKey) throw new Error('privateKey required');
@@ -17,6 +19,14 @@ export async function decryptCiphertextJson(ciphertextJson, privateKey) {
     EthCrypto = mod.default || mod;
   } catch (err) {
     throw new Error('Client-side decryption requested but `eth-crypto` is not available. For production keep decryption in `tools/admin`. For local demos you may install `eth-crypto` in `front/` as an explicit opt-in.');
+  }
+
+  // Try browser canonical ECIES first (normalizes inputs internally)
+  try {
+    const plain = await ecies.decryptWithPrivateKey(pk, raw);
+    return plain;
+  } catch (e) {
+    // fallback to EthCrypto
   }
 
   try {

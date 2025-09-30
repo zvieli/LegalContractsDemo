@@ -1,7 +1,0 @@
-{
-  "timestamp": "2025-09-30T17:00:03.339Z",
-  "adminPrivPreview": "2bd6356b5f41fc93c810cfdf480b30c4",
-  "file": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\evidence_storage\\1759251602147-731239443b4003dd50088a3af3b36ddb30b503faa246da19df26a8e019729e1b.json",
-  "envelopeDigest": "0x731239443b4003dd50088a3af3b36ddb30b503faa246da19df26a8e019729e1b",
-  "error": "Error: Failed to decrypt symmetric key\n    at decryptEvidencePayload (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/tools/admin/decryptHelper.js:150:11)\n    at async main (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/tools/admin/decryptEvidence.js:92:25)"
-}
