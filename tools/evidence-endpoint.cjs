@@ -10,7 +10,9 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const EthCrypto = require('eth-crypto');
+const crypto = require('crypto');
 const { keccak256, toUtf8Bytes } = require('ethers').utils || require('ethers');
+const { ethers } = require('ethers');
 // We will use Helia (embedded IPFS) only for publishing evidence. Do not use ipfs-http-client.
 let useHelia = true;
 let heliaRuntime = null; // will hold the running helia node and unixfs instance
@@ -110,6 +112,106 @@ function stableStringify(obj) {
   if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
   if (Array.isArray(obj)) return '[' + obj.map(stableStringify).join(',') + ']';
   return '{' + Object.keys(obj).sort().map(k => JSON.stringify(k) + ':' + stableStringify(obj[k])).join(',') + '}';
+}
+
+// Load recipient public keys mapping from repo root file or env var
+function loadRecipientPubkeysMap() {
+  try {
+    // Priority: RECIPIENT_PUBKEYS_JSON env -> recipient_pubkeys.json in repo root
+    if (process.env.RECIPIENT_PUBKEYS_JSON) {
+      try { return JSON.parse(process.env.RECIPIENT_PUBKEYS_JSON); } catch (e) { console.warn('RECIPIENT_PUBKEYS_JSON parse failed', e && e.message); }
+    }
+    const mapPath = path.resolve(path.join(__dirname, '..', 'recipient_pubkeys.json'));
+    if (fs.existsSync(mapPath)) {
+      const raw = fs.readFileSync(mapPath, 'utf8');
+      try { return JSON.parse(raw || '{}'); } catch (e) { console.warn('recipient_pubkeys.json parse failed', e && e.message); }
+    }
+  } catch (e) {}
+  return {};
+}
+
+function normalizePubForEthCrypto(pub) {
+  if (!pub) return null;
+  let s = String(pub).trim();
+  if (s.startsWith('0x')) s = s.slice(2);
+  if (s.length === 128 && !s.startsWith('04')) s = '04' + s;
+  if (s.length === 130 && !s.startsWith('04')) s = '04' + s;
+  return s.toLowerCase();
+}
+
+// Canonicalize an Ethereum address to 0x-prefixed lowercase form (or null)
+function canonicalizeAddress(addr) {
+  if (!addr) return null;
+  let s = String(addr).trim();
+  if (!s) return null;
+  if (!s.startsWith('0x')) s = '0x' + s;
+  return s.toLowerCase();
+}
+
+// Try to discover plaintiff/defendant/admin addresses via common accessor names on the contract
+async function discoverRolesFromContract(contractAddress, provider) {
+  if (!contractAddress) return [];
+  const abiCandidates = [
+    // common simple getters we will probe
+    'function landlord() view returns (address)',
+    'function tenant() view returns (address)',
+    'function plaintiff() view returns (address)',
+    'function defendant() view returns (address)',
+    'function claimant() view returns (address)',
+    'function reporter() view returns (address)',
+    'function debtor() view returns (address)',
+    'function owner() view returns (address)',
+    'function admin() view returns (address)',
+    'function arbitrationService() view returns (address)'
+  ];
+  const seen = new Set();
+  try {
+    for (const sig of abiCandidates) {
+      try {
+        const iface = new ethers.Interface([sig]);
+        const funcName = Object.keys(iface.functions)[0];
+        const contract = new ethers.Contract(contractAddress, [sig], provider);
+        const addr = await contract[funcName]();
+        if (addr && ethers.isAddress ? ethers.isAddress(addr) : /^0x[0-9a-fA-F]{40}$/.test(addr)) {
+          seen.add(addr.toLowerCase());
+        }
+      } catch (e) {
+        // ignore probe failures
+      }
+    }
+  } catch (e) {}
+  return Array.from(seen);
+}
+
+// AES-256-GCM encryption helper. Returns { ciphertext: base64, iv: base64, tag: base64 }
+function aesEncryptUtf8(plaintext, keyBuffer) {
+  const iv = crypto.randomBytes(12); // 96-bit recommended for GCM
+  const cipher = crypto.createCipheriv('aes-256-gcm', keyBuffer, iv, { authTagLength: 16 });
+  const ct = Buffer.concat([cipher.update(Buffer.from(String(plaintext), 'utf8')), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return { ciphertext: ct.toString('base64'), iv: iv.toString('base64'), tag: tag.toString('base64') };
+}
+
+function hexToBuffer(hex) { if (!hex) return null; const s = hex.startsWith('0x') ? hex.slice(2) : hex; return Buffer.from(s, 'hex'); }
+
+// Encrypt symmetric key (hex) to recipient public key using EthCrypto
+async function encryptSymKeyForRecipient(symKeyHex, recipientPubKeyNormalized) {
+  // EthCrypto expects a raw public key without 0x prefix and without leading 04? The library accepts '04...' unprefixed
+  const pub = recipientPubKeyNormalized.startsWith('04') ? recipientPubKeyNormalized : (recipientPubKeyNormalized);
+  try {
+    const enc = await EthCrypto.encryptWithPublicKey(pub, symKeyHex);
+    // canonicalize expected fields to ensure JSON round-trip
+    const safe = {
+      iv: enc && enc.iv ? String(enc.iv) : null,
+      ephemPublicKey: enc && enc.ephemPublicKey ? String(enc.ephemPublicKey) : null,
+      ciphertext: enc && enc.ciphertext ? String(enc.ciphertext) : null,
+      mac: enc && enc.mac ? String(enc.mac) : null
+    };
+    // return as object (not string) so we avoid double-stringify/json-parse issues downstream
+    return safe;
+  } catch (e) {
+    throw e;
+  }
 }
 
 function ensureDir(dir) {
@@ -327,139 +429,206 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     return await storeLocal(buf, filename);
   }
 
-  // merge-in /submit-evidence route (improved: digest verification + Helia fallback + no decryption)
+  // Unified /submit-evidence route for Appeal and Rationale
   exportedApp.post('/submit-evidence', async (req, res) => {
     try {
-      const payload = req.body;
-      // TESTING-only: log that we received the request (method, url, headers.content-type, body length)
+      const body = req.body || {};
+      if (process.env.TESTING) console.error('TESTING_SUBMIT_RECEIVED=', JSON.stringify(body).slice(0, 1000));
+
+      // Validate expected shape
+      const { txHash, digest, contractAddress, type, content } = body;
+      if (!digest) return res.status(400).json({ error: 'digest required' });
+      if (!type || (type !== 'appeal' && type !== 'rationale')) return res.status(400).json({ error: 'type must be "appeal" or "rationale"' });
+
+      // Discover recipients (plaintiff, defendant, admin)
+      ensureStorage();
+      const providerUrl = process.env.RPC_URL || process.env.RPC || 'http://127.0.0.1:8545';
+      const provider = new ethers.JsonRpcProvider(providerUrl);
+      let recipients = [];
       try {
-        if (process.env.TESTING) {
-          const method = req.method;
-          const url = req.originalUrl || req.url || '/submit-evidence';
-          const ct = req.headers && (req.headers['content-type'] || req.headers['Content-Type']) ? (req.headers['content-type'] || req.headers['Content-Type']) : 'unknown';
-          let bodyLen = 0;
-          try { bodyLen = req.rawBody ? req.rawBody.length : (req.body ? JSON.stringify(req.body).length : 0); } catch (e) { bodyLen = 0; }
-          const ip = req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
-          console.error('TESTING_RECEIVED=' + method + ' ' + url + ' content-type=' + ct + ' bodyLen=' + bodyLen + ' ip=' + ip);
+        const discovered = await discoverRolesFromContract(contractAddress, provider);
+        recipients = discovered || [];
+      } catch (e) {
+        console.warn('Role discovery failed:', e && e.message ? e.message : e);
+      }
+
+      // Always include admin address if configured via env ADMIN_ADDRESS
+      if (process.env.ADMIN_ADDRESS) recipients.push(String(process.env.ADMIN_ADDRESS).toLowerCase());
+      // Deduplicate and normalize
+      recipients = Array.from(new Set((recipients || []).filter(Boolean).map(a => a.toLowerCase())));
+
+      // Load recipient public keys map (optional override)
+      const recMap = loadRecipientPubkeysMap();
+
+      // Ensure at least admin+one recipient exists or allow storing if configured to allow plaintext storage
+      if (!process.env.ALLOW_PLAINTEXT_STORAGE && recipients.length < 1 && !recMap) {
+        // proceed but warn: will still store encrypted envelope with only admin if available
+        console.warn('No recipients discovered for evidence. Proceeding — ensure recipient_pubkeys.json or RECIPIENT_PUBKEYS_JSON is configured for encryption.');
+      }
+
+      // Prepare symmetric key (32 bytes) and AES-GCM encrypt the content
+      const symKey = crypto.randomBytes(32); // AES-256 key
+      const aes = aesEncryptUtf8(content || '', symKey);
+
+      // For each recipient, find their public key (recMap or admin pub) and encrypt the symmetric key
+      const recipientEntries = [];
+      // admin pub from config
+      const adminPub = loadAdminPublicKey();
+      const adminAddr = process.env.ADMIN_ADDRESS ? String(process.env.ADMIN_ADDRESS).toLowerCase() : null;
+      // If admin public key is configured but no ADMIN_ADDRESS provided, derive the address from the pubkey or private key
+      let derivedAdminAddr = null;
+      try {
+        if (ADMIN_PUB && !adminAddr) {
           try {
-            // print a small preview of headers and body for debugging
-            const hdrs = Object.assign({}, req.headers);
-            const previewBody = (() => { try { return req.body ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : ''; } catch (e) { return ''; } })();
-            console.error('TESTING_HEADERS=' + JSON.stringify(hdrs));
-            console.error('TESTING_BODY_PREVIEW=' + (previewBody ? previewBody.slice(0, 1000) : '<empty>'));
-          } catch (e) {}
-        }
-      } catch (e) {}
-      // attach a finish listener to log response status when the handler completes
-      try { if (process.env.TESTING) res.on('finish', () => console.error('TESTING_RESPONSE_SENT status=' + res.statusCode + ' url=' + (req.originalUrl || req.url))); } catch (e) {}
-      if (!payload) return res.status(400).json({ error: 'missing payload' });
-
-      const canon = (obj) => {
-        if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-        if (Array.isArray(obj)) return '[' + obj.map(canon).join(',') + ']';
-        return '{' + Object.keys(obj).sort().map(k => JSON.stringify(k) + ':' + canon(obj[k])).join(',') + '}';
-      };
-      // Validate input: accept either a base64 ciphertext field or a canonical cipher JSON wrapper
-        const providedDigest = payload && payload.digest ? String(payload.digest) : null;
-        const base64Cipher = payload && payload.ciphertext ? payload.ciphertext : null;
-        const wrapper = payload && payload.version && payload.crypto && typeof payload.crypto === 'object' ? payload : null;
-
-        if (!providedDigest) return res.status(400).json({ error: 'digest required (0x.. bytes32)' });
-
-        // Compute server digest depending on input form.
-        let serverDigest = null;
-        if (base64Cipher) {
-          // client provided raw ciphertext bytes (base64) — compute keccak256 over raw bytes
-          const buf = base64ToBuffer(base64Cipher);
-          serverDigest = (require('ethers').utils || require('ethers')).keccak256(buf);
-        } else if (wrapper) {
-          // compute canonical JSON digest (legacy form)
-          const canonical = canon(wrapper);
-          try {
-            serverDigest = require('ethers').utils ? require('ethers').utils.keccak256(require('ethers').utils.toUtf8Bytes(canonical)) : keccak256(toUtf8Bytes(canonical));
+            // ethers.computeAddress accepts a public key (0x04...), return checksummed address
+            const pubHex = ADMIN_PUB.startsWith('0x') ? ADMIN_PUB : '0x' + ADMIN_PUB;
+            derivedAdminAddr = (require('ethers').computeAddress(pubHex) || '').toLowerCase();
           } catch (e) {
-            const ethers = require('ethers');
-            serverDigest = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(canonical));
+            derivedAdminAddr = null;
           }
-        } else {
-          // fallback: if payload is string/plaintext provided directly, hash UTF-8 bytes
-          const txt = typeof payload === 'string' ? payload : JSON.stringify(payload);
-          const ethers = require('ethers');
-          serverDigest = ethers.utils.keccak256(ethers.utils.toUtf8Bytes(txt));
         }
-
-        if (serverDigest !== providedDigest) {
-          return res.status(400).json({ error: 'digest_mismatch', serverDigest, providedDigest });
+        if (!derivedAdminAddr && ADMIN_PRIV) {
+          try {
+            derivedAdminAddr = (require('ethers').newWallet ? require('ethers').newWallet(ADMIN_PRIV).address : (new (require('ethers').Wallet)(ADMIN_PRIV)).address).toLowerCase();
+          } catch (e) { derivedAdminAddr = null; }
         }
+      } catch (e) { derivedAdminAddr = null; }
 
-        // store the raw data: prefer Helia if available, otherwise local storage. Do NOT decrypt.
-        ensureStorage();
-        const filename = `${Date.now()}-${serverDigest.replace(/^0x/, '')}.bin`;
-        let storeResult = null;
+  // Build list of recipient addresses we will attempt to include: discovered + admin (derived if needed)
+  const candidateAddrs = recipients.slice();
+  const adminToUse = adminAddr || derivedAdminAddr;
+  if (adminToUse && !candidateAddrs.includes(adminToUse)) candidateAddrs.push(adminToUse);
+
+      for (const addr of candidateAddrs) {
         try {
-          if (base64Cipher) {
-            const buf = base64ToBuffer(base64Cipher);
-            storeResult = await storeToHeliaOrLocal(buf, filename, exportedApp);
-          } else if (wrapper) {
-            const canonical = canon(wrapper);
-            const buf = Buffer.from(canonical, 'utf8');
-            storeResult = await storeToHeliaOrLocal(buf, filename, exportedApp);
-          } else {
-            const txt = typeof payload === 'string' ? payload : JSON.stringify(payload);
-            const buf = Buffer.from(txt, 'utf8');
-            storeResult = await storeToHeliaOrLocal(buf, filename, exportedApp);
+          // get pubkey for addr
+          let pub = recMap && recMap[addr] ? recMap[addr] : null;
+          if (!pub && adminAddr && addr === adminAddr && adminPub) pub = adminPub;
+          if (!pub) {
+            console.warn('No public key configured for recipient', addr);
+            continue;
           }
+          const normalized = normalizePubForEthCrypto(pub);
+          const symKeyHex = symKey.toString('hex');
+          const enc = await encryptSymKeyForRecipient(symKeyHex, normalized);
+          const canonicalAddr = canonicalizeAddress(addr);
+          recipientEntries.push({ address: canonicalAddr, pubkey: normalized, encryptedKey: enc });
         } catch (e) {
-          // fallback to local storage on error
-          try { ensureStorage(); } catch (e2) {}
-          if (base64Cipher) {
-            const buf = base64ToBuffer(base64Cipher);
-            storeResult = await storeLocal(buf, filename);
-          } else if (wrapper) {
-            const canonical = canon(wrapper);
-            const buf = Buffer.from(canonical, 'utf8');
-            storeResult = await storeLocal(buf, filename);
-          } else {
-            const txt = typeof payload === 'string' ? payload : JSON.stringify(payload);
-            const buf = Buffer.from(txt, 'utf8');
-            storeResult = await storeLocal(buf, filename);
-          }
+          console.warn('Failed to encrypt symkey for', addr, e && e.message ? e.message : e);
         }
+      }
 
-        // record metadata in index
-        const entry = {
-          digest: serverDigest,
-          cid: storeResult.cid,
-          uri: storeResult.uri,
-          reporterAddress: payload.reporterAddress || null,
-          contractAddress: payload.contractAddress || null,
-          note: payload.note || null,
-          encryption: payload.encryption || null,
-          timestamp: payload.timestamp || new Date().toISOString()
-        };
-        saveIndex(entry);
+      // Ensure admin recipient is present when we have admin public key configured
+      if (adminPub && adminAddr && !recipientEntries.find(r => r.address && r.address.toLowerCase() === canonicalizeAddress(adminAddr))) {
+        try {
+          const norm = normalizePubForEthCrypto(adminPub);
+          const encA = await encryptSymKeyForRecipient(symKey.toString('hex'), norm);
+          recipientEntries.push({ address: canonicalizeAddress(adminAddr), pubkey: norm, encryptedKey: encA });
+        } catch (e) { console.warn('Failed to add admin as recipient', e && e.message ? e.message : e); }
+      }
 
-    // Prepare response object
-    const responseObj = { success: true, cid: storeResult.cid, uri: storeResult.uri, digest: serverDigest };
+      // Assemble envelope JSON
+      const serverDigest = String(digest);
+      const envelope = {
+        version: '1',
+        digest: serverDigest,
+        txHash: txHash || null,
+        contractAddress: contractAddress || null,
+        type: type,
+        timestamp: new Date().toISOString(),
+        encryption: {
+          scheme: 'hybrid-aes256gcm-ecies-secp256k1',
+          aes: {
+            iv: aes.iv,
+            tag: aes.tag
+          }
+        },
+        recipients: recipientEntries,
+        ciphertext: aes.ciphertext
+      };
 
-    // Send response to client
-    res.json(responseObj);
+      // Persist envelope to storage and publish via Helia if available
+      const filename = `${Date.now()}-${serverDigest.replace(/^0x/, '')}.json`;
+      const buf = Buffer.from(JSON.stringify(envelope, null, 2), 'utf8');
+      let storeResult = null;
+      try {
+        storeResult = await storeToHeliaOrLocal(buf, filename, exportedApp);
+      } catch (e) {
+        try { ensureStorage(); } catch (ee) {}
+        storeResult = await storeLocal(buf, filename);
+      }
 
-    // Persist a copy of the response JSON to evidence_storage for debugging/audit
+      // Update index.json with metadata
+      const indexEntry = {
+        digest: serverDigest,
+        txHash: txHash || null,
+        contractAddress: contractAddress || null,
+        type: type,
+        cid: storeResult.cid,
+        uri: storeResult.uri,
+  recipients: recipientEntries.map(r => r.address),
+        savedAt: new Date().toISOString(),
+        // compute fileHash over envelope JSON bytes for integrity
+        fileHash: (() => { try { const h = require('ethers').utils.keccak256(Buffer.from(JSON.stringify(envelope, null, 2), 'utf8')); return h; } catch (e) { return null; } })()
+      };
+      saveIndex(indexEntry);
+
+      // Persist the envelope file also in evidence_storage as JSON (already stored by storeLocal / helia as content), but keep a local copy for audit
+      try {
+        ensureStorage();
+        const localPath = path.join(STORAGE_DIR, filename);
+        if (!fs.existsSync(localPath)) fs.writeFileSync(localPath, JSON.stringify(envelope, null, 2), 'utf8');
+      } catch (e) { console.warn('Failed writing local envelope copy', e && e.message ? e.message : e); }
+
+      const responseObj = { success: true, digest: serverDigest, cid: storeResult.cid, uri: storeResult.uri, recipients: recipientEntries.map(r => r.address) };
+      if (process.env.TESTING) console.error('TESTING_SUBMIT_RESPONSE=' + JSON.stringify(responseObj));
+      res.json(responseObj);
+      return;
+    } catch (err) {
+      console.error('submit-evidence unified error', err && err.stack ? err.stack : err);
+      return res.status(500).json({ error: err && err.message ? err.message : String(err) });
+    }
+  });
+
+  // GET /evidence-index - return index.json (optionally filter by contractAddress)
+  exportedApp.get('/evidence-index', (req, res) => {
     try {
       ensureStorage();
-      const respFilename = `${Date.now()}-${String(serverDigest).replace(/^0x/, '')}.json`;
-      const respPath = path.join(STORAGE_DIR, respFilename);
-      fs.writeFileSync(respPath, JSON.stringify(responseObj, null, 2), { encoding: 'utf8' });
-      console.log('Saved submit-evidence response to', respPath);
+      const raw = fs.readFileSync(INDEX_FILE, 'utf8') || '{"entries":[]}';
+      const json = JSON.parse(raw);
+      const ca = req.query && req.query.contractAddress ? String(req.query.contractAddress).toLowerCase() : null;
+      if (ca) {
+        const filtered = (json.entries || []).filter(e => e.contractAddress && String(e.contractAddress).toLowerCase() === ca);
+        return res.json({ entries: filtered });
+      }
+      return res.json(json);
     } catch (e) {
-      console.error('Failed to persist submit-evidence response:', e && e.message ? e.message : e);
+      console.error('evidence-index error', e && e.stack ? e.stack : e);
+      return res.status(500).json({ error: e && e.message ? e.message : String(e) });
     }
-    return;
-    } catch (err) {
-      try { if (process.env && process.env.TESTING) console.error('TESTING_SUBMIT_ERROR=' + (err && err.stack ? err.stack : String(err))); } catch (e) {}
-      console.error('submit-evidence error', err && err.stack ? err.stack : err);
-      return res.status(500).json({ error: err && err.message ? err.message : String(err) });
+  });
+
+  // GET /evidence/:digest - return envelope JSON for a given digest (search by filename)
+  exportedApp.get('/evidence/:digest', (req, res) => {
+    try {
+      const d = req.params && req.params.digest ? String(req.params.digest).replace(/^0x/, '') : null;
+      if (!d) return res.status(400).json({ error: 'digest required' });
+      ensureStorage();
+      // find a file matching *-<digest>.json in STORAGE_DIR
+      const files = fs.readdirSync(STORAGE_DIR).filter(f => f.endsWith(`-${d}.json`) || f.endsWith(`-${d}.bin`));
+      if (!files || files.length === 0) return res.status(404).json({ error: 'not found' });
+      const filePath = path.join(STORAGE_DIR, files[0]);
+      const raw = fs.readFileSync(filePath, 'utf8');
+      // try parse JSON, otherwise return raw content
+      try {
+        const parsed = JSON.parse(raw);
+        return res.json({ file: files[0], envelope: parsed });
+      } catch (e) {
+        return res.json({ file: files[0], envelopeRaw: raw });
+      }
+    } catch (e) {
+      console.error('evidence fetch error', e && e.stack ? e.stack : e);
+      return res.status(500).json({ error: e && e.message ? e.message : String(e) });
     }
   });
 
@@ -534,6 +703,9 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
   return server;
 }
 
+// Export helpers for tests and external use
+module.exports = Object.assign(module.exports || {}, { canonicalizeAddress, normalizePubForEthCrypto });
+
 // Stop server and gracefully shutdown Helia runtime (if running). Returns a Promise that resolves when shutdown completes.
 async function stopEvidenceEndpoint(server) {
   try {
@@ -585,4 +757,12 @@ if (require.main === module) {
 
 }
 
-module.exports = { startEvidenceEndpoint, stopEvidenceEndpoint, initHeliaIfNeeded, attachHeliaToApp, normalizePublicKeyToBuffer };
+module.exports = { 
+  startEvidenceEndpoint, 
+  stopEvidenceEndpoint, 
+  initHeliaIfNeeded, 
+  attachHeliaToApp, 
+  normalizePublicKeyToBuffer,
+  normalizePubForEthCrypto,
+  canonicalizeAddress
+};

@@ -9,6 +9,7 @@ import { getContractAddress } from '../../utils/contracts';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
+import EvidenceList from '../Evidence/EvidenceList';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const { signer, chainId, account, provider } = useEthers();
@@ -1435,6 +1436,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             <i className="fas fa-cog"></i>
             Actions
           </button>)}
+          {/* Evidence tab — shows off-chain stored evidence for this contract */}
+          <button 
+            className={activeTab === 'evidence' ? 'active' : ''}
+            onClick={() => setActiveTab('evidence')}
+          >
+            <i className="fas fa-folder-open"></i>
+            Evidence
+          </button>
         </div>
 
         {loading ? (
@@ -1981,6 +1990,12 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === 'evidence' && (
+              <div className="tab-content">
+                <EvidenceList contractAddress={contractDetails.address} />
               </div>
             )}
           </div>

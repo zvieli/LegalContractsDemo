@@ -100,7 +100,8 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler } = {}) {
         ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
       }
 
-      const postBody = { ciphertext: ciphertextToSend, digest: prep.digest };
+  // default evidence type for UI submissions is 'rationale'
+  const postBody = { ciphertext: ciphertextToSend, digest: prep.digest, type: 'rationale' };
 
       const resp = await fetch(apiBase, {
         method: 'POST',

@@ -8,6 +8,8 @@ export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30_000,
   expect: { timeout: 5000 },
+  // run tests in a single worker to avoid per-worker beforeAll launching the dev server
+  workers: 1,
   use: {
     baseURL: `http://localhost:${process.env.VITE_DEV_PORT || 5173}`,
     headless: true,

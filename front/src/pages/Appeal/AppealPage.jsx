@@ -9,15 +9,11 @@ export default function AppealPage() {
   const disputeIdParam = params.get('disputeId') || params.get('id') || '';
   const disputeId = disputeIdParam ? Number(disputeIdParam) : 0;
 
-  // Demo fallbacks if none provided
-  const demoContractAddress = contractAddress || '';
-  const demoDisputeId = disputeId || 0;
-
   return (
     <div className="appeal-page" data-testid="appeal-page-root">
       <div className="container">
         <h2>Appeal Dispute</h2>
-        <AppealForm contractAddress={demoContractAddress} disputeId={demoDisputeId} />
+        <AppealForm contractAddress={contractAddress} disputeId={disputeId} />
       </div>
     </div>
   );

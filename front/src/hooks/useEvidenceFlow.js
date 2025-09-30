@@ -120,6 +120,9 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
     reporterAddress: reporterAddress || undefined,
     contractAddress: contractAddress || undefined,
     note: note || undefined,
+    // evidence endpoint expects a 'type' field: 'appeal' or 'rationale'
+    // allow caller to override via opts.type; default to 'rationale' for resolve flows
+    type: (opts && opts.type) ? opts.type : 'rationale',
     timestamp,
     encryption: encryption || undefined
   };
