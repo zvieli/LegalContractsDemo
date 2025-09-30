@@ -2,6 +2,7 @@ import * as ethers from 'ethers';
 import { contract } from './contractInstance.js';
 import { computePayloadDigest } from '../utils/cidDigest';
 import { prepareEvidencePayload } from '../utils/evidence';
+import { IN_E2E } from '../utils/env';
 
 // Resolve Vite env variables but allow runtime overrides injected by Playwright into window.__ENV__
 function getEvidenceEndpoint() {
@@ -102,26 +103,21 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   if (endpointUrl.endsWith('/')) endpointUrl = endpointUrl.slice(0, -1);
   if (!endpointUrl.toLowerCase().endsWith('/submit-evidence')) endpointUrl = endpointUrl + '/submit-evidence';
   // E2E debug: surface the endpoint and payload in the browser console so Playwright traces capture it
-  const e2eFlag = (() => {
-    try { if (import.meta && import.meta.env && import.meta.env.VITE_E2E_TESTING) return true; } catch (e) {}
-    try { if (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING) return true; } catch (e) {}
-    return false;
-  })();
-  try { if (e2eFlag) console.log && console.log('E2EDBG: submitEvidenceAndReport POST', endpointUrl, 'admin=', String(runtimeAdmin).slice(0, 20), 'digest=', digest); } catch (e) {}
+  try { if (IN_E2E) console.log && console.log('E2EDBG: submitEvidenceAndReport POST', endpointUrl, 'admin=', String(runtimeAdmin).slice(0, 20), 'digest=', digest); } catch (e) {}
   // E2E debug: print final fetch URL so traces show exactly where the POST goes
-  try { if (e2eFlag) console.log && console.log('E2EDBG: final evidence POST URL', endpointUrl); } catch (e) {}
+  try { if (IN_E2E) console.log && console.log('E2EDBG: final evidence POST URL', endpointUrl); } catch (e) {}
   // E2E debug: print request body length so we can spot empty/zero-length uploads
-  try { if (e2eFlag) console.log && console.log('E2EDBG: evidence POST body length', (ciphertext && ciphertext.length) || 0); } catch (e) {}
+  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence POST body length', (ciphertext && ciphertext.length) || 0); } catch (e) {}
   let res;
   try {
     res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
   } catch (fetchErr) {
-    try { console.error && console.error('E2EDBG: evidence POST fetch failed', String(fetchErr)); } catch (e) {}
+  try { if (IN_E2E) console.error && console.error('E2EDBG: evidence POST fetch failed', String(fetchErr)); } catch (e) {}
     throw fetchErr;
   }
   // E2E debug: log response status and a short body preview (clone() so we don't consume the stream)
-  try {
-    if (e2eFlag && res) {
+    try {
+      if (IN_E2E && res) {
       let text = '';
       try { text = await res.clone().text().catch(() => ''); } catch (cloneErr) { text = '<clone failed>'; }
       console.log && console.log('E2EDBG: evidence POST response', 'status=', res.status, 'bodyPreview=', String(text).slice(0, 1000));
@@ -140,16 +136,13 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
       } catch (__) {}
       errBody = null;
     }
-  try { if (e2eFlag) console.log && console.log('E2EDBG: evidence POST initial response status', res.status, 'json=', errBody); } catch (e) {}
+  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence POST initial response status', res.status, 'json=', errBody); } catch (e) {}
     if (res.status === 400 && errBody && errBody.adminPublicKey) {
       // Re-encrypt locally using returned adminPublicKey and resend
       try {
         const adminPub = errBody.adminPublicKey;
         const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: adminPub });
-        try {
-          const e2eFlag2 = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING);
-          if (e2eFlag2) console.log && console.log('E2EDBG: submitEvidenceAndReport RETRY POST', endpointUrl, 'digest=', newDigest);
-        } catch (e) {}
+        try { if (IN_E2E) console.log && console.log('E2EDBG: submitEvidenceAndReport RETRY POST', endpointUrl, 'digest=', newDigest); } catch (e) {}
         res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: newCiphertext });
         if (!res.ok) {
           const tb = await res.text().catch(() => '');
@@ -172,7 +165,7 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   // Prefer ipfsUri when available (new architecture). Fall back to digest for compatibility.
   const returnedUri = body && body.ipfsUri ? body.ipfsUri : null;
   const returnedDigest = body && body.digest ? body.digest : digest;
-  try { const e2eFlag3 = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV__.VITE_E2E_TESTING); if (e2eFlag3) console.log && console.log('E2EDBG: evidence endpoint returned', returnedUri || returnedDigest, body && body.path); } catch (e) {}
+  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence endpoint returned', returnedUri || returnedDigest, body && body.path); } catch (e) {}
 
   // Report on-chain: prefer passing the URI (ipfs://...) when provided, else pass the digest for backward compatibility
   const toSend = returnedUri ? returnedUri : returnedDigest;
@@ -1266,8 +1259,7 @@ export class ContractService {
                 const body = ciphertext ? ciphertext : evidence;
                 // E2E debug: surface endpoint and body preview so Playwright traces capture it
                 try {
-                  const e2eFlag = (import.meta.env && import.meta.env.VITE_E2E_TESTING) || (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV__.VITE_E2E_TESTING);
-                  if (e2eFlag) console.debug && console.debug('E2E: inline evidence POST', submitEndpoint, String(body).slice(0,200));
+                  if (IN_E2E) console.debug && console.debug('E2E: inline evidence POST', submitEndpoint, String(body).slice(0,200));
                 } catch (e) {}
                 let resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
                 // If server rejects wrapper with adminPublicKey, re-encrypt locally using that adminPublicKey and retry once

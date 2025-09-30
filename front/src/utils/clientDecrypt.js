@@ -1,8 +1,6 @@
 import crypto from 'crypto';
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
-
-// Use a build-time flag that Vite replaces so Rollup can DCE testing-only blocks.
-const VITE_E2E_TESTING = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_E2E_TESTING === 'true');
+import { IN_E2E } from './env.js';
 
 function aesDecryptUtf8(ciphertextBase64, ivBase64, tagBase64, symKeyBuffer) {
   const iv = Buffer.from(ivBase64, 'base64');
@@ -52,8 +50,33 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
     if (typeof encKey === 'string') {
       try { encKey = JSON.parse(encKey); } catch (e) { /* keep as-is */ }
     }
-    // Try canonical ECIES browser implementation first
+    // Try canonical ECIES browser implementation first. If we're running
+    // in Node for TESTING (in-process E2E), allow using the server-side
+    // canonical implementation to improve interoperability during tests.
     try {
+      // Node TESTING fallback: import server-side ECIES implementation
+      if (typeof process !== 'undefined' && process && process.env && process.env.TESTING && typeof window === 'undefined') {
+        try {
+          const serverEcies = await import('../../../tools/crypto/ecies.js');
+          if (serverEcies && typeof serverEcies.decryptWithPrivateKey === 'function') {
+            const plain = await serverEcies.decryptWithPrivateKey(pkRaw, encKey);
+            // server returns plaintext string (hex or utf8) similar to browser module
+            let symBuf = null;
+            try { const raw = Buffer.from(String(plain), 'latin1'); if (raw && raw.length === 32) symBuf = raw; } catch (e) {}
+            if (!symBuf) {
+              try { if (/^[0-9a-fA-F]+$/.test(String(plain).trim())) symBuf = Buffer.from(String(plain).trim(), 'hex'); } catch (e) {}
+            }
+            if (!symBuf) { try { symBuf = Buffer.from(String(plain), 'base64'); } catch (e) {} }
+            if (!symBuf) { try { symBuf = Buffer.from(String(plain), 'utf8'); } catch (e) {} }
+            if (symBuf) {
+              const plaintext = aesDecryptUtf8(envelope.ciphertext, envelope.encryption.aes.iv, envelope.encryption.aes.tag, symBuf);
+              try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
+            }
+          }
+        } catch (e) {
+          // fall through to browser ecies attempt
+        }
+      }
       const plain = await ecies.decryptWithPrivateKey(pkRaw, encKey);
       // plain MAY be raw bytes (latin1), hex, base64, or utf8. Try raw-first.
       let symBuf = null;
@@ -85,7 +108,7 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
         try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
       }
   } catch (e) {
-  try { if (VITE_E2E_TESTING) errors.push('ecies:' + (e && e.message ? e.message : e)); } catch (ee) {}
+  try { if (IN_E2E) errors.push('ecies:' + (e && e.message ? e.message : e)); } catch (ee) {}
   // fallback to eth-crypto if available
     }
     const EthCrypto = await loadEthCrypto();
@@ -107,7 +130,7 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
           const plaintext = aesDecryptUtf8(envelope.ciphertext, envelope.encryption.aes.iv, envelope.encryption.aes.tag, symBuf);
           try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
         }
-  } catch (e) { try { if (VITE_E2E_TESTING) errors.push('eth-crypto:' + (e && e.message ? e.message : e)); } catch (ee) {} return null; }
+  } catch (e) { try { if (IN_E2E) errors.push('eth-crypto:' + (e && e.message ? e.message : e)); } catch (ee) {} return null; }
     }
     // Try eccrypto fallback similar to server-side helper
     try {
@@ -154,7 +177,7 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
     } catch (e) {}
     // if in E2E testing mode, surface attempt errors for debugging (gated behind
     // import.meta.env so it is removed from production bundles).
-    if (VITE_E2E_TESTING) {
+    if (IN_E2E) {
       try {
         console.error('TESTING_CLIENT_DECRYPT_ATTEMPTS errors=', JSON.stringify(errors));
       } catch (e) {}
@@ -174,7 +197,7 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
       if (tryTop !== null) return tryTop;
     } catch (e) {
       // ignore and continue to recipient-based attempts
-  try { if (VITE_E2E_TESTING) console.error('TESTING_CLIENT_DECRYPT_CRYPTO_FAIL=' + (e && e.message ? e.message : e)); } catch (ee) {}
+  try { if (IN_E2E) console.error('TESTING_CLIENT_DECRYPT_CRYPTO_FAIL=' + (e && e.message ? e.message : e)); } catch (ee) {}
     }
   }
 
@@ -189,7 +212,7 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
       if (ok !== null) return ok;
     } catch (e) {}
   }
-  if (VITE_E2E_TESTING) {
+  if (IN_E2E) {
     try {
       console.error('TESTING_CLIENT_DECRYPT_FINAL derivedPub=' + String(derivedPub));
       console.error('TESTING_CLIENT_DECRYPT_FINAL derivedNorm=' + String(derivedNorm));

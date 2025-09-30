@@ -1,5 +1,6 @@
 import * as ethers from 'ethers';
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
+import { IN_E2E } from './env.js';
 
 /**
  * Client-side evidence helpers (Option A flow).
@@ -83,10 +84,7 @@ export async function prepareEvidencePayload(payload, options = {}) {
     const result = await encryptToAdminPubKey(payloadStr, options.encryptToAdminPubKey);
     // E2E-only logging: surface ciphertext length and digest so tests can assert preparation happened
     try {
-      let e2e = false;
-      try { if (import.meta && import.meta.env && import.meta.env.VITE_E2E_TESTING) e2e = true; } catch (e) {}
-      try { if (typeof window !== 'undefined' && window && window.__ENV__ && window.__ENV.VITE_E2E_TESTING) e2e = true; } catch (e) {}
-      if (e2e) {
+      if (IN_E2E) {
         try { console.log && console.log('E2EDBG: prepareEvidencePayload result', 'cipherLen=', (result.ciphertext||'').length, 'digest=', result.digest); } catch (e) {}
       }
     } catch (__) {}

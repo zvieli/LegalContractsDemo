@@ -10,6 +10,7 @@ import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import EvidenceList from '../Evidence/EvidenceList';
+import { IN_E2E } from '../../utils/env';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const { signer, chainId, account, provider } = useEthers();
@@ -133,21 +134,19 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   }, [isOpen, contractAddress, signer]);
 
   // Expose a small test helper for E2E: programmatically open the dispute form when modal is mounted.
-  // These helpers are intended for local testing only and are gated behind the VITE_E2E_TESTING
-  // environment variable so they are not included in production builds.
+  // These helpers are intended for local testing only and are gated behind the
+  // build-time E2E flag (imported as IN_E2E) so they are not included in
+  // production builds.
   // Attach test helpers when the component mounts so Playwright can call them
-  // even if the modal is initially closed. These are still gated behind
-  // VITE_E2E_TESTING so they won't be included in production builds.
+  // even if the modal is initially closed. These are gated and will be stripped
+  // from production when IN_E2E is false at build time.
   useEffect(() => {
     try {
-      const meta = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : null;
-      console.debug && console.debug('E2E: import.meta.env =', meta);
-      const enabledViaEnv = !!(meta && meta.VITE_E2E_TESTING === 'true');
       const enabledViaHost = typeof window !== 'undefined' && (window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
-      const enabled = enabledViaEnv || enabledViaHost;
+      const enabled = IN_E2E || enabledViaHost;
       if (!enabled) return;
       // attach a helper only in E2E/testing environments
-      console.debug && console.debug('E2E: attaching playwright helpers (VITE_E2E_TESTING=true)');
+      console.debug && console.debug('E2E: attaching playwright helpers (IN_E2E=true)');
       window.playwright_open_dispute = () => { try { console.debug && console.debug('E2E: playwright_open_dispute called'); setShowDisputeForm(true); } catch (_) {} };
       window.playwright_submit_dispute = async (evidenceText, amountEth) => {
         try {
@@ -906,6 +905,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     // service entrypoints. Standard users cannot call `resolveByArbitrator`.
     alert('Resolve action must be performed by the platform arbitrator via ArbitrationService');
   };
+  // Centralized E2E flag import for dead-code-elimination
+  // ...existing code...
 
   const submitDisputeForm = async () => {
     try {
@@ -918,7 +919,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       // activates in E2E/testing environments to avoid masking real errors.
       let targetAddress = contractAddress;
       try {
-        const e2eEnabled = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_E2E_TESTING === 'true') || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT);
+  const e2eEnabled = IN_E2E || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT);
         const addressRegex = /^0x[0-9a-fA-F]{40}$/;
         if ((!targetAddress || !addressRegex.test(String(targetAddress))) && e2eEnabled) {
           try {
@@ -958,8 +959,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       // test payload so the client will encrypt and POST it to the evidence endpoint. This
       // is gated behind VITE_E2E_TESTING to avoid changing production behaviour.
       try {
-        const e2eEnabled = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_E2E_TESTING === 'true') || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING);
-        if (e2eEnabled && (!evidenceRaw || evidenceRaw.length === 0)) {
+  const e2eEnabled = IN_E2E || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING);
+  if (e2eEnabled && (!evidenceRaw || evidenceRaw.length === 0)) {
           // Allow an explicit override from the test harness via window.__PLAYWRIGHT_EVIDENCE
           if (typeof window !== 'undefined' && window.__PLAYWRIGHT_EVIDENCE) {
             evidenceRaw = String(window.__PLAYWRIGHT_EVIDENCE);

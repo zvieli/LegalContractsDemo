@@ -5,6 +5,7 @@ import * as ethers from 'ethers';
 import { createContractInstanceAsync } from '../../utils/contracts';
 import './MyContracts.css';
 import ContractModal from '../ContractModal/ContractModal';
+import { IN_E2E } from '../../utils/env';
 
 export default function MyContracts() {
   const { signer, chainId, account, isConnected } = useEthers();
@@ -21,7 +22,7 @@ export default function MyContracts() {
     const svc = new ContractService(signer, chainId);
 
     (async () => {
-      try { console.debug('MYCONTRACTS: effect start; VITE_E2E_TESTING=', import.meta.env?.VITE_E2E_TESTING, 'window.playwright_open_dispute=', (typeof window !== 'undefined' && !!window.playwright_open_dispute)); } catch (e) {}
+  try { console.debug('MYCONTRACTS: effect start; IN_E2E=', IN_E2E, 'window.playwright_open_dispute=', (typeof window !== 'undefined' && !!window.playwright_open_dispute)); } catch (e) {}
       try {
         setLoading(true);
         const addr = account;
@@ -67,7 +68,7 @@ export default function MyContracts() {
           // Playwright can find the created contract items reliably. Fall back to
           // a large paged request if the full getter isn't present or fails.
           const runtimeHasPlaywrightHelper = (typeof window !== 'undefined' && !!window.playwright_open_dispute);
-          const e2e = import.meta.env?.VITE_E2E_TESTING || runtimeHasPlaywrightHelper;
+          const e2e = IN_E2E || runtimeHasPlaywrightHelper;
           if (e2e) {
               try {
                 // Use a direct JsonRpcProvider to query the node for the full list.
