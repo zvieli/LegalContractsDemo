@@ -1,5 +1,6 @@
 import * as secp from '@noble/secp256k1';
 import crypto from 'crypto';
+import { appendTestingTrace } from '../../utils/testing-helpers.js';
 
 function strip0x(s) { if (!s && s !== 0) return s; let t = String(s).trim(); if (t.startsWith('0x')) t = t.slice(2); return t; }
 
@@ -65,6 +66,11 @@ export async function encryptWithPublicKey(pubkeyHex, plaintext) {
 	// TESTING: emit detailed values so we can compare producer vs consumer
 	if (process && process.env && process.env.TESTING) {
 		try {
+			appendTestingTrace('ECIES_ENCRYPT_DETAILS', {
+				ephPub: uint8ToHex(ephPub),
+				shared: Buffer.from(shared).toString('hex'),
+				kdf: key.toString('hex')
+			});
 			console.error('TESTING_ECIES_CREATED ephPub=' + uint8ToHex(ephPub));
 			console.error('TESTING_ECIES_CREATED shared=' + Buffer.from(shared).toString('hex'));
 			console.error('TESTING_ECIES_CREATED kdf=' + key.toString('hex'));
@@ -85,13 +91,17 @@ export async function encryptWithPublicKey(pubkeyHex, plaintext) {
 		ciphertext: ct.toString('hex'),
 		mac: tag.toString('hex')
 	};
-	// In TESTING mode, expose the ephemeral private key and the exact plaintext
-	// bytes (hex) that were encrypted so we have a ground-truth for replay
-	// diagnostics. This MUST remain restricted to TESTING only and never
-	// enabled in production.
+	// In TESTING mode, expose debugging info and trace the encryption
 	if (process && process.env && process.env.TESTING) {
-		try { out._ephemeralPrivate = uint8ToHex(ephPriv); } catch (e) {}
-		try { out._plaintextHex = plaintextBuf.toString('hex'); } catch (e) {}
+		try { 
+			out._ephemeralPrivate = uint8ToHex(ephPriv); 
+			out._plaintextHex = plaintextBuf.toString('hex');
+			appendTestingTrace('ECIES_ENCRYPT_RESULT', {
+				ephemeralPrivate: out._ephemeralPrivate,
+				plaintextHex: out._plaintextHex,
+				resultStructure: Object.keys(out)
+			});
+		} catch (e) {}
 	}
 	return out;
 }

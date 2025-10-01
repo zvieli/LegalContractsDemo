@@ -87,65 +87,7 @@ describe('Evidence full E2E (server -> storage -> CLI/frontend)', function() {
     const envRaw = fs.readFileSync(path.join(process.cwd(), 'evidence_storage', file), 'utf8');
     const envObj = JSON.parse(envRaw);
 
-    // TESTING-only deterministic injection: if the saved envelope does not
-    // contain a recipient for the test-generated admin identity, read the
-    // producer debug file to obtain the symmetric key, wrap it using the
-    // canonical ECIES implementation for the test admin public key, and
-    // upsert the admin recipient into the saved envelope. This ensures the
-    // in-process client decryptor (imported front helper) can decrypt.
-    try {
-      if (process && process.env && process.env.TESTING) {
-        const adminPubNo0x = process.env.ADMIN_PUBLIC_KEY && process.env.ADMIN_PUBLIC_KEY.startsWith('0x') ? process.env.ADMIN_PUBLIC_KEY.slice(2) : process.env.ADMIN_PUBLIC_KEY;
-        const adminPubPref = adminPubNo0x ? ('0x' + adminPubNo0x) : null;
-        const adminAddr = adminPubPref ? (await import('ethers')).computeAddress(adminPubPref).toLowerCase() : null;
-        const canonAdmin = adminAddr ? adminAddr.toLowerCase() : null;
-        const hasAdminRecipient = (envObj.recipients || []).some(r => r.address && String(r.address).toLowerCase() === canonAdmin);
-        if (!hasAdminRecipient && canonAdmin) {
-          // find the most recent producer_debug file
-          const dbgDir = path.join(process.cwd(), 'evidence_storage');
-          const dbgFiles = fs.existsSync(dbgDir) ? fs.readdirSync(dbgDir).filter(f => f.startsWith('producer_debug_') && f.endsWith('.json')) : [];
-          if (dbgFiles && dbgFiles.length > 0) {
-            const dbg = dbgFiles.sort((a,b) => b.localeCompare(a))[0];
-            try {
-              const dbgRaw = fs.readFileSync(path.join(dbgDir, dbg), 'utf8');
-              const dbgObj = JSON.parse(dbgRaw);
-              const symHex = dbgObj && dbgObj.symKey ? dbgObj.symKey : (dbgObj && dbgObj.symKey ? dbgObj.symKey : null);
-              const sym = symHex || null;
-              if (sym) {
-                // encrypt sym for adminPub using canonical server ecies
-                const ecies = await import('../tools/crypto/ecies.js');
-                const normPub = ecies.normalizePublicKeyHex ? ecies.normalizePublicKeyHex(adminPubNo0x) : (adminPubNo0x);
-                const enc = await ecies.encryptWithPublicKey(normPub, sym);
-                // craft admin recipient entry
-                const adminEntry = { address: canonAdmin, pubkey: (normPub && normPub.startsWith('04')) ? normPub : (normPub ? ('04' + normPub) : normPub) };
-                if (enc) {
-                  if (enc.ecies) adminEntry.encryptedKey = enc.ecies; else adminEntry.encryptedKey = enc;
-                }
-                // upsert into envelope file
-                const existingIndex = (envObj.recipients || []).findIndex(r => r.address && String(r.address).toLowerCase() === canonAdmin);
-                if (existingIndex >= 0) envObj.recipients[existingIndex] = adminEntry; else envObj.recipients.push(adminEntry);
-                fs.writeFileSync(path.join(process.cwd(), 'evidence_storage', file), JSON.stringify(envObj, null, 2), 'utf8');
-                // also update index.json recipients list to include admin
-                try {
-                  const idxPath = path.join(process.cwd(), 'evidence_storage', 'index.json');
-                  if (fs.existsSync(idxPath)) {
-                    const idx = JSON.parse(fs.readFileSync(idxPath,'utf8'));
-                    const entry = idx.entries.find(e => e.digest === j.digest);
-                    if (entry && Array.isArray(entry.recipients) && !entry.recipients.includes(canonAdmin)) {
-                      entry.recipients.push(canonAdmin);
-                      fs.writeFileSync(idxPath, JSON.stringify(idx, null, 2), 'utf8');
-                    }
-                  }
-                } catch (e) {}
-                // re-read envObj from disk so subsequent decrypt uses updated file
-                const envRaw2 = fs.readFileSync(path.join(process.cwd(), 'evidence_storage', file), 'utf8');
-                envObj = JSON.parse(envRaw2);
-              }
-            } catch (e) {}
-          }
-        }
-      }
-    } catch (e) {}
+    // No test-side injection required: endpoint guarantees finalAdminPub in TESTING.
     const decoded = await fn(envObj, adminKey);
     assert.strictEqual(decoded.verdict, payload.verdict);
   });

@@ -2,6 +2,22 @@ import * as ethers from 'ethers';
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
 import { IN_E2E } from './env.js';
 
+// Import testing helpers for frontend debugging (browser compatible check)
+let testingHelpers = null;
+if (typeof process !== 'undefined' && process.env && process.env.TESTING) {
+  try {
+    // Note: In browser environments, this import may fail, which is expected
+    import('../../../utils/testing-helpers.js').then(module => {
+      testingHelpers = module;
+    }).catch(() => {
+      // Expected to fail in browser, testing helpers are Node.js only
+      testingHelpers = null;
+    });
+  } catch (e) {
+    // Expected in browser environment
+  }
+}
+
 /**
  * Client-side evidence helpers (Option A flow).
  *
@@ -85,7 +101,15 @@ export async function prepareEvidencePayload(payload, options = {}) {
     // E2E-only logging: surface ciphertext length and digest so tests can assert preparation happened
     try {
       if (IN_E2E) {
-        try { console.log && console.log('E2EDBG: prepareEvidencePayload result', 'cipherLen=', (result.ciphertext||'').length, 'digest=', result.digest); } catch (e) {}
+        console.log && console.log('E2EDBG: prepareEvidencePayload result', 'cipherLen=', (result.ciphertext||'').length, 'digest=', result.digest);
+      }
+      // TESTING mode logging via testing helpers if available
+      if (testingHelpers && typeof testingHelpers.appendTestingTrace === 'function') {
+        testingHelpers.appendTestingTrace('FRONTEND_EVIDENCE_PREPARED', {
+          cipherTextLength: (result.ciphertext||'').length,
+          digest: result.digest,
+          adminPubKeyUsed: options.encryptToAdminPubKey ? 'yes' : 'no'
+        });
       }
     } catch (__) {}
     return result;

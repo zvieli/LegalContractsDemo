@@ -8,6 +8,17 @@ import crypto from 'crypto';
 import { keccak256, toUtf8Bytes, Interface } from 'ethers';
 import { ethers } from 'ethers';
 import { fileURLToPath } from 'url';
+import { 
+  appendTestingTrace, 
+  traceNow, 
+  initializeTestTrace, 
+  normalizePubForEthCrypto, 
+  canonicalizeAddress,
+  logAdminKeyDerivation,
+  logRecipientProcessing,
+  shouldSkipRecipient,
+  writeDebugDump
+} from '../utils/testing-helpers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -119,22 +130,9 @@ function loadRecipientPubkeysMap() {
   return {};
 }
 
-function normalizePubForEthCrypto(pub) {
-  if (!pub) return null;
-  let s = String(pub).trim();
-  if (s.startsWith('0x')) s = s.slice(2);
-  if (s.length === 128 && !s.startsWith('04')) s = '04' + s;
-  if (s.length === 130 && !s.startsWith('04')) s = '04' + s;
-  return s.toLowerCase();
-}
+// normalizePubForEthCrypto now imported from testing-helpers.js
 
-function canonicalizeAddress(addr) {
-  if (!addr) return null;
-  let s = String(addr).trim();
-  if (!s) return null;
-  if (!s.startsWith('0x')) s = '0x' + s;
-  return s.toLowerCase();
-}
+// canonicalizeAddress now imported from testing-helpers.js
 
 async function discoverRolesFromContract(contractAddress, provider) {
   if (!contractAddress) return [];
@@ -313,6 +311,14 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
       console.warn('ADMIN_PUBLIC_KEY not configured; endpoint will refuse uploads.');
     }
     console.log('ADMIN_PRIVATE_KEY available on server: ' + (ADMIN_PRIV ? 'yes (using file or env)' : 'no'));
+    
+    // Initialize test tracing for TESTING mode
+    initializeTestTrace({ 
+      module: 'evidence-endpoint', 
+      adminPubArg: String(adminPubArg),
+      ADMIN_PUB: String(ADMIN_PUB)
+    });
+    
     if (process && process.env && process.env.TESTING) {
       try {
         console.error('TESTING_START_ENV adminPubArg=' + String(adminPubArg));
@@ -323,23 +329,19 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     }
   } catch (e) {}
 
-  if (!global.__evidence_exported_app) global.__evidence_exported_app = express();
+  // Clear existing routes in TESTING mode to ensure fresh configuration
+  if (process.env.TESTING) {
+    global.__evidence_exported_app = null; // Clear completely
+  }
+  
+  if (!global.__evidence_exported_app) {
+    global.__evidence_exported_app = express();
+  }
   const exportedApp = global.__evidence_exported_app;
   exportedApp.use(cors());
   exportedApp.use(bodyParser.json({ limit: '20mb' }));
-
-  if (process.env.TESTING) {
-    exportedApp.use((req, res, next) => {
-      try {
-        const method = req.method;
-        const url = req.originalUrl || req.url || '/';
-        const ip = req.ip || (req.connection && req.connection.remoteAddress) || 'unknown';
-        console.error('TESTING_EARLY_RECV=' + method + ' ' + url + ' ip=' + ip);
-      } catch (e) {}
-      try { next(); } catch (e) { next(e); }
-    });
-  }
-
+  
+  // Storage functions
   const STORAGE_DIR = path.resolve(__dirname, '..', 'evidence_storage');
   const INDEX_FILE = path.join(STORAGE_DIR, 'index.json');
   function ensureStorage() {
@@ -390,16 +392,10 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
     }
     return await storeLocal(buf, filename);
   }
-
+  
   exportedApp.post('/submit-evidence', async (req, res) => {
     try {
       const body = req.body || {};
-        if (process.env.TESTING) {
-          try { console.error('TESTING_SUBMIT_RECEIVED=', JSON.stringify(body).slice(0, 1000)); } catch (e) {}
-          try { console.error('TESTING_SUBMIT_BODY_RAW=', JSON.stringify(body)); } catch (e) {}
-          try { console.error('TESTING_SUBMIT_REQ_HEADERS=', JSON.stringify(req.headers || {})); } catch (e) {}
-          try { console.error('TESTING_SUBMIT_BODY_ADMINPUB=', String((body && body.adminPub) || '<<undefined>>')); } catch (e) {}
-        }
 
       let { txHash, digest, contractAddress, type, content } = body;
       // In TESTING mode allow minimal payloads and derive missing fields
@@ -492,12 +488,43 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         }
       } catch (e) { derivedAdminAddr = null; }
 
+      // TESTING-only: Handle explicit adminPub from POST body
+      // This ensures the test-generated admin identity is included in recipientEntries
+      let finalAdminPub = adminPub; // Default to startup admin pub
+      let finalAdminAddr = derivedAdminAddr; // Default to derived address
+      
+      if (process && process.env && process.env.TESTING && body && body.adminPub) {
+        try {
+          const adminPubFromBody = String(body.adminPub || '').trim();
+          if (adminPubFromBody) {
+            // Use body.adminPub as the authoritative admin public key for this request
+            finalAdminPub = normalizePubForEthCrypto(adminPubFromBody);
+            
+            // Compute address from the body admin pub
+            const pubHexForAddress = finalAdminPub.startsWith('0x') ? finalAdminPub : ('0x' + finalAdminPub);
+            finalAdminAddr = (await import('ethers')).computeAddress(pubHexForAddress).toLowerCase();
+            
+            appendTestingTrace('ADMIN_FROM_BODY', { 
+              finalAdminPub: finalAdminPub.slice(0,12) + '...', 
+              finalAdminAddr 
+            });
+            
+            // Add the admin pub to the recipient map so the loop below will find it
+            if (recMap) {
+              recMap[finalAdminAddr] = finalAdminPub;
+            }
+          }
+        } catch (e) {
+          appendTestingTrace('ADMIN_BODY_PROCESSING_ERROR', { error: e.message });
+        }
+      }
+
       const candidateAddrs = recipients.slice();
       if (process && process.env && process.env.TESTING) {
-        try { console.error('TESTING_CANDIDATE_ADDRS=' + JSON.stringify(candidateAddrs)); } catch (e) {}
-        try { console.error('TESTING_RECIPMAP=' + JSON.stringify(recMap)); } catch (e) {}
+        appendTestingTrace('TESTING_CANDIDATE_ADDRS', { candidateAddrs });
+        appendTestingTrace('TESTING_RECIPMAP', { recMap });
       }
-      const adminToUse = adminAddr || derivedAdminAddr;
+      const adminToUse = adminAddr || finalAdminAddr;
       if (adminToUse && !candidateAddrs.includes(adminToUse)) candidateAddrs.push(adminToUse);
 
       for (const addr of candidateAddrs) {
@@ -605,33 +632,7 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
           console.error('TESTING_RECIPIENT_ENTRIES=', JSON.stringify(recipientEntries, null, 2));
         } catch (e) {}
       }
-        // TESTING-only: if the client POSTed an explicit adminPub, use that
-        // adminPub (preferred) to ensure the test-generated admin identity is
-        // included. This avoids ambiguity when recipients are discovered from
-        // contracts or static maps and guarantees deterministic E2E behavior.
-        try {
-          if (process && process.env && process.env.TESTING && body && body.adminPub) {
-            try {
-              const adminPubFromBody = String(body.adminPub || '').trim();
-              if (adminPubFromBody) {
-                const pubHex = adminPubFromBody.startsWith('0x') ? adminPubFromBody : ('0x' + adminPubFromBody);
-                const adminAddrFromPub = (await import('ethers')).computeAddress(pubHex).toLowerCase();
-                const canonAdmin = canonicalizeAddress(adminAddrFromPub);
-                const fnorm = normalizePubForEthCrypto(adminPubFromBody);
-                const encReal = await encryptSymKeyForRecipient(symKey.toString('hex'), fnorm).catch(() => null);
-                const adminEntryReal = { address: canonAdmin, pubkey: fnorm };
-                if (encReal) {
-                  if (encReal.ecies) adminEntryReal.encryptedKey = encReal.ecies;
-                  else if (encReal.iv && encReal.ephemPublicKey && encReal.ciphertext && encReal.mac) adminEntryReal.encryptedKey = encReal;
-                  if (encReal.ethcrypto) adminEntryReal.encryptedKey_ecc = encReal.ethcrypto;
-                }
-                const existingIndex = recipientEntries.findIndex(r => r.address && r.address.toLowerCase() === canonAdmin);
-                if (existingIndex >= 0) recipientEntries[existingIndex] = adminEntryReal; else recipientEntries.push(adminEntryReal);
-                try { console.error('TESTING_INJECTED_ADMIN_ENTRY', JSON.stringify(adminEntryReal)); } catch (e) {}
-              }
-            } catch (e) {}
-          }
-        } catch (e) {}
+        // TESTING-only: removed old admin processing code - now handled before recipient loop
       const serverDigest = String(digest);
       const envelope = {
         version: '1',
@@ -651,39 +652,18 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         ciphertext: aes.ciphertext
       };
 
-      // TESTING-only: as a last-resort guarantee, ensure the admin public
-      // key passed in the request body (or the startup ADMIN_PUB) is present
-      // in the envelope that we persist. This prevents earlier code paths
-      // from accidentally omitting or overwriting the admin recipient and
-      // makes E2E deterministic for tests that provide adminPub.
-      try {
-        if (process && process.env && process.env.TESTING) {
-          const adminFromBody = body && body.adminPub ? String(body.adminPub).trim() : null;
-          const finalAdminPub = adminFromBody || (ADMIN_PUB ? ADMIN_PUB : null);
-          if (finalAdminPub) {
-            try {
-              const pubHex = finalAdminPub.startsWith('0x') ? finalAdminPub : ('0x' + finalAdminPub);
-              const canonAddr = ((await import('ethers')).computeAddress(pubHex)).toLowerCase();
-              const canon = canonicalizeAddress(canonAddr);
-              const norm = normalizePubForEthCrypto(finalAdminPub);
-              // encrypt the actual symKey for the admin pub so the saved envelope
-              // contains a correct encryptedKey entry that the test's private
-              // key can decrypt.
-              const enc = await encryptSymKeyForRecipient(symKey.toString('hex'), norm).catch(() => null);
-              const adminEntry = { address: canon, pubkey: norm };
-              if (enc) {
-                if (enc.ecies) adminEntry.encryptedKey = enc.ecies;
-                else if (enc.iv && enc.ephemPublicKey && enc.ciphertext && enc.mac) adminEntry.encryptedKey = enc;
-                if (enc.ethcrypto) adminEntry.encryptedKey_ecc = enc.ethcrypto;
-              }
-              const idx = (envelope.recipients || []).findIndex(r => r.address && r.address.toLowerCase() === canon);
-              if (idx >= 0) envelope.recipients[idx] = adminEntry; else envelope.recipients.push(adminEntry);
-              try { console.error('TESTING_FINAL_ADMIN_UPSERT', JSON.stringify(adminEntry)); } catch (e) {}
-            } catch (e) {}
-          }
-          try { console.error('TESTING_FINAL_RECIPIENTS=', JSON.stringify(envelope.recipients, null, 2)); } catch (e) {}
-        }
-      } catch (e) {}
+      // Log final recipients for debugging
+      if (process && process.env && process.env.TESTING) {
+        appendTestingTrace('FINAL_ENVELOPE_RECIPIENTS', {
+          count: envelope.recipients.length,
+          recipients: envelope.recipients.map(r => ({
+            address: r.address,
+            pubkey: r.pubkey ? r.pubkey.slice(0, 12) + '...' : null,
+            hasEncryptedKey: !!r.encryptedKey
+          }))
+        });
+        try { console.error('TESTING_FINAL_RECIPIENTS=', JSON.stringify(envelope.recipients, null, 2)); } catch (e) {}
+      }
 
       // TESTING: dump producer-side debug info to evidence_storage so consumer CLI dumps can be correlated.
       try {
@@ -800,7 +780,6 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
       } catch (e) { console.warn('Failed writing local envelope copy', e && e.message ? e.message : e); }
 
   const responseObj = { success: true, digest: serverDigest, cid: storeResult.cid, uri: storeResult.uri, recipients: recipientEntries.map(r => r.address), file: path.join('evidence_storage', filename) };
-      if (process.env.TESTING) console.error('TESTING_SUBMIT_RESPONSE=' + JSON.stringify(responseObj));
       res.json(responseObj);
       return;
     } catch (err) {
