@@ -10,6 +10,7 @@ import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import EvidenceList from '../Evidence/EvidenceList';
+import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
 import { IN_E2E } from '../../utils/env';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
@@ -39,7 +40,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [arbBeneficiary, setArbBeneficiary] = useState('');
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [disputeForm, setDisputeForm] = useState({ dtype: 4, amountEth: '0', evidence: '' });
-  const [submitMessage, setSubmitMessage] = useState('');
   
 
   // Confirmation modal state for payable actions
@@ -199,7 +199,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             console.error(err);
             throw err;
           }
-          try { await submitDisputeForm(); } catch (e) { console.error('playwright_submit_dispute failed', e); }
+          const payloadForSubmit = evidenceText || `Playwright evidence ${Date.now()}`;
+          try { await submitDisputeForm(payloadForSubmit); } catch (e) { console.error('playwright_submit_dispute failed', e); }
         } catch (e) { console.error('playwright_submit_dispute failed', e); }
       };
     } catch (e) {
@@ -908,18 +909,21 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   // Centralized E2E flag import for dead-code-elimination
   // ...existing code...
 
-  const submitDisputeForm = async () => {
+  const submitDisputeForm = async (payloadOverride) => {
+    const overrideStr = typeof payloadOverride === 'string' ? payloadOverride : null;
+    if (overrideStr !== null) {
+      setDisputeForm(s => ({ ...s, evidence: overrideStr }));
+    }
+
+    let evidenceRaw = overrideStr !== null ? overrideStr : (disputeForm.evidence || '');
+    setActionLoading(true);
+
     try {
-      setActionLoading(true);
-      // Resolve the effective contract address to submit against.
-      // In E2E runs there is a small race where the modal may mount before
-      // the selectedContract prop is applied; allow reading a test-only
-      // fallback placed by MyContracts (window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT)
-      // or attempt to extract the address from the modal DOM. This only
-      // activates in E2E/testing environments to avoid masking real errors.
+      // Resolve the effective contract address to submit against, falling back to
+      // Playwright helpers or DOM inspection in testing environments.
       let targetAddress = contractAddress;
       try {
-  const e2eEnabled = IN_E2E || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT);
+        const e2eEnabled = IN_E2E || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT);
         const addressRegex = /^0x[0-9a-fA-F]{40}$/;
         if ((!targetAddress || !addressRegex.test(String(targetAddress))) && e2eEnabled) {
           try {
@@ -930,7 +934,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             }
           } catch (_) {}
         }
-        // If still missing, try to scrape an address value from the open modal DOM
         if ((!targetAddress || !addressRegex.test(String(targetAddress))) && typeof document !== 'undefined') {
           try {
             const el1 = document.querySelector('.modal-content .address');
@@ -941,27 +944,21 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
             }
           } catch (_) {}
         }
-      } catch (e) {
-        // non-fatal
-      }
+      } catch (_) {}
+
       const svc = new ContractService(signer, chainId);
-      // For E2E tests, prefer a synchronous override placed by playwright to avoid
-      // React state update races.
+
       let amountEthForCalc = disputeForm.amountEth;
       try {
         const ov = (typeof window !== 'undefined' && window.__PLAYWRIGHT_DISPUTE_OVERRIDE) ? window.__PLAYWRIGHT_DISPUTE_OVERRIDE : null;
         if (ov && ov.amountEth != null) amountEthForCalc = ov.amountEth;
       } catch (_) {}
       const amountWei = amountEthForCalc ? ethers.parseEther(String(amountEthForCalc || '0')) : 0n;
-      // prefer file hash if present, otherwise use evidence text
-      let evidenceRaw = disputeForm.evidence || '';
-      // In E2E testing mode, if no evidence was provided by the UI, auto-fill a deterministic
-      // test payload so the client will encrypt and POST it to the evidence endpoint. This
-      // is gated behind VITE_E2E_TESTING to avoid changing production behaviour.
+
+      // Auto-fill deterministic evidence payloads during E2E runs
       try {
-  const e2eEnabled = IN_E2E || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING);
-  if (e2eEnabled && (!evidenceRaw || evidenceRaw.length === 0)) {
-          // Allow an explicit override from the test harness via window.__PLAYWRIGHT_EVIDENCE
+        const e2eEnabled = IN_E2E || (typeof window !== 'undefined' && !!window.__PLAYWRIGHT_TESTING);
+        if (e2eEnabled && (!evidenceRaw || evidenceRaw.length === 0)) {
           if (typeof window !== 'undefined' && window.__PLAYWRIGHT_EVIDENCE) {
             evidenceRaw = String(window.__PLAYWRIGHT_EVIDENCE);
           } else {
@@ -969,136 +966,129 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
           }
         }
       } catch (_) {}
-      // If evidenceRaw is a 0x-prefixed 32-byte hash, use it; otherwise compute keccak256 of the UTF-8 string.
-      let evidence = '';
+      setDisputeForm(s => ({ ...s, evidence: evidenceRaw }));
+
+      let evidenceDigest = '';
       try {
-        if (evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw)) evidence = evidenceRaw;
-        else if (evidenceRaw) evidence = ethers.keccak256(ethers.toUtf8Bytes(String(evidenceRaw)));
-        else evidence = '';
-      } catch (e) { evidence = '' }
-      // Compute bond (for display/record) but send the report tx immediately via the user's wallet
-      try {
-        const bond = svc.computeReporterBond(amountWei);
-        // If no evidence provided, use standard zero-hash to indicate empty evidence
-        const evidenceToSend = evidence && evidence.length ? evidence : ethers.ZeroHash;
-        // Validate resolved targetAddress before attempting to submit dispute
-        if (!targetAddress || !/^0x[0-9a-fA-F]{40}$/.test(String(targetAddress))) {
-          const errMsg = `Invalid or missing contractAddress when submitting dispute: ${String(targetAddress)}`;
-          console.error(errMsg, { contractAddress: targetAddress, disputeForm });
-          throw new Error(errMsg);
-        }
-        console.debug('Submitting dispute', { contractAddress: targetAddress, dtype: Number(disputeForm.dtype || 0), amountWei, evidenceToSend });
-        // Directly submit dispute - choose the correct template call based on contract type
-        let caseId = null;
-          try {
-            // Ensure we have contract details for the resolved targetAddress (race in E2E)
-            // Use the freshly-fetched details immediately instead of relying on the
-            // React state update (which may be async) so we don't make the wrong
-            // template call (Rent vs NDA) due to stale state.
-            let fetchedDetails = null;
-            try {
-              if (!contractDetails || (contractDetails && contractDetails.address && String(contractDetails.address).toLowerCase() !== String(targetAddress).toLowerCase())) {
-                fetchedDetails = await svc.getRentContractDetails(targetAddress, { silent: true }).catch(() => null);
-                if (!fetchedDetails) fetchedDetails = await svc.getNDAContractDetails(targetAddress, { silent: true }).catch(() => null);
-                if (fetchedDetails) setContractDetails(fetchedDetails);
-              } else {
-                fetchedDetails = contractDetails;
-              }
-            } catch (_) { fetchedDetails = contractDetails || null; }
-
-            const effectiveDetails = fetchedDetails || contractDetails;
-            console.debug && console.debug('submitDisputeForm: effectiveDetails resolved', effectiveDetails);
-
-            // If we couldn't determine the contract type, attempt an explicit NDA fetch
-            // and fail fast to avoid calling the wrong template (Rent) on an NDA contract.
-            let finalDetails = effectiveDetails;
-            if (!finalDetails) {
-              try {
-                finalDetails = await svc.getNDAContractDetails(targetAddress, { silent: true }).catch(() => null);
-                if (finalDetails) setContractDetails(finalDetails);
-              } catch (_) { finalDetails = null; }
-            }
-
-            if (!finalDetails) {
-              const err = new Error(`Could not determine contract template type for ${targetAddress}. Aborting submit to avoid wrong-template call.`);
-              console.error(err);
-              throw err;
-            }
-
-            if (finalDetails && finalDetails.type === 'NDA') {
-            // NDA flow: choose offender from form or default to the other party
-            let offender = ndaReportOffender || '';
-            try {
-              const parties = effectiveDetails.parties || [];
-              const me = (account || '').toLowerCase();
-              if (!offender && parties && parties.length) {
-                // pick the first party that is not the connected account
-                offender = parties.find(p => (p || '').toLowerCase() !== me) || parties[1] || parties[0];
-              }
-            } catch (_) {}
-            // Use Playwright override if present (avoids React state timing issues in E2E)
-            let requestedPenaltyEth = ndaReportPenalty || disputeForm.amountEth || '0';
-            try {
-              const ov = (typeof window !== 'undefined' && window.__PLAYWRIGHT_DISPUTE_OVERRIDE) ? window.__PLAYWRIGHT_DISPUTE_OVERRIDE : null;
-              if (ov && ov.amountEth != null) requestedPenaltyEth = String(ov.amountEth);
-            } catch (_) {}
-            // Upload evidence to the endpoint (if configured) and use returned digest for on-chain report.
-            let digestToUse = null;
-            try {
-              digestToUse = await svc.uploadEvidence(disputeForm.evidence || '');
-            } catch (err) {
-              if (String(err?.message || '').startsWith('EVIDENCE_UPLOAD_REQUIRED')) {
-                alert('Evidence upload is required by this environment but the evidence endpoint or admin public key is not configured. Please contact the administrator.');
-                throw err; // abort submit
-              }
-              console.error('evidence upload failed, falling back to local digest', err);
-              digestToUse = computePayloadDigest(disputeForm.evidence || '');
-            }
-            const rcpt = await svc.ndaReportBreach(targetAddress, offender, requestedPenaltyEth, digestToUse);
-            // NDA reportBreach doesn't currently emit a caseId; leave null
-            caseId = null;
-          } else {
-            // Rent flow: report via reportRentDispute (sends bond as msg.value)
-            const res = await svc.reportRentDispute(targetAddress, Number(disputeForm.dtype || 0), amountWei, evidenceToSend);
-            // reportRentDispute returns either a digest or an object with caseId depending on implementation
-            if (res && typeof res === 'object' && res.caseId != null) caseId = res.caseId; else caseId = null;
-          }
-        } catch (callErr) {
-          throw callErr;
-        }
-        try {
-          // Preserve the raw evidence text for display/copy in the appeal modal when it's a human-entered string
-          // Use the resolved targetAddress (may differ from the prop when E2E fallbacks are used)
-          const incoming = {
-            contractAddress: targetAddress,
-            dtype: Number(disputeForm.dtype || 0),
-            amountEth: String(disputeForm.amountEth || '0'),
-            // Persist only the canonical evidence reference (IPFS URI or digest). Do NOT store plaintext evidence here.
-            evidenceRef: evidenceToSend || ethers.ZeroHash,
-            reporter: account || null,
-            caseId: caseId != null ? String(caseId) : null,
-            createdAt: new Date().toISOString(),
-          };
-          sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
-          try { const perKey = `incomingDispute:${targetAddress}`; localStorage.setItem(perKey, JSON.stringify(incoming)); } catch (e) { console.warn('Failed to persist per-contract incomingDispute', e); }
-        } catch (e) { console.error('Failed to persist dispute for arbitration page:', e); }
-
-        setShowDisputeForm(false);
-        try {
-          const svc2 = new ContractService(signer, chainId);
-          const isAuthorized = await svc2.isAuthorizedArbitratorForContract(targetAddress).catch(() => false);
-          if (isAuthorized) window.location.pathname = '/arbitration'; else { alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.'); window.location.pathname = '/dashboard'; }
-        } catch (redirErr) { console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr); window.location.pathname = '/dashboard'; }
-        await loadContractData();
-      } catch (err) {
-        console.error('Submit dispute failed:', err);
-        alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
-      } finally {
-        setActionLoading(false);
+        if (evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw)) evidenceDigest = evidenceRaw;
+        else if (evidenceRaw) evidenceDigest = ethers.keccak256(ethers.toUtf8Bytes(String(evidenceRaw)));
+        else evidenceDigest = '';
+      } catch (e) {
+        evidenceDigest = '';
       }
+
+      if (!targetAddress || !/^0x[0-9a-fA-F]{40}$/.test(String(targetAddress))) {
+        const errMsg = `Invalid or missing contractAddress when submitting dispute: ${String(targetAddress)}`;
+        console.error(errMsg, { contractAddress: targetAddress, disputeForm });
+        throw new Error(errMsg);
+      }
+
+      console.debug('Submitting dispute', { contractAddress: targetAddress, dtype: Number(disputeForm.dtype || 0), amountWei, evidenceDigest });
+
+      let caseId = null;
+      let evidenceRef = evidenceDigest && evidenceDigest.length ? evidenceDigest : ethers.ZeroHash;
+
+      // Resolve contract details to choose the appropriate template method
+      const resolveDetails = async () => {
+        if (!contractDetails || (contractDetails.address && String(contractDetails.address).toLowerCase() !== String(targetAddress).toLowerCase())) {
+          let fetched = await svc.getRentContractDetails(targetAddress, { silent: true }).catch(() => null);
+          if (!fetched) fetched = await svc.getNDAContractDetails(targetAddress, { silent: true }).catch(() => null);
+          if (fetched) setContractDetails(fetched);
+          return fetched;
+        }
+        return contractDetails;
+      };
+
+      let effectiveDetails = await resolveDetails();
+      if (!effectiveDetails) {
+        effectiveDetails = await svc.getNDAContractDetails(targetAddress, { silent: true }).catch(() => null);
+        if (effectiveDetails) setContractDetails(effectiveDetails);
+      }
+
+      if (!effectiveDetails) {
+        throw new Error(`Could not determine contract template type for ${targetAddress}. Aborting submit to avoid wrong-template call.`);
+      }
+
+      if (effectiveDetails.type === 'NDA') {
+        let offender = ndaReportOffender || '';
+        try {
+          const parties = effectiveDetails.parties || [];
+          const me = (account || '').toLowerCase();
+          if (!offender && parties && parties.length) {
+            offender = parties.find(p => (p || '').toLowerCase() !== me) || parties[1] || parties[0];
+          }
+        } catch (_) {}
+        let requestedPenaltyEth = ndaReportPenalty || amountEthForCalc || '0';
+        try {
+          const ov = (typeof window !== 'undefined' && window.__PLAYWRIGHT_DISPUTE_OVERRIDE) ? window.__PLAYWRIGHT_DISPUTE_OVERRIDE : null;
+          if (ov && ov.amountEth != null) requestedPenaltyEth = String(ov.amountEth);
+        } catch (_) {}
+        try {
+          const digestToUse = await svc.uploadEvidence(evidenceRaw || '');
+          evidenceRef = digestToUse;
+        } catch (err) {
+          if (String(err?.message || '').startsWith('EVIDENCE_UPLOAD_REQUIRED')) {
+            alert('Evidence upload is required by this environment but the evidence endpoint or admin public key is not configured. Please contact the administrator.');
+            throw err;
+          }
+          console.error('evidence upload failed, falling back to local digest', err);
+          evidenceRef = computePayloadDigest(evidenceRaw || '');
+        }
+        await svc.ndaReportBreach(targetAddress, offender, requestedPenaltyEth, evidenceRef);
+        caseId = null;
+      } else {
+        const res = await svc.reportRentDispute(targetAddress, Number(disputeForm.dtype || 0), amountWei, evidenceRef);
+        if (res && typeof res === 'object' && res.caseId != null) caseId = res.caseId;
+      }
+
+      try {
+        const incoming = {
+          contractAddress: targetAddress,
+          dtype: Number(disputeForm.dtype || 0),
+          amountEth: String(disputeForm.amountEth || '0'),
+          evidenceRef: evidenceRef || ethers.ZeroHash,
+          reporter: account || null,
+          caseId: caseId != null ? String(caseId) : null,
+          createdAt: new Date().toISOString(),
+        };
+        sessionStorage.setItem('incomingDispute', JSON.stringify(incoming));
+        try {
+          const perKey = `incomingDispute:${targetAddress}`;
+          localStorage.setItem(perKey, JSON.stringify(incoming));
+        } catch (e) {
+          console.warn('Failed to persist per-contract incomingDispute', e);
+        }
+      } catch (e) {
+        console.error('Failed to persist dispute for arbitration page:', e);
+      }
+
+      setShowDisputeForm(false);
+      try {
+        const svc2 = new ContractService(signer, chainId);
+        const isAuthorized = await svc2.isAuthorizedArbitratorForContract(targetAddress).catch(() => false);
+        if (isAuthorized) {
+          window.location.pathname = '/arbitration';
+        } else {
+          alert('Dispute submitted. The platform arbitrator will review the case. You will be notified of updates.');
+          window.location.pathname = '/dashboard';
+        }
+      } catch (redirErr) {
+        console.warn('Failed to detect arbitrator state, defaulting to dashboard redirect', redirErr);
+        window.location.pathname = '/dashboard';
+      }
+
+      await loadContractData();
+
+      return {
+        contractAddress: targetAddress,
+        caseId: caseId != null ? String(caseId) : null,
+        evidenceRef,
+      };
     } catch (err) {
-      console.error('Unexpected error in submitDisputeForm:', err);
+      console.error('Submit dispute failed:', err);
       alert(`Failed to submit dispute: ${err?.reason || err?.message || err}`);
+      throw err;
+    } finally {
       setActionLoading(false);
     }
   };
@@ -2025,14 +2015,14 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
               <div style={{marginTop:6, marginBottom:6, fontSize:13, color:'#333'}}>
                 <strong>Reporter bond (0.5%):</strong> {computedReporterBondEth} ETH (charged when submitting appeal)
               </div>
-              <label>Evidence (short text or URL)</label>
-              <textarea className="text-input" rows={4} value={disputeForm.evidence} onChange={e => setDisputeForm(s => ({...s, evidence: e.target.value}))} />
-              <small className="muted">File uploads disabled. Paste evidence text or a hash in the field above.</small>
-              <div style={{display:'flex', gap:'8px', marginTop: '8px'}}>
-                <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                  <button className="btn-action primary" disabled={actionLoading} onClick={submitDisputeForm}>Submit Appeal</button>
-                  {submitMessage ? <div style={{fontSize:12,color:'#666'}}>{submitMessage}</div> : null}
-                </div>
+              <div style={{ marginTop: '12px' }}>
+                <EvidenceSubmit
+                  evidenceType="appeal"
+                  submitHandler={submitDisputeForm}
+                  authAddress={account}
+                />
+              </div>
+              <div style={{display:'flex', gap:'8px', marginTop: '8px', justifyContent:'flex-end'}}>
                 <button className="btn-action secondary" disabled={actionLoading} onClick={() => setShowDisputeForm(false)}>Cancel</button>
               </div>
             </div>

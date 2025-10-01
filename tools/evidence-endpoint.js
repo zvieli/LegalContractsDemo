@@ -132,6 +132,49 @@ function loadRecipientPubkeysMap() {
 
 // normalizePubForEthCrypto now imported from testing-helpers.js
 
+
+function parseAuthorizationAddress(headerValue) {
+  if (!headerValue || typeof headerValue !== 'string') return null;
+  const trimmed = headerValue.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/\s+/);
+  const candidate = parts.length > 1 ? parts[1] : parts[0];
+  if (!candidate) return null;
+  const addr = candidate.trim();
+  if (/^0x[0-9a-fA-F]{40}$/.test(addr)) return addr.toLowerCase();
+  return null;
+}
+
+async function loadContractParticipants(contractAddress, provider) {
+  if (!contractAddress || !provider) return [];
+  const signatures = [
+    'function partyA() view returns (address)',
+    'function partyB() view returns (address)',
+    'function landlord() view returns (address)',
+    'function tenant() view returns (address)'
+  ];
+  const found = new Set();
+  for (const sig of signatures) {
+    try {
+      const iface = new Interface([sig]);
+      const funcName = Object.keys(iface.functions)[0];
+      const contract = new ethers.Contract(contractAddress, [sig], provider);
+      const value = await contract[funcName]();
+      if (value && (/^0x[0-9a-fA-F]{40}$/).test(String(value))) {
+        found.add(String(value).toLowerCase());
+      }
+    } catch (_) {
+      // ignore missing view functions
+    }
+  }
+  return Array.from(found);
+}
+
+function isContractParticipant(address, participants = []) {
+  if (!address) return false;
+  const target = String(address).toLowerCase();
+  return participants.some(participant => String(participant).toLowerCase() === target);
+}
 // canonicalizeAddress now imported from testing-helpers.js
 
 async function discoverRolesFromContract(contractAddress, provider) {
@@ -415,6 +458,18 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
       ensureStorage();
       const providerUrl = process.env.RPC_URL || process.env.RPC || 'http://127.0.0.1:8545';
       const provider = new ethers.JsonRpcProvider(providerUrl);
+      const adminAddressEnvLower = process.env.ADMIN_ADDRESS ? String(process.env.ADMIN_ADDRESS).toLowerCase() : null;
+
+      let participants = [];
+      try {
+        participants = await loadContractParticipants(contractAddress, provider);
+      } catch (e) {
+        console.warn('Failed to load contract participants:', e && e.message ? e.message : e);
+      }
+
+      const authHeader = (req.headers && (req.headers.authorization || req.headers.Authorization)) ? (req.headers.authorization || req.headers.Authorization) : null;
+      let submitterAddress = parseAuthorizationAddress(authHeader);
+
       let recipients = [];
       try {
         const discovered = await discoverRolesFromContract(contractAddress, provider);
@@ -469,7 +524,7 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
   // loadAdminPublicKey() again here because that reads from disk/env and
   // can differ from the adminPubArg passed by tests.
   const adminPub = ADMIN_PUB;
-      const adminAddr = process.env.ADMIN_ADDRESS ? String(process.env.ADMIN_ADDRESS).toLowerCase() : null;
+    const adminAddr = adminAddressEnvLower;
       let derivedAdminAddr = null;
       try {
         if (ADMIN_PUB && !adminAddr) {
@@ -490,8 +545,8 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
 
       // TESTING-only: Handle explicit adminPub from POST body
       // This ensures the test-generated admin identity is included in recipientEntries
-      let finalAdminPub = adminPub; // Default to startup admin pub
-      let finalAdminAddr = derivedAdminAddr; // Default to derived address
+  let finalAdminPub = adminPub; // Default to startup admin pub
+  let finalAdminAddr = derivedAdminAddr; // Default to derived address
       
       if (process && process.env && process.env.TESTING && body && body.adminPub) {
         try {
@@ -517,6 +572,21 @@ async function startEvidenceEndpoint(portArg = defaultPort, staticDirArg = defau
         } catch (e) {
           appendTestingTrace('ADMIN_BODY_PROCESSING_ERROR', { error: e.message });
         }
+      }
+
+      if (!submitterAddress && process.env.TESTING) {
+        if (adminAddressEnvLower) submitterAddress = adminAddressEnvLower;
+        else if (finalAdminAddr) submitterAddress = String(finalAdminAddr).toLowerCase();
+      }
+
+      if (!submitterAddress) {
+        return res.status(401).json({ error: 'authorization required: provide a participant address in Authorization header' });
+      }
+
+      const isParticipant = !participants || participants.length === 0 || isContractParticipant(submitterAddress, participants);
+      const allowAdminBypass = Boolean(process.env.TESTING && ((adminAddressEnvLower && submitterAddress === adminAddressEnvLower) || (finalAdminAddr && submitterAddress === String(finalAdminAddr).toLowerCase())));
+      if (!isParticipant && !allowAdminBypass) {
+        return res.status(403).json({ error: 'submitter is not authorized to upload evidence for this contract' });
       }
 
       const candidateAddrs = recipients.slice();

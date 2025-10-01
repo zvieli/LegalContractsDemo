@@ -96,7 +96,7 @@ function Home() {
               <MyContracts />
             </div>
             <div className="dashboard-card">
-              <EvidenceSubmit />
+              <EvidenceSubmit authAddress={account} />
             </div>
             
             <p>Connect your wallet to view and manage all your contracts</p>

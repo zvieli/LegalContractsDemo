@@ -25,7 +25,7 @@ function downloadJSON(obj, filename) {
   }
 }
 
-export default function EvidenceSubmit({ onSubmitted, submitHandler } = {}) {
+export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceType = 'rationale', authAddress } = {}) {
   const [payload, setPayload] = useState('');
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -62,7 +62,8 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler } = {}) {
 
       // Otherwise, fall back to internal submit logic (keeps previous behavior)
       // Use runtime-configured endpoint if present
-      const apiBase = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || '/submit-evidence';
+  const apiBase = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || '/submit-evidence';
+  const resolvedAuthAddress = authAddress || (typeof window !== 'undefined' && window.ethereum && window.ethereum.selectedAddress) || (typeof window !== 'undefined' && window.__LAST_CONNECTED_ACCOUNT);
       const adminPub = (import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_ADMIN_PUBLIC_KEY) || undefined;
 
       // prepareEvidencePayload will return { ciphertext, digest } if encryption used, or { digest } otherwise
@@ -100,12 +101,15 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler } = {}) {
         ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
       }
 
-  // default evidence type for UI submissions is 'rationale'
-  const postBody = { ciphertext: ciphertextToSend, digest: prep.digest, type: 'rationale' };
+  // evidence type for UI submissions - configurable via props
+  const postBody = { ciphertext: ciphertextToSend, digest: prep.digest, type: evidenceType };
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (resolvedAuthAddress) headers.Authorization = `Bearer ${String(resolvedAuthAddress)}`;
 
       const resp = await fetch(apiBase, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(postBody)
       });
       const json = await resp.json().catch(() => ({}));

@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
+import { useEthers } from '../../contexts/EthersContext';
 
 export default function RationaleForm({ contractAddress = null, txHash = null, onSubmitted } = {}) {
+  const { account } = useEthers();
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
 
   const postJSON = async (url, body) => {
-    const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const headers = { 'Content-Type': 'application/json' };
+    const authAddress = account || (typeof window !== 'undefined' && window.ethereum && window.ethereum.selectedAddress);
+    if (authAddress) headers.Authorization = `Bearer ${String(authAddress)}`;
+    const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     const json = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(json && json.error ? json.error : `HTTP ${resp.status}`);
     return json;

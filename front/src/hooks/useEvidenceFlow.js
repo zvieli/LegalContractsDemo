@@ -127,9 +127,12 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
     encryption: encryption || undefined
   };
 
+  const authHeaders = { 'Content-Type': 'application/json' };
+  if (reporterAddress) authHeaders.Authorization = `Bearer ${reporterAddress}`;
+
   const res = await fetchWithRetry(`${apiBaseUrl}/submit-evidence`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify(body)
   }, 3, 700, onProgress);
 
@@ -181,7 +184,7 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
   if (onProgress) onProgress({ stage: 'register_start', txHash, digest, cid });
   const regRes = await fetchWithRetry(`${apiBaseUrl}/register-dispute`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders,
     body: JSON.stringify({ txHash, digest, cid, contractAddress, reporterAddress })
   }, 3, 700, onProgress);
   const regJson = await regRes.json();

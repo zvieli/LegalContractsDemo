@@ -210,10 +210,14 @@ export class ContractService {
       if (endpointUrl.endsWith('/')) endpointUrl = endpointUrl.slice(0, -1);
       if (!endpointUrl.toLowerCase().endsWith('/submit-evidence')) endpointUrl = endpointUrl + '/submit-evidence';
 
+      const submitterAddress = await this.signer?.getAddress?.().catch(() => null);
+      const requestHeaders = { 'Content-Type': 'application/json' };
+      if (submitterAddress) requestHeaders.Authorization = `Bearer ${submitterAddress}`;
+
       // POST ciphertext
       let res;
       try {
-        res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
+        res = await fetch(endpointUrl, { method: 'POST', headers: requestHeaders, body: ciphertext });
       } catch (fetchErr) {
         throw fetchErr;
       }
@@ -225,7 +229,7 @@ export class ContractService {
         if (res.status === 400 && errBody && errBody.adminPublicKey) {
           const adminPub = errBody.adminPublicKey;
           const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: adminPub });
-          res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: newCiphertext });
+          res = await fetch(endpointUrl, { method: 'POST', headers: requestHeaders, body: newCiphertext });
           if (!res.ok) {
             const txt = await res.text().catch(() => '');
             throw new Error('evidence endpoint retry failed: ' + res.status + ' ' + txt);
@@ -1196,6 +1200,7 @@ export class ContractService {
    */
   async reportRentDispute(contractAddress, disputeType = 0, requestedAmount = 0n, evidenceText = '', options = {}) {
     try {
+      let submitterAddress = null;
       // Defensive checks: ensure a valid contractAddress was provided before attempting to
       // instantiate the TemplateRentContract. This prevents obscure TypeErrors from
       // bubbling up when createContractInstanceAsync receives a null/undefined target.
@@ -1222,6 +1227,7 @@ export class ContractService {
           rent.tenant().catch(() => null),
           this.signer.getAddress().catch(() => null)
         ]);
+        submitterAddress = me;
         const lc = (landlordAddr || '').toLowerCase();
         const tc = (tenantAddr || '').toLowerCase();
         const mc = (me || '').toLowerCase();
@@ -1259,9 +1265,11 @@ export class ContractService {
                 const body = ciphertext ? ciphertext : evidence;
                 // E2E debug: surface endpoint and body preview so Playwright traces capture it
                 try {
-                  if (IN_E2E) console.debug && console.debug('E2E: inline evidence POST', submitEndpoint, String(body).slice(0,200));
+                  if (IN_E2E) console.debug && console.debug('E2E: evidence POST to', submitEndpoint, 'payload length:', String(body).length);
                 } catch (e) {}
-                let resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+                const evidenceHeaders = { 'content-type': 'application/json' };
+                if (submitterAddress) evidenceHeaders.Authorization = `Bearer ${submitterAddress}`;
+                let resp = await fetch(submitEndpoint, { method: 'POST', headers: evidenceHeaders, body });
                 // If server rejects wrapper with adminPublicKey, re-encrypt locally using that adminPublicKey and retry once
                 if (resp && !resp.ok) {
                   let errBody = null;
@@ -1272,7 +1280,7 @@ export class ContractService {
                     const adminPubFromServer = errBody.adminPublicKey;
                     try {
                       const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(evidence, { encryptToAdminPubKey: adminPubFromServer });
-                      resp = await fetch(submitEndpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: newCiphertext });
+                      resp = await fetch(submitEndpoint, { method: 'POST', headers: evidenceHeaders, body: newCiphertext });
                       if (resp && resp.ok) {
                         try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'ok' }); } catch (_) {}
                         const json = await resp.json();

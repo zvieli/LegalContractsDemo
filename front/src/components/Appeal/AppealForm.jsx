@@ -6,7 +6,7 @@ import { createContractInstanceAsync } from '../../utils/contracts';
 
 export default function AppealForm({ contractAddress, disputeId, contractName = 'TemplateRentContract', methodName = 'appealDispute' }) {
   // note: we will perform evidence preparation + submit in handleSubmit below
-  const { signer } = useEthers();
+  const { signer, account } = useEthers();
   const [evidenceResult, setEvidenceResult] = useState(null);
   const [txResult, setTxResult] = useState(null);
   const [error, setError] = useState(null);
@@ -39,8 +39,10 @@ export default function AppealForm({ contractAddress, disputeId, contractName = 
   };
 
   // Helper to POST JSON and return parsed JSON or throw
-  const postJSON = async (url, body) => {
-    const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const postJSON = async (url, body, authAddress) => {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authAddress) headers.Authorization = `Bearer ${authAddress}`;
+    const resp = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     const json = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(json && json.error ? json.error : `HTTP ${resp.status}`);
     return json;
@@ -113,10 +115,11 @@ export default function AppealForm({ contractAddress, disputeId, contractName = 
         ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
       }
 
+      const submitterAddress = signer ? await signer.getAddress().catch(() => null) : null;
       const submitBody = { ciphertext: ciphertextToSend, digest };
       let submitResp;
       try {
-        submitResp = await postJSON(apiBase, submitBody);
+        submitResp = await postJSON(apiBase, submitBody, submitterAddress);
         console.log('/submit-evidence response:', submitResp);
         setEvidenceResult(submitResp);
       } catch (e) {
@@ -129,9 +132,9 @@ export default function AppealForm({ contractAddress, disputeId, contractName = 
 
       // After a successful /submit-evidence, register the dispute with the backend
       try {
-        const registerUrl = (import.meta.env && import.meta.env.VITE_EVIDENCE_REGISTER_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_REGISTER_ENDPOINT) || '/register-dispute';
-        const registerBody = { txHash, digest: submitResp.digest || digest, contractAddress };
-        const regResp = await postJSON(registerUrl, registerBody);
+  const registerUrl = (import.meta.env && import.meta.env.VITE_EVIDENCE_REGISTER_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_REGISTER_ENDPOINT) || '/register-dispute';
+  const registerBody = { txHash, digest: submitResp.digest || digest, contractAddress };
+  const regResp = await postJSON(registerUrl, registerBody, submitterAddress);
         console.log('/register-dispute response:', regResp);
         // augment evidenceResult with register response for UI
         setEvidenceResult(prev => ({ ...prev, register: regResp }));
@@ -154,8 +157,8 @@ export default function AppealForm({ contractAddress, disputeId, contractName = 
     <div className="appeal-form">
       <h3>Submit Appeal</h3>
       <p>Provide off-chain evidence for your appeal. Evidence will be uploaded and then the dispute appeal transaction will be submitted on-chain.</p>
-  {/* Reuse EvidenceSubmit UI but pass our handleSubmit so the full flow runs: on-chain tx -> /submit-evidence -> /register-dispute */}
-  <EvidenceSubmit submitHandler={handleSubmit} />
+  {/* Reuse EvidenceSubmit UI but pass our handleSubmit and evidenceType='appeal' so the full flow runs: on-chain tx -> /submit-evidence -> /register-dispute */}
+  <EvidenceSubmit submitHandler={handleSubmit} evidenceType="appeal" authAddress={account} />
 
       {evidenceResult && (
         <div className="appeal-evidence-result">

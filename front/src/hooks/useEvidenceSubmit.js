@@ -44,9 +44,13 @@ export function useEvidenceSubmit() {
 
       const postBody = { ciphertext: ciphertextToSend, digest: prep.digest };
 
+      const authAddress = (typeof window !== 'undefined' && window.ethereum && window.ethereum.selectedAddress) || (typeof window !== 'undefined' && window.__LAST_CONNECTED_ACCOUNT);
+      const headers = { 'Content-Type': 'application/json' };
+      if (authAddress) headers.Authorization = `Bearer ${String(authAddress)}`;
+
       const resp = await fetch(apiBase, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(postBody)
       });
       const json = await resp.json().catch(() => ({}));
