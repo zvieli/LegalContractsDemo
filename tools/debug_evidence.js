@@ -16,14 +16,14 @@ initializeTestTrace({ module: 'debug_evidence' });
   const startupIdentity = EthCrypto.createIdentity();
   const bodyIdentity = EthCrypto.createIdentity();
   const startupPub = startupIdentity.publicKey;
-  const bodyAdmin = bodyIdentity.publicKey;
     const server = await startEvidenceEndpoint(0, null, startupPub);
     const port = server.address().port;
     console.log('server started on port', port);
     const base = `http://127.0.0.1:${port}`;
     const payload = { verdict: 'debug' };
     const digest = keccak256(toUtf8Bytes(JSON.stringify(payload)));
-    const res = await fetch(base + '/submit-evidence', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ digest, type: 'rationale', content: JSON.stringify(payload), adminPub: bodyAdmin }) });
+    // V7: No adminPub in payload, only parties and AI arbitrator are recipients
+    const res = await fetch(base + '/submit-evidence', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ digest, type: 'rationale', content: JSON.stringify(payload) }) });
     const j = await res.json();
     console.log('submit response', j);
     await new Promise(r => setTimeout(r, 500));

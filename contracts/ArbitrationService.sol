@@ -10,6 +10,10 @@ contract ArbitrationService {
     // Optional authorized factory address. When set, calls to applyResolutionToTarget
     // are allowed only from the owner (arbitrator) or from this factory address.
     address public factory;
+    // Mitigation 4.2: prevent replay / double application by tracking processed request hashes
+    mapping(bytes32 => bool) public processedRequests;
+
+    event ResolutionApplied(address indexed target, uint256 indexed caseId, bool approve, uint256 appliedAmount, address indexed beneficiary, address caller);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
@@ -45,7 +49,16 @@ contract ArbitrationService {
     function applyResolutionToTarget(address targetContract, uint256 caseId, bool approve, uint256 appliedAmount, address beneficiary) external payable {
         // Allow only the owner (previous behavior) or the configured factory to call this entrypoint.
         require(msg.sender == owner || (factory != address(0) && msg.sender == factory), "Only owner or factory");
-        require(targetContract != address(0), "bad target");
+        require(targetContract != address(0), "Invalid target");
+        require(beneficiary != address(0), "Invalid beneficiary");
+
+        // Mitigation 4.2: compute a request hash and ensure it wasn't processed before
+        bytes32 reqHash = keccak256(abi.encodePacked(targetContract, caseId, approve, appliedAmount, beneficiary, msg.sender, msg.value, block.timestamp));
+        require(!processedRequests[reqHash], "Request already processed");
+        processedRequests[reqHash] = true;
+
+        // Emit event for transparency
+        emit ResolutionApplied(targetContract, caseId, approve, appliedAmount, beneficiary, msg.sender);
 
     // Try NDA-style serviceResolve(uint256,bool,uint256,address)
     // Forward any ETH sent to the service into the target call so arbitrators

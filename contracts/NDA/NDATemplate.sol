@@ -13,7 +13,6 @@ contract NDATemplate is EIP712, ReentrancyGuard {
 
     address public immutable partyA;
     address public immutable partyB;
-    address public immutable admin;
 
     mapping(address => bool) public isParty;
     mapping(address => bool) public signedBy;
@@ -92,29 +91,26 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
         uint256 _minDeposit,
-        address _admin,
         address _arbitrationService
     ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
-        require(_admin != address(0), "admin=0");
         require(_partyA != address(0) && _partyB != address(0), "Invalid parties");
         require(_expiryDate > block.timestamp, "Expiry must be in future");
         require(_penaltyBps <= 10_000, "penaltyBps > 100%");
 
         partyA = _partyA;
         partyB = _partyB;
-        admin = _admin;
 
         expiryDate = _expiryDate;
         penaltyBps = _penaltyBps;
         customClausesHash = _customClausesHash;
-    minDeposit = _minDeposit;
-    arbitrationService = _arbitrationService;
-    // Real runtime resolution should prefer `arbitrationService` (see serviceResolve/serviceEnforce).
+        minDeposit = _minDeposit;
+        arbitrationService = _arbitrationService;
+        // Real runtime resolution should prefer `arbitrationService` (see serviceResolve/serviceEnforce).
 
-    // default anti-spam params
-    disputeFee = 0;
-    minReportInterval = 0;
-    maxOpenReportsPerReporter = 10;
+        // default anti-spam params
+        disputeFee = 0;
+        minReportInterval = 0;
+        maxOpenReportsPerReporter = 10;
 
         isParty[_partyA] = true;
         isParty[_partyB] = true;
@@ -127,8 +123,9 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         _;
     }
 
-    modifier onlyAdmin() {
-        require(msg.sender == admin, "Only admin");
+
+    modifier onlyArbitrationService() {
+        require(msg.sender == arbitrationService, "Only arbitration service");
         _;
     }
 
@@ -155,7 +152,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         return _messageHash();
     }
 
-    function addParty(address newParty) external onlyAdmin onlyActive {
+    function addParty(address newParty) external onlyArbitrationService onlyActive {
         require(newParty != address(0), "Invalid address");
         require(!isParty[newParty], "Already a party");
         isParty[newParty] = true;
@@ -330,15 +327,16 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     }
 
     // Admin functions to tune anti-spam parameters
-    function setDisputeFee(uint256 fee) external onlyAdmin {
+
+    function setDisputeFee(uint256 fee) external onlyArbitrationService {
         disputeFee = fee;
     }
 
-    function setRevealWindowSeconds(uint256 secondsWindow) external onlyAdmin {
+    function setRevealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService {
         revealWindowSeconds = secondsWindow;
     }
 
-    function setAppealWindowSeconds(uint256 secondsWindow) external onlyAdmin {
+    function setAppealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService {
         appealWindowSeconds = secondsWindow;
     }
 
@@ -352,11 +350,11 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         return _resolvedAt[caseId];
     }
 
-    function setMinReportInterval(uint256 secondsInterval) external onlyAdmin {
+    function setMinReportInterval(uint256 secondsInterval) external onlyArbitrationService {
         minReportInterval = secondsInterval;
     }
 
-    function setMaxOpenReportsPerReporter(uint256 maxOpen) external onlyAdmin {
+    function setMaxOpenReportsPerReporter(uint256 maxOpen) external onlyArbitrationService {
         maxOpenReportsPerReporter = maxOpen;
     }
 
@@ -459,12 +457,8 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     }
 
     function deactivate(string calldata reason) external {
-        bool isAdmin = msg.sender == admin;
-        bool isExpired = block.timestamp >= expiryDate;
-
-        require(isAdmin || isExpired, "Not authorized");
+        require(block.timestamp >= expiryDate, "Not authorized");
         require(active, "Already inactive");
-        
         active = false;
         emit ContractDeactivated(msg.sender, reason);
     }

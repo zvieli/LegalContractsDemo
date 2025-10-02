@@ -106,6 +106,7 @@ AggregatorV3Interface public immutable priceFeed;
     event DisputeReportedWithUri(uint256 indexed caseId, string evidenceUri);
     event DisputeFiled(uint256 indexed caseId, address indexed debtor, uint256 requestedAmount);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
+    event DisputeAppliedCapped(uint256 indexed caseId, uint256 requestedAmount, uint256 available, uint256 applied);
     event DebtRecorded(address indexed debtor, uint256 amount);
     // ERC20 support removed: ERC20DebtCollected event intentionally omitted
     event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
@@ -615,18 +616,32 @@ function getRentInEth() public view returns (uint256) {
             // Transfer debtor deposit to beneficiary as compensation (must be available)
             if (requested > 0) {
                 uint256 available = partyDeposit[debtor];
-                if (available < requested) {
-                    revert InsufficientDepositForResolution({ available: available, required: requested });
+                if (available == 0) {
+                    // nothing to apply
+                    applied = 0;
+                } else if (available < requested) {
+                    // Mitigation: cap applied amount to available deposit per spec 2.2
+                    partyDeposit[debtor] = 0;
+                    emit DisputeAppliedCapped(caseId, requested, available, available);
+                    emit DepositDebited(debtor, available);
+                    // send available to beneficiary
+                    (bool okCap, ) = payable(beneficiary).call{value: available}("");
+                    if (!okCap) {
+                        withdrawable[beneficiary] += available;
+                        emit PaymentCredited(beneficiary, available);
+                    }
+                    applied = available;
+                } else {
+                    partyDeposit[debtor] = available - requested;
+                    emit DepositDebited(debtor, requested);
+                    // Send to beneficiary
+                    (bool ok, ) = payable(beneficiary).call{value: requested}("");
+                    if (!ok) {
+                        withdrawable[beneficiary] += requested;
+                        emit PaymentCredited(beneficiary, requested);
+                    }
+                    applied = requested;
                 }
-                partyDeposit[debtor] = available - requested;
-                emit DepositDebited(debtor, requested);
-                // Send to beneficiary
-                (bool ok, ) = payable(beneficiary).call{value: requested}("");
-                if (!ok) {
-                    withdrawable[beneficiary] += requested;
-                    emit PaymentCredited(beneficiary, requested);
-                }
-                applied = requested;
             }
         } else {
             // Rejected: forward bond to arbitrator owner if possible

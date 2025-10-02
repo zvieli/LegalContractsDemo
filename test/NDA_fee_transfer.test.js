@@ -2,47 +2,60 @@ import pkg from "hardhat";
 const { ethers } = pkg;
 import { expect } from "chai";
 
-describe("NDATemplate - fees, transfers and edge cases", function () {
-  let nda, factory, admin, partyA, partyB, partyC, reverter, arb, arbitrationService;
+describe("NDATemplate V7 - fees, transfers and edge cases", function () {
+  let nda, factory, admin, partyA, partyB, partyC, reverter, arbitrationContractV2, arbitrationService, arbitrationServiceSigner, arb;
 
   beforeEach(async function () {
     [admin, partyA, partyB, partyC] = await ethers.getSigners();
 
-  const Factory = await ethers.getContractFactory("ContractFactory");
+    const Factory = await ethers.getContractFactory("ContractFactory");
     factory = await Factory.deploy();
     await factory.waitForDeployment();
 
-    // deploy arbitrator and arbitration service and wire them for this NDA
-    const Arbitrator = await ethers.getContractFactory('Arbitrator');
-    arb = await Arbitrator.deploy();
-    await arb.waitForDeployment();
-
-    // deploy ArbitrationService and give ownership to the arbitrator so it can apply resolutions
+    // Deploy ArbitrationService for V7
     const ArbitrationService = await ethers.getContractFactory('ArbitrationService');
     arbitrationService = await ArbitrationService.deploy();
     await arbitrationService.waitForDeployment();
-    await arbitrationService.transferOwnership(arb.target);
-    await arb.setArbitrationService(arbitrationService.target);
 
-    // configure factory so created NDA templates receive arbitrationService immutably
-    await factory.setDefaultArbitrationService(arbitrationService.target, 0);
+    // Set default arbitration service in factory before NDA creation
+    await factory.connect(admin).setDefaultArbitrationService(await arbitrationService.getAddress(), ethers.parseEther('0.1'));
+
+    // Deploy ArbitrationContractV2 (Chainlink Functions client) for V7
+    const ArbitrationContractV2 = await ethers.getContractFactory('ArbitrationContractV2');
+    arbitrationContractV2 = await ArbitrationContractV2.deploy(await arbitrationService.getAddress());
+    await arbitrationContractV2.waitForDeployment();
+
+    // Set admin as oracle for testing
+    await arbitrationContractV2.connect(admin).setOracle(await admin.getAddress());
+
+    // Set the ArbitrationContractV2 as the factory in ArbitrationService
+    await arbitrationService.connect(admin).setFactory(await arbitrationContractV2.getAddress());
 
     const tx = await factory.connect(admin).createNDA(
-      partyB.address,
+      await partyB.getAddress(),
       Math.floor(Date.now() / 1000) + 86400,
       1000,
       ethers.keccak256(ethers.toUtf8Bytes("Test clauses")),
-      ethers.parseEther('0.1')
+      ethers.parseEther('0.1') // minDeposit
     );
     const r = await tx.wait();
-    const log = r.logs.find(l => l.fragment && l.fragment.name === 'NDACreated');
-    nda = await ethers.getContractAt('NDATemplate', log.args.contractAddress);
+    const log = r.logs.find(l => {
+      try {
+        const parsed = factory.interface.parseLog(l);
+        return parsed.name === 'NDACreated';
+      } catch {
+        return false;
+      }
+    });
+    const parsedLog = factory.interface.parseLog(log);
+    nda = await ethers.getContractAt('NDATemplate', parsedLog.args.contractAddress);
 
-  // NDA receives arbitrationService immutably from factory via default; nothing to configure on-template.
+  // NDA now uses V7 arbitration service automatically
 
-  // set an appeal window so enforcement can be deferred and pending enforcement entries are created
+  // Set arb for dispute creation and resolution
+  arb = arbitrationContractV2;
 
-    // deploy reverter
+    // deploy reverter for testing edge cases
     const Reverter = await ethers.getContractFactory('Reverter');
     reverter = await Reverter.deploy();
     await reverter.waitForDeployment();
@@ -50,11 +63,21 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
     // deposits
     await nda.connect(admin).deposit({ value: ethers.parseEther('1') });
     await nda.connect(partyB).deposit({ value: ethers.parseEther('1') });
+
+      // Impersonate ArbitrationService address for privileged calls
+      const arbitrationServiceAddress = await arbitrationService.getAddress();
+      await network.provider.request({
+        method: "hardhat_impersonateAccount",
+        params: [arbitrationServiceAddress]
+      });
+      arbitrationServiceSigner = await ethers.getSigner(arbitrationServiceAddress);
+      // Fund the impersonated ArbitrationService address with ETH using hardhat_setBalance
+      await network.provider.send("hardhat_setBalance", [arbitrationServiceAddress, "0x3635C9ADC5DEA00000"]); // 1 ETH in hex
   });
 
   it('refunds or transfers disputeFee correctly on immediate enforcement (no appeal window)', async function () {
-    // set dispute fee
-    await nda.connect(admin).setDisputeFee(ethers.parseEther('0.01'));
+  // set dispute fee via ArbitrationService (must be called from arbitrationService address)
+  await nda.connect(arbitrationServiceSigner)["setDisputeFee(uint256)"](ethers.parseEther('0.01'));
 
     const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('e'));
 
@@ -63,8 +86,8 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
 
   // resolve via the arbitrator deployed in beforeEach
   const evidence = ethers.toUtf8Bytes('evidence');
-  await arb.connect(admin).createDisputeForCase(nda.target, 0, evidence);
-  await arb.connect(admin).resolveDispute(1, partyB.address, ethers.parseEther('0.2'), admin.address);
+  await arb.connect(admin).requestArbitration(nda.target, 0, evidence);
+  await arbitrationService.connect(admin).applyResolutionToTarget(nda.target, 0, true, ethers.parseEther('0.2'), admin.address);
 
     const pending = await nda.getPendingEnforcement(0);
     expect(pending.exists).to.be.false; // enforcement immediate
@@ -77,8 +100,8 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
   });
 
   it('does not revert the whole flow when beneficiary rejects ETH (use pending enforcement or ignore failure)', async function () {
-  // set appeal window so enforcement is deferred (use a large window to ensure finalize before time elapses fails)
-  await nda.connect(admin).setAppealWindowSeconds(3600);
+  // set appeal window so enforcement is deferred (must be called from arbitrationService address)
+  await nda.connect(arbitrationServiceSigner)["setAppealWindowSeconds(uint256)"](3600);
 
     // report with no fee
     const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('e2'));
@@ -88,9 +111,9 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
     // For simplicity, call resolveByArbitratorFinal directly from admin: simulate that beneficiary is reverter
   // resolve via the arbitrator deployed in beforeEach (deferred path exercised by test)
   const evidence2 = ethers.toUtf8Bytes('evidence2');
-  await arb.connect(admin).createDisputeForCase(nda.target, 0, evidence2);
+  await arb.connect(admin).requestArbitration(nda.target, 0, evidence2);
   // award a penalty and set beneficiary to the Reverter contract to simulate beneficiary rejecting ETH
-  await arb.connect(admin).resolveDispute(1, partyB.address, ethers.parseEther('0.3'), reverter.target);
+  await arbitrationService.connect(admin).applyResolutionToTarget(nda.target, 0, true, ethers.parseEther('0.3'), reverter.target);
 
     // enforcement is pending due to appealWindowSeconds
     const pending = await nda.getPendingEnforcement(0);
@@ -113,7 +136,7 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
 
   it('prevents double finalize and prevents double reveal', async function () {
   // set appeal window so enforcement is deferred
-  await nda.connect(admin).setAppealWindowSeconds(1);
+  await nda.connect(arbitrationServiceSigner)["setAppealWindowSeconds(uint256)"](1);
 
   // Example off-chain payload (previously used ipfs:// URIs in docs). Compute
   // the keccak256 digest of the payload string to represent stored evidence.
@@ -121,7 +144,7 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
   const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes(payload));
 
   // set reveal window before reporting so revealDeadline is recorded at report time
-  await nda.connect(admin).setRevealWindowSeconds(3600);
+  await nda.connect(arbitrationServiceSigner)["setRevealWindowSeconds(uint256)"](3600);
   await nda.connect(admin).reportBreach(partyB.address, ethers.parseEther('0.1'), evidenceHash);
 
   // Reveal flow removed: validate digest-only storage and reveal deadline
@@ -130,8 +153,8 @@ describe("NDATemplate - fees, transfers and edge cases", function () {
 
   // resolve via the arbitrator deployed in beforeEach to create a pending enforcement entry
   const evidence3 = ethers.toUtf8Bytes('evidence3');
-  await arb.connect(admin).createDisputeForCase(nda.target, 0, evidence3);
-  await arb.connect(admin).resolveDispute(1, partyB.address, ethers.parseEther('0.1'), admin.address);
+  await arb.connect(admin).requestArbitration(nda.target, 0, evidence3);
+  await arbitrationService.connect(admin).applyResolutionToTarget(nda.target, 0, true, ethers.parseEther('0.1'), admin.address);
 
     // advance and finalize
     await ethers.provider.send('evm_increaseTime', [2]);

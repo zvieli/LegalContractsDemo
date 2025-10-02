@@ -2,34 +2,46 @@
 
 # ArbiTrust
 
-Arbitration-driven on-chain contract templates (NDA & Rent). This repository provides smart-contract templates that rely on on‑chain arbitrator contracts for dispute resolution. All oracle and AI components have been removed.
+Arbitration-driven on-chain contract templates (NDA & Rent). This repository provides smart-contract templates with AI-powered arbitration via Chainlink Functions for automated dispute resolution.
 
 </div>
 
-## Recent Changes (September 2025)
+## Recent Changes (October 2025) - V7 Release
 
-- Removed on‑chain party voting from `NDATemplate` (the `voteOnBreach` method and vote state were deleted).
-- Removed AI and external oracle integrations (Chainlink Functions, AI router scripts, server AI endpoints, and related tests) from the repository.
-- BREAKING CHANGE: Integrators and UI components that relied on voting or AI must be updated to use arbitrator‑based workflows.
+- **NEW**: AI-powered arbitration system with Chainlink Functions integration (`ArbitrationContractV2.sol`)
+- **NEW**: Enhanced financial precision with BigInt arithmetic for wei conversions (Mitigation 4.4)
+- **NEW**: Replay protection system using request hash mapping (Mitigation 4.2)
+- **NEW**: Comprehensive error handling with fallback mechanisms (Mitigation 4.5)
+- **NEW**: Arbitration bond model with deposit capping for rent contracts
+- Enhanced `ArbitrationService.sol` with improved validation and event emission
+- Updated E2E tests for modern ethers v6 API compatibility
 
 ## Overview
 
-This repo demonstrates how to encode dispute resolution into smart contracts and resolve disputes using on‑chain arbitrator contracts (owner‑controlled or similar).
+This repo demonstrates how to encode dispute resolution into smart contracts and resolve disputes using AI-powered arbitration via Chainlink Functions oracle integration.
 
 What you get:
 - `NDATemplate` contract with deposits, breach reporting and arbitrator hooks
-- An owner‑controlled `Arbitrator` implementation used in tests and reference deployments
-- Hardhat tests and scripts to deploy/configure
+- `TemplateRentContract` with AI arbitration and deposit capping mechanisms
+- `ArbitrationContractV2` - Chainlink Functions client for AI arbitration decisions
+- Enhanced `ArbitrationService` with replay protection and comprehensive validation
+- `chainlink_arbitrator.js` - Oracle script with financial precision and error handling
+- `arbitrator_api.py` - FastAPI server with Ollama LLM integration for legal decisions
+- Hardhat tests and scripts to deploy/configure the complete system
 
 ## Architecture
 
-- Contracts:
-	- `NDATemplate.sol` — NDA between two parties; holds deposits; exposes `reportBreach` and service-only resolution entrypoints. Resolutions are applied via an `ArbitrationService` rather than a direct `resolveByArbitrator` call.
-	- `TemplateRentContract.sol` — Rent contract between landlord and tenant; supports dispute reporting, arbitration, and deposit management.
-	- `Arbitrator.sol` — owner‑controlled arbitrator used as a simple reference implementation in tests.
+- **Smart Contracts:**
+	- `ArbitrationContractV2.sol` — Chainlink Functions client for receiving AI arbitration decisions with replay protection
+	- `ArbitrationService.sol` — Central dispatcher applying arbitration decisions to target contracts with enhanced validation
+	- `NDATemplate.sol` — NDA between parties with deposits, breach reporting and arbitration hooks
+	- `TemplateRentContract.sol` — Rent contract with dispute reporting, AI arbitration, and deposit capping
+	- `Arbitrator.sol` — Reference implementation for manual arbitration (legacy fallback)
 
-Off‑chain components:
-- This repository no longer includes AI or Chainlink/Functions components. Any required off‑chain decision logic must be implemented and integrated separately.
+- **Off-chain Components:**
+	- `chainlink_arbitrator.js` — Chainlink Functions script with comprehensive error handling and BigInt precision
+	- `arbitrator_api.py` — FastAPI server with Ollama LLM integration for automated legal decision making
+	- Evidence storage system with ECIES encryption for secure dispute documentation
 
 ### ArbitrationService (wiring & notes)
 
@@ -151,7 +163,26 @@ npm run node
 
 Create a `.env` file in the project root (copy from `.env.example`). `.env` is already in `.gitignore`.
 
-This repository no longer requires Chainlink Functions or AI-related environment variables. For local tests and deployments you generally only need standard Ethereum RPC endpoints (e.g., `HARDHAT_URL`) when targeting external nodes.
+**V7 AI Arbitration Configuration:**
+
+For full AI arbitration functionality, you'll need:
+
+**Chainlink Functions:**
+- `CHAINLINK_SUBSCRIPTION_ID` - Your Chainlink Functions subscription ID
+- `CHAINLINK_ROUTER_ADDRESS` - Chainlink Functions router contract address
+- `CHAINLINK_DON_ID` - Decentralized Oracle Network ID
+- `ORACLE_PRIVATE_KEY` - Private key for the oracle account
+
+**AI Arbitrator API:**
+- `ARBITRATOR_API_URL` - URL of the AI arbitrator service (default: http://localhost:8000/arbitrate)
+- `OLLAMA_MODEL` - LLM model name (default: llama3.2:latest)
+
+**Blockchain Networks:**
+- `RPC_URL` - Ethereum RPC endpoint
+- `PRIVATE_KEY` - Deployer private key
+- `ETHERSCAN_API_KEY` - For contract verification
+
+For local testing, the system defaults to localhost endpoints and uses Hardhat's built-in accounts.
 
 ## Deploying contracts
 
@@ -168,7 +199,27 @@ Notes:
 
 ## Frontend
 
-ABIs are copied into `front/src/utils/contracts`. The UI should now use arbitrator-based flows (create case → notify arbitrator → read resolution) and must not rely on voting or AI features.
+ABIs are copied into `front/src/utils/contracts`. The V7 UI integrates with:
+
+- **AI Arbitration Flow**: Create case → Trigger Chainlink Functions → AI decision → Automatic resolution
+- **Deposit Capping**: When requested amount exceeds available deposits, system automatically caps to available amount
+- **Evidence Encryption**: Client-side encryption to admin public key with keccak256 digest storage on-chain
+- **Real-time Updates**: Event listening for `DisputeAppliedCapped` and `ResolutionApplied` events
+
+### E2E Testing
+
+Run the complete arbitration flow test:
+```bash
+cd front
+npm test -- tests/e2e/template.rent.e2e.spec.ts
+```
+
+The E2E test validates:
+- Contract deployment and signing
+- Dispute creation with bond deposits
+- AI arbitration via ArbitrationContractV2
+- Deposit capping when requested > available
+- Fund distribution and withdrawable tracking
 
 ### Admin decryption helper
 

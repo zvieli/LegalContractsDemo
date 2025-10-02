@@ -11,10 +11,15 @@ describe("ContractFactory", function () {
   beforeEach(async function () {
     [landlord, tenant, partyA, partyB, other] = await ethers.getSigners();
 
-    // Deploy Arbitrator
-    const Arbitrator = await ethers.getContractFactory("Arbitrator");
-    arbitrator = await Arbitrator.deploy();
-    await arbitrator.waitForDeployment();
+  // Deploy ArbitrationService
+  const ArbitrationService = await ethers.getContractFactory("ArbitrationService");
+  const arbitrationService = await ArbitrationService.deploy();
+  await arbitrationService.waitForDeployment();
+
+  // Deploy Arbitrator with arbitrationService address
+  const Arbitrator = await ethers.getContractFactory("Arbitrator");
+  arbitrator = await Arbitrator.deploy(arbitrationService.target);
+  await arbitrator.waitForDeployment();
 
     // Deploy MockPriceFeed
     const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
@@ -22,18 +27,32 @@ describe("ContractFactory", function () {
     await mockPriceFeed.waitForDeployment();
 
     // Deploy Factory
-  const Factory = await ethers.getContractFactory("ContractFactory");
+    const Factory = await ethers.getContractFactory("ContractFactory");
     factory = await Factory.deploy();
     await factory.waitForDeployment();
+
+    // Set default arbitration service and required deposit for rent contracts
+    await factory.connect(landlord).setDefaultArbitrationService(arbitrator.target, ethers.parseEther("0.1"));
   });
 
   describe("createRentContract", function () {
     it("should create rent contract successfully", async function () {
-      const tx = await factory.connect(landlord).createRentContract(
-          tenant.address,
-          100,
-          mockPriceFeed.target,
-          0
+      // Use the full argument list for the latest TemplateRentContract
+      const dueDate = Math.floor(Date.now() / 1000) + 86400;
+      const propertyId = 1;
+      const initialEvidenceUri = "ipfs://test";
+      // The factory sets default arbitration service and required deposit internally
+      // The factory's createRentContract matches the deployer signature
+      // Use the full function signature to resolve overload ambiguity
+      const tx = await factory.connect(landlord)[
+        "createRentContract(address,uint256,address,uint256,uint256,string)"
+      ](
+        tenant.address,
+        100,
+        mockPriceFeed.target,
+        dueDate,
+        propertyId,
+        initialEvidenceUri
       );
       const receipt = await tx.wait();
 
@@ -86,11 +105,18 @@ describe("ContractFactory", function () {
   describe("Contract Management", function () {
     beforeEach(async function () {
       // Create some contracts first
-      await factory.connect(landlord).createRentContract(
+      const dueDate = Math.floor(Date.now() / 1000) + 86400;
+      const propertyId = 1;
+      const initialEvidenceUri = "ipfs://test";
+      await factory.connect(landlord)[
+        "createRentContract(address,uint256,address,uint256,uint256,string)"
+      ](
         tenant.address,
         100,
         mockPriceFeed.target,
-        0
+        dueDate,
+        propertyId,
+        initialEvidenceUri
       );
 
       const expiryDate = Math.floor(Date.now() / 1000) + 86400;
