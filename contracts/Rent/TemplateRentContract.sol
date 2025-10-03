@@ -517,7 +517,7 @@ function getRentInEth() public view returns (uint256) {
         // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
         uint256 requiredBond = 0;
         if (requestedAmount > 0) {
-            requiredBond = (requestedAmount * 5) / 1000; // 0.5%
+            requiredBond = (requestedAmount * 5) / 10000; // 0.05%
             // ensure at least 1 wei if computed zero but request >0
             if (requiredBond == 0) requiredBond = 1;
         }

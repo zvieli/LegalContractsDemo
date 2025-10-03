@@ -213,8 +213,8 @@ test.describe('APPEAL Integration with Backend', () => {
     // Check if backend is responsive
     let backendAvailable = false;
     try {
-      const response = await page.request.get('http://127.0.0.1:5001/submit-evidence');
-      backendAvailable = response.status() !== 0;
+      const response = await page.request.get('http://localhost:3001/api/v7/health');
+      backendAvailable = response.status() === 200;
     } catch (error) {
       console.log('Backend not available, skipping integration test');
       test.skip();

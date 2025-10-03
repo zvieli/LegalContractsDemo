@@ -1,8 +1,9 @@
 import './Home.css';
 import MyContracts from '../../components/MyContracts/MyContracts';
 import EvidenceSubmit from '../../components/EvidenceSubmit/EvidenceSubmit';
-import TimeCountdown from '../../components/TimeCountdown';
-import AppealFlow from '../../components/AppealFlow';
+// import TimeCountdown from '../../components/TimeCountdown';
+import AdminDashboard from '../AdminDashboard/AdminDashboard';
+// ...existing code...
 import { useEthers } from '../../contexts/EthersContext';
 
 function Home() {
@@ -12,7 +13,7 @@ function Home() {
   const features = [
     {
       icon: 'fas fa-robot',
-      title: '🤖 V7 AI Arbitration',
+      title: '🤖  AI Arbitration',
       description: 'Advanced AI-powered dispute resolution using Chainlink Functions + Ollama LLM'
     },
     {
@@ -50,40 +51,19 @@ function Home() {
   return (
     <div className="home">
       {/* Hero Section */}
-      <section className="hero">
+      <section className="hero" data-testid="home-hero-section">
         <div className="container">
           <div className="hero-content">
-            <h1>Welcome to ArbiTrust V7</h1>
-            <p>Create and manage smart legal contracts on the blockchain with AI-powered arbitration - simple, secure, and transparent</p>
-            
-            {/* V7 Feature Highlight */}
-            <div className="v7-highlight" style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              color: 'white',
-              padding: '20px',
-              borderRadius: '12px',
-              margin: '20px 0',
-              textAlign: 'center',
-              border: '3px solid #fff'
-            }}>
-              <h3>🤖 חדש! מערכת בוררות V7</h3>
-              <p style={{ margin: '10px 0', fontSize: '16px' }}>
-                בוררות מבוססת AI עם Chainlink Functions + Ollama LLM
-              </p>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '15px' }}>
-                <span>⚡ תגובה מהירה</span>
-                <span>🔒 אבטחה מתקדמת</span>
-                <span>🎯 החלטות מדויקות</span>
-              </div>
-            </div>
+            <h1 data-testid="home-title">Welcome to ArbiTrust </h1>
+            <p data-testid="home-description">Create and manage smart legal contracts on the blockchain with AI-powered arbitration - simple, secure, and transparent</p>
             <div className="cta-buttons">
               {!isAdmin && (
-                <button className="btn btn-primary" onClick={() => { window.location.href = '/create'; }}>
+                <button className="btn btn-primary" data-testid="create-contract-btn" onClick={() => { window.location.href = '/create'; }}>
                   <i className="fas fa-plus"></i>
                   Create New Contract
                 </button>
               )}
-              <button className="btn btn-secondary" onClick={() => { window.location.href = '/dashboard'; }}>
+              <button className="btn btn-secondary" data-testid="browse-contracts-btn" onClick={() => { window.location.href = '/dashboard'; }}>
                 <i className="fas fa-file-alt"></i>
                 Browse Contracts
               </button>
@@ -93,15 +73,15 @@ function Home() {
       </section>
 
       {/* Features Section */}
-      <section className="features">
+      <section className="features" data-testid="home-features-section">
         <div className="container">
           <div className="section-header">
-            <h2>Why Choose ArbiTrust?</h2>
-            <p>The advanced system for managing smart contracts with all the benefits you need</p>
+            <h2 data-testid="features-title">Why Choose ArbiTrust?</h2>
+            <p data-testid="features-description">The advanced system for managing smart contracts with all the benefits you need</p>
           </div>
           <div className="features-grid">
             {features.map((feature, index) => (
-              <div key={index} className="feature-card">
+              <div key={index} className="feature-card" data-testid={`feature-card-${index}`}> 
                 <div className="feature-icon">
                   <i className={feature.icon}></i>
                 </div>
@@ -113,57 +93,85 @@ function Home() {
         </div>
       </section>
 
-      {/* Advanced Features Demo Section */}
-      <section className="advanced-features" style={{
-        background: '#f8fafc',
-        padding: '60px 0',
-        borderTop: '3px solid #e2e8f0'
-      }}>
-        <div className="container">
-          <div className="section-header">
-            <h2>⚡ Advanced V7 Features</h2>
-            <p>Experience the next generation of smart contract management</p>
-          </div>
-          
-          {/* Time Management Demo */}
-          <div style={{ marginBottom: '40px' }}>
-            <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>⏰ Smart Time Management</h3>
-            <TimeCountdown 
-              contractAddress="0x1234567890123456789012345678901234567890"
-              contractType="rent"
-            />
-          </div>
-          
-          {/* Appeal System Demo */}
-          <div style={{ marginBottom: '40px' }}>
-            <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>📞 Advanced Appeal System</h3>
-            <AppealFlow 
-              contractAddress="0x1234567890123456789012345678901234567890"
-              disputeId={1}
-              onAppealSubmitted={(result) => console.log('Appeal submitted:', result)}
-            />
-          </div>
-        </div>
-      </section>
-
       {/* Dashboard Preview */}
-      <section className="dashboard-preview">
-        <div className="container">
-          <div className="preview-content">
-            <h2>Manage All Your Contracts in One Place</h2>
-            <p>Preview of your dashboard with your recent contracts</p>
-            
-            <div className="dashboard-card">
-              <MyContracts />
+        <section className="dashboard-preview" data-testid="home-dashboard-preview">
+          <div className="container">
+            <div className="preview-content">
+              {isAdmin ? (
+                <div style={{ width: '100%', margin: '0 auto', padding: '0', maxWidth: '100%' }}>
+                  <AdminDashboard />
+                </div>
+              ) : (
+                <>
+                  <h2 data-testid="dashboard-title">Manage All Your Contracts in One Place</h2>
+                  <p data-testid="dashboard-description">Preview of your dashboard with your recent contracts</p>
+                  <div className="dashboard-card" data-testid="dashboard-card">
+                    <MyContracts />
+                    <div className="contract-placeholder" data-testid="contract-placeholder" style={{
+                      marginTop: '32px',
+                      background: 'linear-gradient(135deg, #f8fafc 0%, #e0e7ff 100%)',
+                      borderRadius: '18px',
+                      padding: '32px 28px',
+                      textAlign: 'left',
+                      boxShadow: '0 4px 24px rgba(80,80,160,0.10)',
+                      maxWidth: '340px',
+                      marginLeft: 'auto',
+                      marginRight: 'auto',
+                      border: '1.5px solid #e0e7ff',
+                      position: 'relative'
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        marginBottom: '18px'
+                      }}>
+                        <span style={{
+                          display: 'inline-block',
+                          background: '#6366f1',
+                          color: 'white',
+                          borderRadius: '50%',
+                          width: '40px',
+                          height: '40px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '22px',
+                          boxShadow: '0 2px 8px rgba(99,102,241,0.10)'
+                        }}>
+                          <i className="fas fa-file-contract"></i>
+                        </span>
+                        <h3 style={{ margin: 0, fontWeight: 700, fontSize: '1.25rem', color: '#312e81' }}>Contract Preview</h3>
+                      </div>
+                      <div style={{
+                        fontSize: '16px',
+                        color: '#374151',
+                        lineHeight: 1.7,
+                        marginBottom: '18px'
+                      }}>
+                        <div><span style={{ fontWeight: 600 }}>Type:</span> Rental Agreement</div>
+                        <div><span style={{ fontWeight: 600 }}>Parties:</span> 0x123...abc & 0x456...def</div>
+                        <div><span style={{ fontWeight: 600 }}>Amount:</span> 1.5 ETH / month</div>
+                        <div><span style={{ fontWeight: 600 }}>Status:</span> <span style={{ color: '#10b981', fontWeight: 700 }}>Active</span></div>
+                      </div>
+                      <button className="btn btn-primary" style={{
+                        marginTop: '8px',
+                        width: '100%',
+                        fontWeight: 600,
+                        fontSize: '15px',
+                        opacity: 0.7,
+                        cursor: 'not-allowed'
+                      }} disabled data-testid="view-details-btn">
+                        View Details
+                      </button>
+                    </div>
+                  </div>
+                  <p data-testid="connect-wallet-hint">Connect your wallet to view and manage all your contracts</p>
+                </>
+              )}
             </div>
-            <div className="dashboard-card">
-              <EvidenceSubmit authAddress={account} />
-            </div>
-            
-            <p>Connect your wallet to view and manage all your contracts</p>
           </div>
-        </div>
-      </section>
+        </section>
     </div>
   );
 }

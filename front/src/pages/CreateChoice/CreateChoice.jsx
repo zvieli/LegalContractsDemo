@@ -37,12 +37,12 @@ function CreateChoice() {
   const handleSelect = (type) => {
     setSelected(type.id);
     setTimeout(() => {
-      window.location.href = type.path; // גם משנה URL וגם טוען מחדש את הדף
+      window.location.href = type.path; // Changes URL and reloads the page
     }, 300);
   };
 
   const handleBack = () => {
-    window.location.href = '/'; // חזרה לדף הבית עם רענון
+  window.location.href = '/'; // Back to home page with refresh
   };
 
   return (

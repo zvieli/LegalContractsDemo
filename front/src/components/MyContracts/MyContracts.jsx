@@ -399,47 +399,48 @@ export default function MyContracts() {
         })}
       </ul>
       
-        {/* V7 Arbitration Requests Section */}
-        {(v7Loading || v7ArbitrationRequests.length > 0) && (
-          <div className="v7-arbitration-section">
-            <h3 style={{
-              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-              marginTop: '2rem',
-              marginBottom: '1rem'
-            }}>
-              בקשות בוררות V7 (AI)
-            </h3>
-            {v7Loading ? (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '2rem',
-                background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
-                borderRadius: '12px',
-                border: '1px solid rgba(102, 126, 234, 0.3)'
-              }}>
-                <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.5rem', color: '#667eea' }}></i>
-                <p style={{ marginTop: '1rem', color: '#667eea' }}>טוען בקשות בוררות V7...</p>
-              </div>
-            ) : v7ArbitrationRequests.length === 0 ? (
-              <div style={{ 
-                textAlign: 'center', 
-                padding: '2rem',
-                background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
-                borderRadius: '12px',
-                border: '1px solid rgba(102, 126, 234, 0.3)',
-                color: '#666'
-              }}>
-                <i className="fas fa-robot" style={{ fontSize: '2rem', color: '#667eea', marginBottom: '1rem' }}></i>
-                <p>אין בקשות בוררות V7 פעילות</p>
-                <p style={{ fontSize: '0.9rem' }}>כאשר תיצור בקשת בוררות חדשה עם AI, היא תופיע כאן</p>
-              </div>
-            ) : (
-            <ul className="arbitration-list" style={{ listStyle: 'none', padding: 0 }}>
-              {v7ArbitrationRequests.map((request, index) => (
-                <li key={index} className="arbitration-item" style={{
+      {/* V7 Arbitration Requests Section */}
+      {(v7Loading || v7ArbitrationRequests.length > 0) && (
+        <div className="v7-arbitration-section" data-testid="v7-arbitration-section">
+          <h3 style={{
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+            marginTop: '2rem',
+            marginBottom: '1rem'
+          }}>
+            V7 Arbitration Requests (AI)
+          </h3>
+          {v7Loading ? (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '2rem',
+              background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
+              borderRadius: '12px',
+              border: '1px solid rgba(102, 126, 234, 0.3)'
+            }} data-testid="v7-arbitration-loading">
+              <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.5rem', color: '#667eea' }}></i>
+              <p style={{ marginTop: '1rem', color: '#667eea' }}>Loading V7 arbitration requests...</p>
+            </div>
+          ) : v7ArbitrationRequests.length === 0 ? (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '2rem',
+              background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
+              borderRadius: '12px',
+              border: '1px solid rgba(102, 126, 234, 0.3)',
+              color: '#666'
+            }} data-testid="v7-arbitration-empty">
+              <i className="fas fa-robot" style={{ fontSize: '2rem', color: '#667eea', marginBottom: '1rem' }}></i>
+              <p>No active V7 arbitration requests</p>
+              <p style={{ fontSize: '0.9rem' }}>When you create a new AI arbitration request, it will appear here</p>
+            </div>
+          ) : (
+          <ul className="arbitration-list" style={{ listStyle: 'none', padding: 0 }} data-testid="v7-arbitration-list">
+            {v7ArbitrationRequests.map((request, index) => (
+              <li key={index} className="arbitration-item" data-testid={`v7-arbitration-item-${index}`}
+                style={{
                   background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',
                   border: '1px solid rgba(102, 126, 234, 0.3)',
                   borderRadius: '12px',
@@ -447,140 +448,142 @@ export default function MyContracts() {
                   marginBottom: '1rem',
                   transition: 'all 0.3s ease'
                 }}>
-                  <div className="arbitration-info">
-                    <h4 style={{ 
-                      color: '#667eea',
-                      marginBottom: '0.5rem',
-                      fontSize: '1.1rem'
-                    }}>
-                      בקשת בוררות #{request.id || index + 1}
-                    </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                      <div>
-                        <strong>כתובת חוזה:</strong><br />
-                        <code style={{ 
-                          background: 'rgba(102, 126, 234, 0.1)', 
-                          padding: '0.25rem 0.5rem', 
-                          borderRadius: '4px',
-                          fontSize: '0.9rem'
-                        }}>
-                          {request.contractAddress}
-                        </code>
-                      </div>
-                      <div>
-                        <strong>Bond Amount:</strong><br />
-                        <span style={{ color: '#667eea', fontWeight: 'bold' }}>
-                          {request.bondAmount} DAI
-                        </span>
-                      </div>
+                <div className="arbitration-info">
+                  <h4 style={{ 
+                    color: '#667eea',
+                    marginBottom: '0.5rem',
+                    fontSize: '1.1rem'
+                  }} data-testid="v7-arbitration-title">
+                    Arbitration Request #{request.id || index + 1}
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                    <div>
+                      <strong>Contract Address:</strong><br />
+                      <code style={{ 
+                        background: 'rgba(102, 126, 234, 0.1)', 
+                        padding: '0.25rem 0.5rem', 
+                        borderRadius: '4px',
+                        fontSize: '0.9rem'
+                      }} data-testid="v7-arbitration-contract-address">
+                        {request.contractAddress}
+                      </code>
                     </div>
-                    <div style={{ marginBottom: '1rem' }}>
-                      <strong>סטטוס:</strong>
-                      <span style={{
-                        marginRight: '0.5rem',
-                        padding: '0.25rem 0.75rem',
-                        borderRadius: '20px',
-                        fontSize: '0.9rem',
-                        fontWeight: 'bold',
-                        background: request.status === 'pending' ? 'linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%)' :
-                                   request.status === 'bond_confirmed' ? 'linear-gradient(135deg, #74b9ff 0%, #0984e3 100%)' :
-                                   request.status === 'ai_decided' ? 'linear-gradient(135deg, #00b894 0%, #00a085 100%)' :
-                                   'linear-gradient(135deg, #636e72 0%, #2d3436 100%)',
-                        color: 'white'
-                      }}>
-                        {request.status === 'pending' && 'הוגש: ממתין לאישור ה-Bond'}
-                        {request.status === 'bond_confirmed' && 'Bond אושר: ממתין לתגובת ה-Oracle'}
-                        {request.status === 'ai_decided' && 'החלטת AI התקבלה'}
-                        {request.status === 'completed' && 'הליך הסתיים'}
+                    <div>
+                      <strong>Bond Amount:</strong><br />
+                      <span style={{ color: '#667eea', fontWeight: 'bold' }} data-testid="v7-arbitration-bond-amount">
+                        {request.bondAmount} DAI
                       </span>
                     </div>
-                    {/* תוצאת הבוררות */}
-                    {request.finalVerdict && (
-                      <div style={{ marginBottom: '1rem' }}>
-                        <strong>תוצאת הבוררות (AI):</strong>
-                        <span style={{ marginRight: '0.5rem', fontWeight: 'bold', color: '#764ba2' }}>
-                          {request.finalVerdict === 'PARTY_A_WINS' && 'צד א׳ ניצח'}
-                          {request.finalVerdict === 'PARTY_B_WINS' && 'צד ב׳ ניצח'}
-                          {request.finalVerdict === 'DRAW' && 'תיקו'}
-                          {!['PARTY_A_WINS','PARTY_B_WINS','DRAW'].includes(request.finalVerdict) && request.finalVerdict}
-                        </span>
-                      </div>
-                    )}
-                    {/* סכום הפיצוי */}
-                    {typeof request.reimbursementAmountDai !== 'undefined' && (
-                      <div style={{ marginBottom: '1rem' }}>
-                        <strong>סכום פיצוי שנקבע (AI):</strong>
-                        <span style={{ marginRight: '0.5rem', fontWeight: 'bold', color: '#00b894' }}>
-                          {request.reimbursementAmountDai} DAI
-                        </span>
-                      </div>
-                    )}
-                    {/* נימוק ההחלטה */}
-                    {request.rationaleSummary && (
-                      <div style={{ marginBottom: '1rem' }}>
-                        <strong>נימוק ההחלטה (AI):</strong>
-                        <div style={{ background: 'rgba(118,75,162,0.07)', padding: '0.5rem 1rem', borderRadius: '6px', color: '#333', fontSize: '0.95rem' }}>
-                          {request.rationaleSummary}
-                        </div>
-                      </div>
-                    )}
-                    {request.evidenceHash && (
-                      <div style={{ marginBottom: '1rem' }}>
-                        <strong>Evidence Hash:</strong><br />
-                        <code style={{ 
-                          background: 'rgba(102, 126, 234, 0.1)', 
-                          padding: '0.25rem 0.5rem', 
-                          borderRadius: '4px',
-                          fontSize: '0.8rem'
-                        }}>
-                          {request.evidenceHash}
-                        </code>
-                      </div>
-                    )}
-                    {request.timestamp && (
-                      <div style={{ fontSize: '0.9rem', color: '#666' }}>
-                        <strong>תאריך הגשה:</strong> {new Date(request.timestamp * 1000).toLocaleString('he-IL')}
-                      </div>
-                    )}
                   </div>
-                  <div className="arbitration-actions" style={{ marginTop: '1rem' }}>
+                  <div style={{ marginBottom: '1rem' }}>
+                    <strong>Status:</strong>
+                    <span style={{
+                      marginRight: '0.5rem',
+                      padding: '0.25rem 0.75rem',
+                      borderRadius: '20px',
+                      fontSize: '0.9rem',
+                      fontWeight: 'bold',
+                      background: request.status === 'pending' ? 'linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%)' :
+                                 request.status === 'bond_confirmed' ? 'linear-gradient(135deg, #74b9ff 0%, #0984e3 100%)' :
+                                 request.status === 'ai_decided' ? 'linear-gradient(135deg, #00b894 0%, #00a085 100%)' :
+                                 'linear-gradient(135deg, #636e72 0%, #2d3436 100%)',
+                      color: 'white'
+                    }} data-testid="v7-arbitration-status">
+                      {request.status === 'pending' && 'Submitted: Awaiting Bond Confirmation'}
+                      {request.status === 'bond_confirmed' && 'Bond Confirmed: Awaiting Oracle Response'}
+                      {request.status === 'ai_decided' && 'AI Decision Received'}
+                      {request.status === 'completed' && 'Process Completed'}
+                    </span>
+                  </div>
+                  {/* Arbitration Verdict */}
+                  {request.finalVerdict && (
+                    <div style={{ marginBottom: '1rem' }} data-testid="v7-arbitration-verdict">
+                      <strong>Arbitration Verdict (AI):</strong>
+                      <span style={{ marginRight: '0.5rem', fontWeight: 'bold', color: '#764ba2' }}>
+                        {request.finalVerdict === 'PARTY_A_WINS' && 'Party A Wins'}
+                        {request.finalVerdict === 'PARTY_B_WINS' && 'Party B Wins'}
+                        {request.finalVerdict === 'DRAW' && 'Draw'}
+                        {!['PARTY_A_WINS','PARTY_B_WINS','DRAW'].includes(request.finalVerdict) && request.finalVerdict}
+                      </span>
+                    </div>
+                  )}
+                  {/* Reimbursement Amount */}
+                  {typeof request.reimbursementAmountDai !== 'undefined' && (
+                    <div style={{ marginBottom: '1rem' }} data-testid="v7-arbitration-reimbursement">
+                      <strong>AI-Determined Reimbursement:</strong>
+                      <span style={{ marginRight: '0.5rem', fontWeight: 'bold', color: '#00b894' }}>
+                        {request.reimbursementAmountDai} DAI
+                      </span>
+                    </div>
+                  )}
+                  {/* Rationale Summary */}
+                  {request.rationaleSummary && (
+                    <div style={{ marginBottom: '1rem' }} data-testid="v7-arbitration-rationale">
+                      <strong>AI Rationale:</strong>
+                      <div style={{ background: 'rgba(118,75,162,0.07)', padding: '0.5rem 1rem', borderRadius: '6px', color: '#333', fontSize: '0.95rem' }}>
+                        {request.rationaleSummary}
+                      </div>
+                    </div>
+                  )}
+                  {request.evidenceHash && (
+                    <div style={{ marginBottom: '1rem' }} data-testid="v7-arbitration-evidence-hash">
+                      <strong>Evidence Hash:</strong><br />
+                      <code style={{ 
+                        background: 'rgba(102, 126, 234, 0.1)', 
+                        padding: '0.25rem 0.5rem', 
+                        borderRadius: '4px',
+                        fontSize: '0.8rem'
+                      }}>
+                        {request.evidenceHash}
+                      </code>
+                    </div>
+                  )}
+                  {request.timestamp && (
+                    <div style={{ fontSize: '0.9rem', color: '#666' }} data-testid="v7-arbitration-timestamp">
+                      <strong>Submitted At:</strong> {new Date(request.timestamp * 1000).toLocaleString('en-US')}
+                    </div>
+                  )}
+                </div>
+                <div className="arbitration-actions" style={{ marginTop: '1rem' }}>
+                  <button 
+                    className="btn-sm outline" 
+                    style={{
+                      borderColor: '#667eea',
+                      color: '#667eea',
+                      marginLeft: '0.5rem'
+                    }}
+                    data-testid={`v7-arbitration-view-details-${index}`}
+                    onClick={() => {
+                      // TODO: Add view details functionality
+                      console.log('View V7 arbitration details:', request);
+                    }}
+                  >
+                    <i className="fas fa-eye"></i> View Details
+                  </button>
+                  {request.status === 'ai_decided' && (
                     <button 
-                      className="btn-sm outline" 
+                      className="btn-sm primary" 
                       style={{
-                        borderColor: '#667eea',
-                        color: '#667eea',
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        border: 'none',
                         marginLeft: '0.5rem'
                       }}
+                      data-testid={`v7-arbitration-view-ai-decision-${index}`}
                       onClick={() => {
-                        // TODO: Add view details functionality
-                        console.log('View V7 arbitration details:', request);
+                        // TODO: Add view AI decision functionality
+                        console.log('View AI decision:', request);
                       }}
                     >
-                      <i className="fas fa-eye"></i> צפה בפרטים
+                      <i className="fas fa-robot"></i> View AI Decision
                     </button>
-                    {request.status === 'ai_decided' && (
-                      <button 
-                        className="btn-sm primary" 
-                        style={{
-                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                          border: 'none',
-                          marginLeft: '0.5rem'
-                        }}
-                        onClick={() => {
-                          // TODO: Add view AI decision functionality
-                          console.log('View AI decision:', request);
-                        }}
-                      >
-                        <i className="fas fa-robot"></i> צפה בהחלטת AI
-                      </button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-              )}
-          </div>
-        )}
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+            )}
+        </div>
+      )}
 
       <ContractModal contractAddress={selectedContract} isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setSelectedContract(null); }} readOnly={modalReadOnly} />
     </div>

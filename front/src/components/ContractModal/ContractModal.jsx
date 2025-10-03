@@ -1450,50 +1450,50 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 <div className="details-grid">
                   <div className="detail-item">
                     <span className="label">Address:</span>
-                    <span className="value">{contractDetails.address}</span>
+                    <span className="value" data-testid="contract-address">{contractDetails.address}</span>
                   </div>
                   {contractDetails.type === 'Rental' ? (
                     <>
                       <div className="detail-item">
                         <span className="label">Landlord:</span>
-                        <span className="value">{contractDetails.landlord}</span>
+                        <span className="value" data-testid="contract-landlord">{contractDetails.landlord}</span>
                       </div>
                       <div className="detail-item">
                         <span className="label">Tenant:</span>
-                        <span className="value">{contractDetails.tenant}</span>
+                        <span className="value" data-testid="contract-tenant">{contractDetails.tenant}</span>
                       </div>
                       <div className="detail-item">
                         <span className="label">Rent Amount:</span>
-                        <span className="value">{contractDetails.rentAmount} ETH/month</span>
+                        <span className="value" data-testid="contract-rent-amount">{contractDetails.rentAmount} ETH/month</span>
                       </div>
                     </>
                   ) : (
                     <>
                       <div className="detail-item">
                         <span className="label">Party A:</span>
-                        <span className="value">{contractDetails.partyA}</span>
+                        <span className="value" data-testid="contract-partyA">{contractDetails.partyA}</span>
                       </div>
                       <div className="detail-item">
                         <span className="label">Party B:</span>
-                        <span className="value">{contractDetails.partyB}</span>
+                        <span className="value" data-testid="contract-partyB">{contractDetails.partyB}</span>
                       </div>
                       <div className="detail-item">
                         <span className="label">Min Deposit:</span>
-                        <span className="value">{contractDetails.minDeposit} ETH</span>
+                        <span className="value" data-testid="contract-min-deposit">{contractDetails.minDeposit} ETH</span>
                       </div>
                       <div className="detail-item">
                         <span className="label">Penalty (bps):</span>
-                        <span className="value">{contractDetails.penaltyBps}</span>
+                        <span className="value" data-testid="contract-penalty-bps">{contractDetails.penaltyBps}</span>
                       </div>
                       <div className="detail-item">
                         <span className="label">Expiry:</span>
-                        <span className="value">{contractDetails.expiryDate}</span>
+                        <span className="value" data-testid="contract-expiry">{contractDetails.expiryDate}</span>
                       </div>
                     </>
                   )}
                   <div className="detail-item">
                     <span className="label">Status:</span>
-                    <span className={`status-badge ${contractDetails.isActive ? 'active' : 'inactive'}`}>
+                    <span className={`status-badge ${contractDetails.isActive ? 'active' : 'inactive'}`} data-testid="contract-status">
                       {contractDetails.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
@@ -1520,7 +1520,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 )}
                 {hasAppeal && (
                   <div style={{marginTop:8}}>
-                    <button className="btn-action" onClick={handleShowAppeal}>Show Appeal</button>
+                    <button className="btn-action" data-testid="show-appeal-btn" onClick={handleShowAppeal}>Show Appeal</button>
                   </div>
                 )}
                 {contractDetails.type === 'NDA' && contractDetails.parties?.length > 0 && (
@@ -1543,9 +1543,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                 {contractDetails.type === 'NDA' && contractDetails.cases && contractDetails.cases.length > 0 && (
                   <div className="section" style={{marginTop:'8px'}}>
                     <h4>Cases</h4>
-                    <div className="transactions-list">
+                    <div className="transactions-list" data-testid="nda-cases-list">
                       {contractDetails.cases.map((c) => (
-                        <div key={c.id} className="transaction-item">
+                        <div key={c.id} className="transaction-item" data-testid={`nda-case-${c.id}`}>
                           <div className="tx-amount">Case #{c.id}</div>
                           <div className="tx-date">{c.resolved ? (c.approved ? 'Approved' : 'Rejected') : 'Pending'}</div>
                           <div className="tx-hash">Requested: {c.requestedPenalty} ETH</div>
@@ -1876,16 +1876,16 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             </div>
                           ))}
                           {arbResolution && (
-                            <div className="transaction-item" style={{borderTop:'1px solid #eee', marginTop:8, paddingTop:8}}>
+                            <div className="transaction-item" style={{borderTop:'1px solid #eee', marginTop:8, paddingTop:8}} data-testid="v7-arbitration-verdict">
                               <div style={{fontWeight:600}}>Arbitrator decision: {arbResolution.decision === 'approve' ? 'Approved (finalized)' : 'Denied (left active)'}</div>
                               <div style={{marginTop:6}}>
                                 {rationaleRevealed ? (
-                                  <div>{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
+                                  <div data-testid="v7-arbitration-rationale">{arbResolution.rationale || <span className="muted">(no rationale provided)</span>}</div>
                                 ) : (
                                   <div>
                                     <div className="muted">Rationale is hidden. Click reveal to view (must be landlord or tenant).</div>
                                     <div style={{marginTop:6}}>
-                                      <button className="btn-sm" onClick={() => {
+                                      <button className="btn-sm" data-testid="v7-arbitration-reveal-rationale" onClick={() => {
                                         try {
                                           const me = account && account.toLowerCase();
                                           const landlord = contractDetails?.landlord && contractDetails.landlord.toLowerCase();
@@ -1901,7 +1901,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                                   </div>
                                 )}
                               </div>
-                              <div style={{marginTop:6}} className="muted">Recorded at: {new Date(Number(arbResolution.timestamp || 0)).toLocaleString()}</div>
+                              <div style={{marginTop:6}} className="muted" data-testid="v7-arbitration-timestamp">Recorded at: {new Date(Number(arbResolution.timestamp || 0)).toLocaleString()}</div>
                             </div>
                           )}
                         </div>

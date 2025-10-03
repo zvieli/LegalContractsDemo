@@ -54,19 +54,6 @@ function App() {
 
   return (
     <div className="App">
-      {/* V7 AI Arbitration System Status */}
-      <div className="v7-status-banner" style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        color: 'white',
-        padding: '8px 16px',
-        textAlign: 'center',
-        fontSize: '14px',
-        fontWeight: '500',
-        borderBottom: '2px solid #5a6fd8'
-      }}>
-        🤖 מערכת בוררות V7 פעילה - AI-Powered Arbitration with Chainlink Functions
-      </div>
-      
       <Header />
       <main className="main-content">
         {renderContent()}

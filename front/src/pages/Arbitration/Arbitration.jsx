@@ -165,88 +165,75 @@ function Arbitration() {
   }
 
   return (
-    <div className="arbitration-page">
-      <div className="page-header">
-        <h1>Arbitration Center</h1>
-        <p>Resolve disputes and manage contract conflicts</p>
+    <div className="arbitration-page" data-testid="arbitration-page">
+      <div className="page-header" data-testid="arbitration-header">
+        <h1 data-testid="arbitration-title">Arbitration Center</h1>
+        <p data-testid="arbitration-desc">Resolve disputes and manage contract conflicts</p>
       </div>
 
-      <div className="arbitration-content">
-        <div className="stats-cards">
-          <div className="stat-card">
-            <div className="stat-icon">
-              <i className="fas fa-scale-balanced"></i>
-            </div>
+      <div className="arbitration-content" data-testid="arbitration-content">
+        <div className="stats-cards" data-testid="arbitration-stats">
+          <div className="stat-card" data-testid="arbitration-stats-total">
+            <div className="stat-icon"><i className="fas fa-scale-balanced"></i></div>
             <div className="stat-content">
-              <h3>{disputes.length}</h3>
+              <h3 data-testid="arbitration-stats-total-count">{disputes.length}</h3>
               <p>Total Disputes</p>
             </div>
           </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon">
-              <i className="fas fa-clock"></i>
-            </div>
+          <div className="stat-card" data-testid="arbitration-stats-pending">
+            <div className="stat-icon"><i className="fas fa-clock"></i></div>
             <div className="stat-content">
-              <h3>{disputes.filter(d => d.status === 'Pending').length}</h3>
+              <h3 data-testid="arbitration-stats-pending-count">{disputes.filter(d => d.status === 'Pending').length}</h3>
               <p>Pending</p>
             </div>
           </div>
-          
-          <div className="stat-card">
-            <div className="stat-icon">
-              <i className="fas fa-check-circle"></i>
-            </div>
+          <div className="stat-card" data-testid="arbitration-stats-resolved">
+            <div className="stat-icon"><i className="fas fa-check-circle"></i></div>
             <div className="stat-content">
-              <h3>{disputes.filter(d => d.status === 'Resolved').length}</h3>
+              <h3 data-testid="arbitration-stats-resolved-count">{disputes.filter(d => d.status === 'Resolved').length}</h3>
               <p>Resolved</p>
             </div>
           </div>
         </div>
 
-        <div className="disputes-section">
-            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
-              <h2>Active Disputes</h2>
-              <div>
-                {import.meta.env?.VITE_PLATFORM_ADMIN && account && account.toLowerCase() === import.meta.env.VITE_PLATFORM_ADMIN.toLowerCase() && (
-                  <button className="btn-sm primary" onClick={refreshDisputes}>Refresh</button>
-                )}
-              </div>
+        <div className="disputes-section" data-testid="arbitration-disputes-section">
+          <div style={{display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+            <h2 data-testid="arbitration-disputes-title">Active Disputes</h2>
+            <div>
+              {import.meta.env?.VITE_PLATFORM_ADMIN && account && account.toLowerCase() === import.meta.env.VITE_PLATFORM_ADMIN.toLowerCase() && (
+                <button className="btn-sm primary" data-testid="arbitration-refresh-btn" onClick={refreshDisputes}>Refresh</button>
+              )}
             </div>
-          
+          </div>
           {loading ? (
-            <div className="loading-state">
+            <div className="loading-state" data-testid="arbitration-loading">
               <div className="loading-spinner"></div>
               <p>Loading disputes...</p>
             </div>
           ) : disputes.length === 0 ? (
-            <div className="empty-state">
+            <div className="empty-state" data-testid="arbitration-empty">
               <i className="fas fa-peace"></i>
               <h3>No Active Disputes</h3>
               <p>All contracts are in good standing</p>
             </div>
           ) : (
-            <div className="disputes-list">
+            <div className="disputes-list" data-testid="arbitration-disputes-list">
               {disputes.map(dispute => (
-                <div key={dispute.id} className="dispute-card">
-                  <div className="dispute-header">
-                    <span className="dispute-id">Dispute #{dispute.id}</span>
-                    <span className={`status-badge ${dispute.status.toLowerCase()}`}>
-                      {dispute.status}
-                    </span>
+                <div key={dispute.id} className="dispute-card" data-testid={`arbitration-dispute-card-${dispute.id}`}>
+                  <div className="dispute-header" data-testid={`arbitration-dispute-header-${dispute.id}`}> 
+                    <span className="dispute-id" data-testid={`arbitration-dispute-id-${dispute.id}`}>Dispute #{dispute.id}</span>
+                    <span className={`status-badge ${dispute.status.toLowerCase()}`} data-testid={`arbitration-dispute-status-${dispute.id}`}>{dispute.status}</span>
                   </div>
-                  
-                  <div className="dispute-details">
-                    <p><strong>Contract:</strong> {dispute.contractAddress}</p>
-                    <p><strong>Reason:</strong> {dispute.reason}</p>
-                    <p><strong>Created:</strong> {dispute.created}</p>
+                  <div className="dispute-details" data-testid={`arbitration-dispute-details-${dispute.id}`}> 
+                    <p><strong>Contract:</strong> <span data-testid={`arbitration-dispute-contract-${dispute.id}`}>{dispute.contractAddress}</span></p>
+                    <p><strong>Reason:</strong> <span data-testid={`arbitration-dispute-reason-${dispute.id}`}>{dispute.reason}</span></p>
+                    <p><strong>Created:</strong> <span data-testid={`arbitration-dispute-created-${dispute.id}`}>{dispute.created}</span></p>
                   </div>
-                  
-                  <div className="dispute-actions">
-                    <button className="btn-sm primary" onClick={() => handleView(dispute.contractAddress)}>
+                  <div className="dispute-actions" data-testid={`arbitration-dispute-actions-${dispute.id}`}> 
+                    <button className="btn-sm primary" data-testid={`arbitration-view-btn-${dispute.id}`} onClick={() => handleView(dispute.contractAddress)}>
                       <i className="fas fa-eye"></i> View Details
                     </button>
-                    <button className="btn-sm secondary" disabled={actionLoading} onClick={() => handleResolve(dispute.contractAddress)}>
+                    <button className="btn-sm secondary" data-testid={`arbitration-resolve-btn-${dispute.id}`} disabled={actionLoading} onClick={() => handleResolve(dispute.contractAddress)}>
                       <i className="fas fa-gavel"></i> Resolve
                     </button>
                   </div>
@@ -256,7 +243,6 @@ function Arbitration() {
           )}
         </div>
       </div>
-      {/* If no global ArbitrationService is configured, the Resolve action will show a deploy hint. */}
 
       <ContractModal contractAddress={selectedContract} isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setSelectedContract(null); refreshDisputes(); }} readOnly={modalReadOnly} />
 

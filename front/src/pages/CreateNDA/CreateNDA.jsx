@@ -190,7 +190,7 @@ function CreateNDA() {
             }}
           />
           <small style={{ color: '#f0f0f0', display: 'block', marginTop: '8px' }}>
-            💡 סכום זה נדרש לכל בקשת בוררות V7. יוחזר אם התביעה מוכחת או יועבר כפיצוי בהתאם להחלטת הבורר AI.
+            💡 This amount is required for every V7 arbitration request. It will be refunded if the claim is proven or transferred as compensation according to the AI arbitrator's decision.
           </small>
         </div>
 
