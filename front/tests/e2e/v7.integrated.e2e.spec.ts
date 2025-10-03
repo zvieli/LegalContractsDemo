@@ -124,7 +124,7 @@ test.describe('V7 Integrated LLM & Helia E2E Tests', () => {
       console.log(`✅ ${caseName}: Tenant wins (no late fee due to bank error)`);
 
     } catch (error) {
-      await logAudit(caseName, { status: 'FAILED', error: error.message });
+      await logAudit(caseName, { status: 'FAILED', error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   });
@@ -158,7 +158,7 @@ test.describe('V7 Integrated LLM & Helia E2E Tests', () => {
       console.log(`✅ ${caseName}: Tenant wins compensation for water damage`);
 
     } catch (error) {
-      await logAudit(caseName, { status: 'FAILED', error: error.message });
+      await logAudit(caseName, { status: 'FAILED', error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   });
@@ -192,7 +192,7 @@ test.describe('V7 Integrated LLM & Helia E2E Tests', () => {
       console.log(`✅ ${caseName}: Tenant wins with payment evidence`);
 
     } catch (error) {
-      await logAudit(caseName, { status: 'FAILED', error: error.message });
+      await logAudit(caseName, { status: 'FAILED', error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   });
@@ -226,7 +226,7 @@ test.describe('V7 Integrated LLM & Helia E2E Tests', () => {
       console.log(`✅ ${caseName}: Landlord wins - payment due`);
 
     } catch (error) {
-      await logAudit(caseName, { status: 'FAILED', error: error.message });
+      await logAudit(caseName, { status: 'FAILED', error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   });
