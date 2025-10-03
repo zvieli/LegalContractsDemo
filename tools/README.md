@@ -30,10 +30,6 @@ uvicorn arbitrator_api:app --host 0.0.0.0 --port 8000
 - **Purpose**: Chainlink Functions script that calls the AI Arbitrator API
 - **Technology**: JavaScript (runs in Chainlink DON environment)
 - **Security Features**:
-  - HTTP timeout handling (25s)
-  - JSON validation and error recovery
-  - Financial precision (DAI to Wei conversion)
-  - Memory cleanup (sensitive data removal)
   - Failure code return (MAX_UINT256-1)
 
 **Key Security Mitigations**:
@@ -52,9 +48,6 @@ This directory contains the V7 implementation tools for the AI-powered arbitrati
 - **Technology**: Python + Ollama (free local LLM) + Agno framework
 - **Models**: llama3.1:8b (main analysis) + openhermes (embeddings)
 - **Features**: 
-  - Multi-agent legal team (Researcher, Analyst, Strategist, Team Lead)
-  - In-memory knowledge base from contract/evidence text
-  - Structured JSON output for smart contracts
 
 **Setup**:
 ```bash
@@ -62,21 +55,24 @@ This directory contains the V7 implementation tools for the AI-powered arbitrati
 ollama run llama3.1:8b
 ollama run openhermes
 
-# Install Python dependencies  
-pip install -r requirements.txt
-
 # Run the API server
-uvicorn arbitrator_api:app --host 0.0.0.0 --port 8000
+## V7 Tools Directory
 
-# Or use npm script
-npm run arbitrator-api
-```
+כל הכלים הישנים הועברו ל-tools/legacy/.
+השתמשו רק בקבצים הבאים עבור מערכת V7:
+
+- arbitrator_api.py
+- chainlink_arbitrator.js
+- evidence-endpoint-v7.js
+- test_arbitrator.py
+- docker-compose.yml
+- requirements.txt
+
+## כל קובץ ישן בתיקיית legacy אינו נתמך יותר!
+uvicorn arbitrator_api:app --host 0.0.0.0 --port 8000
 
 ### 2. Chainlink Functions JavaScript (`chainlink_arbitrator.js`) ⭐ NEW
 - **Purpose**: Chainlink Functions script that calls the AI Arbitrator API
-- **Technology**: JavaScript (runs in Chainlink DON environment)
-- **Security Features**:
-  - HTTP timeout handling (25s)
   - JSON validation and error recovery
   - Financial precision (DAI to Wei conversion)
   - Memory cleanup (sensitive data removal)
@@ -135,30 +131,14 @@ npx hardhat test test/evidence.e2e.test.js
 ```
 
 ## V7 Data Flow
-
-1. **Contract Request**: Template calls ArbitrationContractV2.requestArbitration()
-2. **Chainlink Functions**: Triggers `chainlink_arbitrator.js` with contract+evidence data
 3. **AI Processing**: JavaScript calls `arbitrator_api.py` with HTTP request
 4. **Legal Analysis**: Multi-agent AI team analyzes contract vs evidence
-5. **Structured Response**: Returns JSON with verdict + reimbursement amount
-6. **Callback**: Chainlink calls ArbitrationContractV2._fulfillRequest()
-7. **Enforcement**: ArbitrationService applies the resolution to target contract
-
 ## API Contract
 
 ### Input (to arbitrator_api.py):
-```json
-{
-  "contract_text": "Full contract text...",
-  "evidence_text": "Submitted evidence...", 
   "dispute_question": "Specific arbitration query..."
 }
 ```
-
-### Output (from arbitrator_api.py):
-```json
-{
-  "final_verdict": "PARTY_A_WINS|PARTY_B_WINS|DRAW",
   "reimbursement_amount_dai": 150,
   "rationale_summary": "Legal reasoning summary..."
 }

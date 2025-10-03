@@ -8,40 +8,72 @@ Arbitration-driven on-chain contract templates (NDA & Rent). This repository pro
 
 ## Recent Changes (October 2025) - V7 Release
 
-- **NEW**: AI-powered arbitration system with Chainlink Functions integration (`ArbitrationContractV2.sol`)
-- **NEW**: Enhanced financial precision with BigInt arithmetic for wei conversions (Mitigation 4.4)
-- **NEW**: Replay protection system using request hash mapping (Mitigation 4.2)
-- **NEW**: Comprehensive error handling with fallback mechanisms (Mitigation 4.5)
-- **NEW**: Arbitration bond model with deposit capping for rent contracts
+- **NEW**: 🦙 **Ollama LLM Integration** - Native Ollama integration with automatic fallback to simulation mode
+- **NEW**: 🚀 **Unified V7 Backend** - Single Node.js server with integrated arbitration (no external Python dependencies)
+- **NEW**: 🎯 **Hybrid Arbitration System** - Real LLM decisions with simulation fallback for reliability
+- **NEW**: ⚡ **Improved Performance** - Direct Ollama integration eliminates API overhead
+- **DEPRECATED**: 🗑️ Python FastAPI arbitrator (moved to `tools/legacy/`)
 - Enhanced `ArbitrationService.sol` with improved validation and event emission
 - Updated E2E tests for modern ethers v6 API compatibility
+- **NEW**: Comprehensive E2E test suite with Playwright for V7 integration
 
 ## Overview
 
-This repo demonstrates how to encode dispute resolution into smart contracts and resolve disputes using AI-powered arbitration via Chainlink Functions oracle integration.
+This repo demonstrates how to encode dispute resolution into smart contracts and resolve disputes using **Ollama LLM-powered arbitration** with automatic fallback mechanisms.
 
 What you get:
 - `NDATemplate` contract with deposits, breach reporting and arbitrator hooks
 - `TemplateRentContract` with AI arbitration and deposit capping mechanisms
-- `ArbitrationContractV2` - Chainlink Functions client for AI arbitration decisions
-- Enhanced `ArbitrationService` with replay protection and comprehensive validation
-- `chainlink_arbitrator.js` - Oracle script with financial precision and error handling
-- `arbitrator_api.py` - FastAPI server with Ollama LLM integration for legal decisions
+- **V7 Backend**: Integrated Ollama LLM arbitration with simulation fallback
+- Enhanced `ArbitrationService` with comprehensive validation
 - Hardhat tests and scripts to deploy/configure the complete system
+- **No Python dependencies** - Pure Node.js implementation
 
 ## Architecture
 
+- **V7 Backend Server:**
+	- `server/index.js` — Unified V7 backend with Ollama LLM integration
+	- `server/modules/ollamaLLMArbitrator.js` — Direct Ollama integration with fallback
+	- `server/modules/llmArbitrationSimulator.js` — Rule-based simulation for testing/fallback
+	- Evidence validation, time management, and arbitration processing
+
 - **Smart Contracts:**
-	- `ArbitrationContractV2.sol` — Chainlink Functions client for receiving AI arbitration decisions with replay protection
-	- `ArbitrationService.sol` — Central dispatcher applying arbitration decisions to target contracts with enhanced validation
+	- `ArbitrationService.sol` — Central dispatcher applying arbitration decisions to target contracts
 	- `NDATemplate.sol` — NDA between parties with deposits, breach reporting and arbitration hooks
-	- `TemplateRentContract.sol` — Rent contract with dispute reporting, AI arbitration, and deposit capping
+	- `TemplateRentContract.sol` — Rent contract with dispute reporting and AI arbitration
 	- `Arbitrator.sol` — Reference implementation for manual arbitration (legacy fallback)
 
-- **Off-chain Components:**
-	- `chainlink_arbitrator.js` — Chainlink Functions script with comprehensive error handling and BigInt precision
-	- `arbitrator_api.py` — FastAPI server with Ollama LLM integration for automated legal decision making
-	- Evidence storage system with ECIES encryption for secure dispute documentation
+- **API Endpoints (V7):**
+	- `POST /api/v7/arbitration/ollama` — Ollama LLM arbitration (primary)
+	- `POST /api/v7/arbitration/simulate` — Simulation mode arbitration (fallback)
+	- `GET /api/v7/arbitration/ollama/health` — Ollama service health check
+
+### V7 Arbitration Flow
+
+```
+ ┌──────────────┐     dispute      ┌────────────────────┐
+ │ Smart        │ ─────────────▶   │ V7 Backend Server  │
+ │ Contract     │                  │ (Node.js + Ollama) │
+ └──────────────┘                  └─────────┬──────────┘
+                                            │
+                ┌──────────────────┬────────▼─────────────┐
+                │                  │                      │
+                ▼                  ▼                      ▼
+        ┌───────────────┐  ┌─────────────────┐  ┌─────────────────┐
+        │ 🦙 Ollama LLM │  │ 🎯 Simulation   │  │ 📊 Evidence     │
+        │ Primary AI    │  │ Fallback Mode   │  │ Validation      │
+        │ Arbitration   │  │ Rule-based      │  │ IPFS/Helia      │
+        └───────────────┘  └─────────────────┘  └─────────────────┘
+                │                  │                      │
+                └──────────────────┼──────────────────────┘
+                                   │
+                                   ▼
+                           ┌─────────────────┐
+                           │ Arbitration     │
+                           │ Decision        │
+                           │ (JSON Response) │
+                           └─────────────────┘
+```
 
 ### ArbitrationService (wiring & notes)
 

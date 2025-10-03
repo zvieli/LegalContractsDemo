@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
+import { submitAppeal } from '../services/v7Backend.js';
 
 const AppealFlow = ({ contractAddress, disputeId, onAppealSubmitted }) => {
   const [appealData, setAppealData] = useState({
@@ -80,51 +81,29 @@ const AppealFlow = ({ contractAddress, disputeId, onAppealSubmitted }) => {
     setAppealData(prev => ({ ...prev, isSubmitting: true }));
 
     try {
-      // 1. Encrypt and submit evidence
-      const evidencePayload = {
-        type: 'appeal',
-        text: appealData.evidenceText,
-        contractAddress,
+      // Submit appeal to V7 backend
+      const result = await submitAppeal({
         disputeId,
-        timestamp: Date.now()
-      };
-
-      // Simulate evidence submission (replace with actual evidence API)
-      const evidenceResponse = await fetch('/api/submit-evidence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(evidencePayload)
-      }).catch(() => ({
-        ok: true,
-        json: () => ({ digest: '0x' + 'a'.repeat(64) })
-      }));
-
-      const evidenceResult = await evidenceResponse.json();
-
-      // 2. Submit appeal to blockchain
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      
-      // Create dispute on the contract (simulate appeal)
-      console.log('Submitting appeal to blockchain...');
-      console.log('Evidence digest:', evidenceResult.digest);
-
-      // Simulate successful appeal submission
-      const appealResult = {
-        transactionHash: '0x' + 'b'.repeat(64),
-        status: 'pending',
-        submittedAt: Date.now()
-      };
+        contractAddress,
+        appealReason: appealData.evidenceText,
+        newEvidenceCID: null // If you have a CID, pass it here
+      });
 
       setAppealData(prev => ({
         ...prev,
         appealStatus: 'pending',
         isSubmitting: false,
-        appealResult
+        appealResult: {
+          transactionHash: result.txHash || '',
+          status: result.status || 'pending',
+          submittedAt: Date.now(),
+          finalAmount: result.reimbursement_amount_dai || null,
+          approved: result.final_verdict === 'APPROVED' || result.final_verdict === 'PARTY_A_WINS'
+        }
       }));
 
       if (onAppealSubmitted) {
-        onAppealSubmitted(appealResult);
+        onAppealSubmitted(result);
       }
 
     } catch (error) {
