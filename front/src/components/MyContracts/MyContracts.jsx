@@ -335,6 +335,22 @@ export default function MyContracts() {
                   <button className="btn-sm primary" onClick={() => { openContractModal(d.address, false); }}>
                     <i className="fas fa-edit"></i> Manage
                   </button>
+                  <button 
+                    className="btn-sm" 
+                    data-testid="button-request-arbitration"
+                    style={{
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      color: 'white',
+                      border: 'none',
+                      marginLeft: '0.5rem'
+                    }}
+                    onClick={() => {
+                      // Navigate to arbitration page with this contract address
+                      window.location.href = `/arbitration-v7?contract=${d.address}`;
+                    }}
+                  >
+                    <i className="fas fa-gavel"></i> בקש בוררות
+                  </button>
                 </div>
               </li>
             );

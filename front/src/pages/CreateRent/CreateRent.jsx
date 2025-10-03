@@ -261,6 +261,7 @@ function CreateRent() {
               type="text"
               id="tenantAddress"
               name="tenantAddress"
+              data-testid="input-partyb-address"
               value={formData.tenantAddress}
               onChange={handleInputChange}
               placeholder="0x..."
@@ -287,6 +288,7 @@ function CreateRent() {
               type="number"
               id="rentAmount"
               name="rentAmount"
+              data-testid="input-rent-amount"
               value={formData.rentAmount}
               onChange={handleInputChange}
               placeholder="1.0"
@@ -352,7 +354,12 @@ function CreateRent() {
             <button type="button" className="btn-secondary" onClick={() => window.history.back()}>
               Cancel
             </button>
-            <button type="submit" className="btn-primary" disabled={loading}>
+            <button 
+              type="submit" 
+              className="btn-primary" 
+              data-testid="button-deploy-contract"
+              disabled={loading}
+            >
               {loading ? (
                 <>
                   <div className="spinner"></div>

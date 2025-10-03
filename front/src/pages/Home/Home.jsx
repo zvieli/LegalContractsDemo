@@ -1,6 +1,8 @@
 import './Home.css';
 import MyContracts from '../../components/MyContracts/MyContracts';
 import EvidenceSubmit from '../../components/EvidenceSubmit/EvidenceSubmit';
+import TimeCountdown from '../../components/TimeCountdown';
+import AppealFlow from '../../components/AppealFlow';
 import { useEthers } from '../../contexts/EthersContext';
 
 function Home() {
@@ -107,6 +109,39 @@ function Home() {
                 <p>{feature.description}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Advanced Features Demo Section */}
+      <section className="advanced-features" style={{
+        background: '#f8fafc',
+        padding: '60px 0',
+        borderTop: '3px solid #e2e8f0'
+      }}>
+        <div className="container">
+          <div className="section-header">
+            <h2>⚡ Advanced V7 Features</h2>
+            <p>Experience the next generation of smart contract management</p>
+          </div>
+          
+          {/* Time Management Demo */}
+          <div style={{ marginBottom: '40px' }}>
+            <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>⏰ Smart Time Management</h3>
+            <TimeCountdown 
+              contractAddress="0x1234567890123456789012345678901234567890"
+              contractType="rent"
+            />
+          </div>
+          
+          {/* Appeal System Demo */}
+          <div style={{ marginBottom: '40px' }}>
+            <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>📞 Advanced Appeal System</h3>
+            <AppealFlow 
+              contractAddress="0x1234567890123456789012345678901234567890"
+              disputeId={1}
+              onAppealSubmitted={(result) => console.log('Appeal submitted:', result)}
+            />
           </div>
         </div>
       </section>
