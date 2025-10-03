@@ -13,7 +13,8 @@ function CreateNDA() {
     expiryDate: '',
     penaltyBps: '1000', // 10% default
     customClauses: '',
-    minDeposit: '0.1'
+    minDeposit: '0.1',
+    arbitrationBond: '100' // V7: Default arbitration bond
   });
 
   const handleInputChange = (e) => {
@@ -158,6 +159,39 @@ function CreateNDA() {
             step="0.001"
             required
           />
+        </div>
+
+        {/* V7 Arbitration Bond Field */}
+        <div className="form-group v7-arbitration-bond" style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+          color: 'white',
+          padding: '20px',
+          borderRadius: '8px',
+          margin: '20px 0'
+        }}>
+          <label htmlFor="arbitrationBond" style={{ color: 'white', fontWeight: 'bold' }}>
+            🤖 V7 Arbitration Bond (DAI) *
+          </label>
+          <input
+            type="number"
+            id="arbitrationBond"
+            name="arbitrationBond"
+            value={formData.arbitrationBond}
+            onChange={handleInputChange}
+            min="1"
+            step="1"
+            required
+            style={{
+              width: '100%',
+              padding: '10px',
+              borderRadius: '4px',
+              border: '2px solid #fff',
+              marginTop: '8px'
+            }}
+          />
+          <small style={{ color: '#f0f0f0', display: 'block', marginTop: '8px' }}>
+            💡 סכום זה נדרש לכל בקשת בוררות V7. יוחזר אם התביעה מוכחת או יועבר כפיצוי בהתאם להחלטת הבורר AI.
+          </small>
         </div>
 
         <div className="form-group">

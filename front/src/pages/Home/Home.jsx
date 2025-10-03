@@ -9,6 +9,11 @@ function Home() {
   const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const features = [
     {
+      icon: 'fas fa-robot',
+      title: '🤖 V7 AI Arbitration',
+      description: 'Advanced AI-powered dispute resolution using Chainlink Functions + Ollama LLM'
+    },
+    {
       icon: 'fas fa-lock',
       title: 'Complete Security',
       description: 'Contracts secured on blockchain technology with advanced encryption'
@@ -46,8 +51,29 @@ function Home() {
       <section className="hero">
         <div className="container">
           <div className="hero-content">
-            <h1>Welcome to ArbiTrust</h1>
-            <p>Create and manage smart legal contracts on the blockchain - simple, secure, and transparent</p>
+            <h1>Welcome to ArbiTrust V7</h1>
+            <p>Create and manage smart legal contracts on the blockchain with AI-powered arbitration - simple, secure, and transparent</p>
+            
+            {/* V7 Feature Highlight */}
+            <div className="v7-highlight" style={{
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              color: 'white',
+              padding: '20px',
+              borderRadius: '12px',
+              margin: '20px 0',
+              textAlign: 'center',
+              border: '3px solid #fff'
+            }}>
+              <h3>🤖 חדש! מערכת בוררות V7</h3>
+              <p style={{ margin: '10px 0', fontSize: '16px' }}>
+                בוררות מבוססת AI עם Chainlink Functions + Ollama LLM
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginTop: '15px' }}>
+                <span>⚡ תגובה מהירה</span>
+                <span>🔒 אבטחה מתקדמת</span>
+                <span>🎯 החלטות מדויקות</span>
+              </div>
+            </div>
             <div className="cta-buttons">
               {!isAdmin && (
                 <button className="btn btn-primary" onClick={() => { window.location.href = '/create'; }}>

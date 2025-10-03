@@ -1,3 +1,16 @@
+/**
+ * ⚠️ DEPRECATED - PRE-V7 EVIDENCE ENDPOINT
+ * 
+ * This file is kept for backward compatibility with existing tests only.
+ * 
+ * DO NOT USE IN V7:
+ * - Use arbitrator_api.py (FastAPI) for new AI arbitration system
+ * - Use Chainlink Functions instead of manual evidence processing
+ * 
+ * This endpoint will be removed in future versions.
+ * Migrate tests to use V7 AI arbitration workflow.
+ */
+
 import fs from 'fs';
 import path from 'path';
 import express from 'express';

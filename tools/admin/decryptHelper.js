@@ -1,3 +1,16 @@
+/**
+ * ⚠️ DEPRECATED - PRE-V7 ADMIN DECRYPT HELPER
+ * 
+ * This file is kept for backward compatibility with existing tests only.
+ * 
+ * DO NOT USE IN V7:
+ * - Chainlink Functions provides secure computation without manual decryption
+ * - ArbitrationContractV2 handles all security automatically
+ * 
+ * This file will be removed in future versions.
+ * No manual admin decryption needed in V7.
+ */
+
 import EthCrypto from 'eth-crypto';
 import crypto from 'crypto';
 import { appendTestingTrace, logAdminKeyDerivation } from '../../utils/testing-helpers.js';

@@ -267,3 +267,32 @@ FastAPI
 אנא אמץ את קטעי הקוד שסופקו וודא כי ההתאמות ל-
 ENDPOINT
  ולוגיקת הטיפול בכשלים מתבצעות על בסיס קובץ ה-JavaScript שבסעיף 5.2, כפי שנדרש בסעיף 5.3.
+
+## 6. כלי פיתוח V7 (Development Tools)
+
+הכלים המעודכנים של V7 נמצאים בתיקייה `tools/` (הכלים הישנים הועברו ל-`tools/legacy/`):
+
+### 6.1. ממומש ומוכן לשימוש
+- **`arbitrator_api.py`** - שרת FastAPI המושלם כפי שמוגדר בסעיף 5.1
+- **`chainlink_arbitrator.js`** - קוד Chainlink Functions המותאם עם כל ה-Mitigations
+- **`test_arbitrator.py`** - סקריפט בדיקה לבדיקת ה-API מקומית
+- **`docker-compose.yml`** - הפעלה מקומית של Ollama + FastAPI
+- **`requirements.txt`** - תלויות Python נדרשות
+
+### 6.2. הוראות הפעלה מקומית
+
+```bash
+# 1. הפעלת Ollama + API בDocker
+cd tools/
+docker-compose up -d
+
+# 2. בדיקת המערכת (אחרי הורדת המודלים)
+python test_arbitrator.py
+
+# 3. גישה לAPI docs
+# http://localhost:8000/docs
+```
+
+### 6.3. ניקוי מלוגיקת העבר
+
+כל הכלים מגרסאות קודמות (ECIES ידני, evidence endpoints, admin decrypt) הועברו ל-`tools/legacy/` ואינם נדרשים יותר ב-V7. הארכיטקטורה החדשה פשוטה ובטוחה יותר.

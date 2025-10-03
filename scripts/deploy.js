@@ -154,17 +154,24 @@ async function main() {
       arbitrationServiceAddress = await arbitrationService.getAddress();
       console.log("✅ ArbitrationService deployed to:", arbitrationServiceAddress);
 
-      // Configure the ArbitrationService to trust the ContractFactory so the
-      // factory can call `applyResolutionToTarget` when driving dispute resolutions.
+      // Deploy ArbitrationContractV2 (Chainlink Functions client)
+      console.log("📦 Deploying ArbitrationContractV2 (Chainlink Functions client)...");
+      // For local development, we'll use a mock router address (zero address)
+      // In production, use the actual Chainlink Functions router for your network
+      const mockRouterAddress = "0x0000000000000000000000000000000000000000"; 
+      const ArbitrationContractV2 = await ethers.getContractFactory("ArbitrationContractV2");
+      const arbitrationContractV2 = await ArbitrationContractV2.deploy(arbitrationServiceAddress, mockRouterAddress);
+      await arbitrationContractV2.waitForDeployment();
+      const arbitrationContractV2Address = await arbitrationContractV2.getAddress();
+      console.log("✅ ArbitrationContractV2 deployed to:", arbitrationContractV2Address);
+
+      // Configure the ArbitrationService to trust the ArbitrationContractV2 as factory
       try {
-        // NOTE: `setFactory` is owner-only. The deployed ArbitrationService's owner
-        // will be the deployer account used above; we call setFactory from the
-        // same deployer so the call succeeds.
-        const tx = await arbitrationService.setFactory(factoryAddress);
-        await tx.wait();
-        console.log("🔧 ArbitrationService.factory set to ContractFactory:", factoryAddress);
+        const tx2 = await arbitrationService.setFactory(arbitrationContractV2Address);
+        await tx2.wait();
+        console.log("🔧 ArbitrationService.factory set to ArbitrationContractV2:", arbitrationContractV2Address);
       } catch (err) {
-        console.warn("⚠️  Could not set ArbitrationService.factory:", err.message || err);
+        console.warn("⚠️  Could not set ArbitrationService.factory to ArbitrationContractV2:", err.message || err);
       }
 
       // Update the previously-written ContractFactory.json to include the service
@@ -174,8 +181,9 @@ async function main() {
         const parsed = JSON.parse(deploymentFileContents);
         parsed.contracts = parsed.contracts || {};
         parsed.contracts.ArbitrationService = arbitrationServiceAddress;
+        parsed.contracts.ArbitrationContractV2 = arbitrationContractV2Address;
         fs.writeFileSync(publicDeploymentFile, JSON.stringify(parsed, null, 2));
-        console.log("💾 Updated ContractFactory.json with ArbitrationService address");
+        console.log("💾 Updated ContractFactory.json with ArbitrationService and ArbitrationContractV2 addresses");
       } catch (err) {
         console.warn("⚠️  Could not update ContractFactory.json with ArbitrationService address:", err.message || err);
       }
@@ -190,8 +198,9 @@ async function main() {
         }
         existingMock.contracts = existingMock.contracts || {};
         existingMock.contracts.ArbitrationService = arbitrationServiceAddress;
+        existingMock.contracts.ArbitrationContractV2 = arbitrationContractV2Address;
         fs.writeFileSync(mockContractsPath, JSON.stringify(existingMock, null, 2));
-        console.log('💾 Updated MockContracts.json with ArbitrationService address');
+        console.log('💾 Updated MockContracts.json with ArbitrationService and ArbitrationContractV2 addresses');
       } catch (err) {
         console.warn('⚠️  Could not update MockContracts.json with ArbitrationService address:', err.message || err);
       }

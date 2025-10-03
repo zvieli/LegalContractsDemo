@@ -52,7 +52,7 @@ export class ArbitrationService {
           digestHex = ethers.keccak256(ethers.toUtf8Bytes(raw));
         }
       }
-      const evidenceBytes = ethers.arrayify(digestHex);
+  const evidenceBytes = ethers.getBytes(digestHex);
       // ArbitrationService provides a helper to create disputes on the
       // configured arbitrator/factory and returns the dispute id.
       const tx = await svc.createDisputeForCase(ndaAddress, Number(caseId), evidenceBytes);

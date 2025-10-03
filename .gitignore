@@ -32,3 +32,4 @@ admin.key
 admin.pub
 /evidence_storage
 /test-results
+/tools/legacy

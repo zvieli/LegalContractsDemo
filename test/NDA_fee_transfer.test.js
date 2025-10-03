@@ -22,11 +22,17 @@ describe("NDATemplate V7 - fees, transfers and edge cases", function () {
 
     // Deploy ArbitrationContractV2 (Chainlink Functions client) for V7
     const ArbitrationContractV2 = await ethers.getContractFactory('ArbitrationContractV2');
-    arbitrationContractV2 = await ArbitrationContractV2.deploy(await arbitrationService.getAddress());
+    // Use zero address for mock router in tests
+    const mockRouter = "0x0000000000000000000000000000000000000000";
+    arbitrationContractV2 = await ArbitrationContractV2.deploy(await arbitrationService.getAddress(), mockRouter);
     await arbitrationContractV2.waitForDeployment();
 
-    // Set admin as oracle for testing
-    await arbitrationContractV2.connect(admin).setOracle(await admin.getAddress());
+    // Configure ArbitrationContractV2 for testing
+    const mockDonId = ethers.encodeBytes32String("test-don-id");
+    await arbitrationContractV2.connect(admin).setDonId(mockDonId);
+    await arbitrationContractV2.connect(admin).setSubscriptionId(1);
+    await arbitrationContractV2.connect(admin).setSourceCode("return {approve: true, appliedAmount: '1000000000000000000', beneficiary: args[0]};");
+    await arbitrationContractV2.connect(admin).setTestMode(true); // Enable test mode
 
     // Set the ArbitrationContractV2 as the factory in ArbitrationService
     await arbitrationService.connect(admin).setFactory(await arbitrationContractV2.getAddress());
