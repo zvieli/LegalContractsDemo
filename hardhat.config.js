@@ -19,6 +19,14 @@ export default {
       url: "http://127.0.0.1:8545",
       chainId: 31337
     },
+    hardhat_mainnet_fork: {
+      url: "http://127.0.0.1:8545",
+      chainId: 31337,
+      forking: {
+        url: "https://eth-mainnet.g.alchemy.com/v2/C71xjjRnVc5bmInmm-AQ3",
+        enabled: true
+      }
+    },
     sepolia: {
       url: process.env.RPC_URL || "https://eth-sepolia.g.alchemy.com/v2/REPLACE_KEY",
       chainId: 11155111,
