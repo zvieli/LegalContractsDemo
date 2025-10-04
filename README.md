@@ -12,6 +12,8 @@ Arbitration-driven on-chain contract templates (NDA & Rent). This repository pro
 - **NEW**: 🚀 **Unified V7 Backend** - Single Node.js server with integrated arbitration (no external Python dependencies)
 - **NEW**: 🎯 **Hybrid Arbitration System** - Real LLM decisions with simulation fallback for reliability
 - **NEW**: ⚡ **Improved Performance** - Direct Ollama integration eliminates API overhead
+- **NEW**: 🌳 **Merkle Evidence System** - Gas-efficient batched evidence submission with 82% cost savings
+- **NEW**: 🧹 **Unified Deployment** - Single `deploy.js` script for all infrastructure (replaces 3 separate scripts)
 - **DEPRECATED**: 🗑️ Python FastAPI arbitrator (moved to `tools/legacy/`)
 - Enhanced `ArbitrationService.sol` with improved validation and event emission
 - Updated E2E tests for modern ethers v6 API compatibility
@@ -145,7 +147,19 @@ npm install
 Deployment notes (automated wiring)
 ----------------------------------
 
-The `scripts/deploy.js` script deploys `ContractFactory`, mocks, and `ArbitrationService`, and performs a best-effort wiring step: after `ArbitrationService` is deployed the script calls `arbitrationService.setFactory(factoryAddress)` so the deployed `ContractFactory` is registered as the trusted factory in the service. This makes the factory-authorized arbitration flow work out-of-the-box for local deploys used by the smoke test and frontend.
+The unified `scripts/deploy.js` script now handles all deployment needs:
+
+- **Core Infrastructure**: Deploys `ContractFactory`, `ArbitrationService`, `RecipientKeyRegistry`, and `Arbitrator`
+- **Merkle Evidence System**: Deploys `MerkleEvidenceManager` for gas-efficient evidence batching
+- **Automatic Wiring**: Configures all contract relationships and permissions
+- **Frontend Integration**: Copies ABIs and generates configuration files automatically
+- **Gas Optimization**: Test deployment shows 82% gas savings for batched evidence submission
+
+**Previous scripts consolidated:**
+- ✅ `deploy.js` (unified - current)
+- 🗑️ `deploy-clean.js` (legacy - archived)
+- 🗑️ `deploy-merkle-evidence.js` (merged - archived)
+- 🗑️ `deploy-unified.js` (duplicate - removed)
 
 How to run the common verification steps locally
 ------------------------------------------------

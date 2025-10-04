@@ -2,12 +2,39 @@
 pragma solidity ^0.8.20;
 
 import "./Rent/TemplateRentContract.sol";
+import "./EnhancedRentContract.sol";
 import "./NDA/NDATemplate.sol";
 
 // Lightweight deployer for Rent contracts (keeps large creation bytecode out of main factory runtime)
 contract _RentDeployer {
     function deploy(address _landlord, address _tenant, uint256 _rentAmount, uint256 _dueDate, address _priceFeed, uint256 _propertyId, address _arbitration_service, uint256 _requiredDeposit, string memory _initialEvidenceUri) external returns (address) {
         TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, _arbitration_service, _requiredDeposit, _initialEvidenceUri);
+        return address(c);
+    }
+}
+
+// Enhanced rent deployer with Merkle evidence support
+contract _EnhancedRentDeployer {
+    function deploy(
+        address _landlord, 
+        address _tenant, 
+        uint256 _rentAmount, 
+        address _priceFeed, 
+        uint256 _dueDate, 
+        uint256 _propertyId, 
+        address _arbitrationService,
+        address _merkleEvidenceManager
+    ) external returns (address) {
+        EnhancedRentContract c = new EnhancedRentContract(
+            _landlord,
+            _tenant,
+            _rentAmount,
+            _priceFeed,
+            _dueDate,
+            _propertyId,
+            _arbitrationService,
+            _merkleEvidenceManager
+        );
         return address(c);
     }
 }
@@ -40,11 +67,13 @@ contract ContractFactory {
     address public factoryOwner;
     address public defaultArbitrationService;
     uint256 public defaultRequiredDeposit;
+    address public merkleEvidenceManager;
     address[] public allContracts;
     mapping(address => address[]) public contractsByCreator;
     // Map a contract address to its creator (deployer) for quick lookup
     mapping(address => address) public contractCreator;
     _RentDeployer private immutable rentDeployer;
+    _EnhancedRentDeployer private immutable enhancedRentDeployer;
     _NDADeployer private immutable ndaDeployer;
 
     // Custom errors (gas-cheaper than revert strings)
@@ -65,6 +94,7 @@ contract ContractFactory {
 
     constructor() {
         rentDeployer = new _RentDeployer();
+        enhancedRentDeployer = new _EnhancedRentDeployer();
         ndaDeployer = new _NDADeployer();
         factoryOwner = msg.sender;
     }
@@ -123,6 +153,47 @@ contract ContractFactory {
         if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
         // Property validation removed - V7 simplification
         address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, _initialEvidenceUri);
+        allContracts.push(newAddr);
+        contractsByCreator[creator].push(newAddr);
+        contractCreator[newAddr] = creator;
+        emit RentContractCreated(newAddr, creator, _tenant);
+        return newAddr;
+    }
+
+    /// @notice Set the Merkle evidence manager address (owner only)
+    function setMerkleEvidenceManager(address _merkleEvidenceManager) external onlyOwner {
+        require(_merkleEvidenceManager != address(0), "Zero address not allowed");
+        merkleEvidenceManager = _merkleEvidenceManager;
+    }
+
+    /// @notice Create enhanced rent contract with Merkle evidence support
+    function createEnhancedRentContract(
+        address _tenant, 
+        uint256 _rentAmount, 
+        address _priceFeed, 
+        uint256 _dueDate, 
+        uint256 _propertyId
+    ) external returns (address) {
+        require(merkleEvidenceManager != address(0), "Merkle evidence manager not set");
+        
+        address creator = msg.sender;
+        if (_tenant == address(0)) revert ZeroTenant();
+        if (_tenant == creator) revert SameAddresses();
+        if (_rentAmount == 0) revert ZeroRentAmount();
+        if (_priceFeed == address(0)) revert ZeroPriceFeed();
+        if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
+        
+        address newAddr = enhancedRentDeployer.deploy(
+            creator, 
+            _tenant, 
+            _rentAmount, 
+            _priceFeed, 
+            _dueDate, 
+            _propertyId, 
+            defaultArbitrationService,
+            merkleEvidenceManager
+        );
+        
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;
