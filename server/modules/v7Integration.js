@@ -3,10 +3,13 @@
  * Connects all V7 backend components
  */
 
-import { validateIPFSEvidence, generateEvidenceDigest } from './modules/evidenceValidator.js';
-import { triggerLLMArbitration, handleLLMResponse } from './modules/llmArbitration.js';
-import { calculateLateFee, getTimeBasedData, calculateTotalPayment } from './modules/timeManagement.js';
-import { callArbitratorAPI, checkArbitratorAPIHealth } from './modules/arbitratorAPI.js';
+// NOTE: These modules are siblings in the same directory. The previous path './modules/...' was incorrect
+// and resulted in runtime import errors like server/modules/modules/evidenceValidator.js not found.
+// Correcting to relative sibling imports.
+import { validateIPFSEvidence, generateEvidenceDigest } from './evidenceValidator.js';
+import { triggerLLMArbitration, handleLLMResponse } from './llmArbitration.js';
+import { calculateLateFee, getTimeBasedData, calculateTotalPayment } from './timeManagement.js';
+import { callArbitratorAPI, checkArbitratorAPIHealth } from './arbitratorAPI.js';
 import { ethers } from 'ethers';
 
 /**

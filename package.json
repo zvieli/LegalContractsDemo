@@ -67,6 +67,7 @@
     "express": "^5.1.0",
     "fs-extra": "^11.3.2",
     "helia": "^5.5.1",
+    "multiformats": "^13.4.1",
     "node-fetch": "^3.3.2",
     "secp256k1": "^5.0.1",
     "tsyringe": "^4.10.0",

@@ -6,15 +6,32 @@ process.env.TESTING = process.env.TESTING || '1';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30_000,
-  expect: { timeout: 5000 },
+  timeout: 120_000, // Increased for MetaMask interactions
+  expect: { timeout: 15000 },
   // run tests in a single worker to avoid per-worker beforeAll launching the dev server
   workers: 1,
   use: {
     baseURL: `http://localhost:${process.env.VITE_DEV_PORT || 5173}`,
-    headless: true,
+    headless: false, // Non-headless for better Web3 simulation
     viewport: { width: 1280, height: 720 },
-    actionTimeout: 10_000,
+    actionTimeout: 20_000, // Increased for wallet interactions
+    // Browser args for Web3 testing (without MetaMask extension)
+    launchOptions: {
+      args: [
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
+    }
   },
-  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+  projects: [
+    { 
+      name: 'chromium-web3-simulation', 
+      use: { 
+        browserName: 'chromium'
+      } 
+    }
+  ],
 });

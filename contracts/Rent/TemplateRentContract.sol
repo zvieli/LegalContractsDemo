@@ -111,6 +111,9 @@ AggregatorV3Interface public immutable priceFeed;
     // ERC20 support removed: ERC20DebtCollected event intentionally omitted
     event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
     event PaymentWithdrawn(address indexed to, uint256 amount);
+    // Evidence management (optional off-chain content anchoring)
+    event EvidenceSubmitted(uint256 indexed caseId, bytes32 indexed cidDigest, address indexed submitter, string cid);
+    mapping(bytes32 => bool) private _evidenceSeen; // cidDigest => seen
     /// @notice emitted when an attempted approval fails due to insufficient deposit
     error InsufficientDepositForResolution(uint256 available, uint256 required);
 
@@ -215,6 +218,21 @@ AggregatorV3Interface public immutable priceFeed;
         rentPaid = true;
         totalPaid += amount;
         emit RentPaid(msg.sender, amount, false);
+    }
+
+    /// @notice Submit off-chain evidence CID for a given caseId (dispute or general).
+    /// Stores only the cidDigest (keccak256 of the UTF8 CID string) to minimize gas.
+    /// Reverts if the same cidDigest already submitted (duplicate prevention).
+    function submitEvidence(uint256 caseId, string calldata cid) external {
+        bytes32 d = keccak256(bytes(cid));
+        require(!_evidenceSeen[d], "Evidence duplicate");
+        _evidenceSeen[d] = true;
+        emit EvidenceSubmitted(caseId, d, msg.sender, cid);
+    }
+
+    /// @notice Returns true if a cidDigest was already submitted.
+    function evidenceSeen(bytes32 cidDigest) external view returns (bool) {
+        return _evidenceSeen[cidDigest];
     }
 
     function checkRentPrice() internal view returns (int256) {

@@ -55,7 +55,7 @@ async function tryDecryptRecipient(rec){
     for(const r of recipients){
       try {
         const plaintext = await tryDecryptRecipient(r);
-        console.log('Decrypted JSON content:', plaintext);
+        console.log(JSON.stringify({ ok:true, recipient:r.pubkey||r.address||'unknown', decrypted: plaintext.slice(0, 5000) }, null, 2));
         process.exit(0);
       } catch(e){ lastErr = e; }
     }

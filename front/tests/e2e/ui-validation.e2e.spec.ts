@@ -76,28 +76,30 @@ test.describe('Rent Contract UI Validation E2E Tests', () => {
       console.log('Wallet connection required - this would need MetaMask integration in real scenario');
     }
 
-    // Check for contract creation interface
-    const createContractSection = page.locator('[data-testid="create-contract"], .create-contract').first();
-    const createButton = page.getByRole('button', { name: /Create New Contract/i });
+    // Check for contract creation interface - V7 updated selectors
+    const createButton = page.locator('[data-testid="create-contract-btn"]');
+    const heroSection = page.locator('[data-testid="home-hero-section"]');
     
-    if (await createContractSection.isVisible() || await createButton.isVisible()) {
+    if (await createButton.isVisible() || await heroSection.isVisible()) {
       console.log('✅ Contract creation interface found');
     }
 
     // PHASE 2: Navigate to or load the created contract
     console.log('\n🔗 PHASE 2: Loading created contract in UI');
 
-    // Try to find contract address input or list
+    // Navigate to dashboard using V7 UI
+    const browseDashboardBtn = page.locator('[data-testid="browse-contracts-btn"]');
+    if (await browseDashboardBtn.isVisible()) {
+      await browseDashboardBtn.click();
+      await page.waitForLoadState('networkidle');
+      console.log('✅ Navigated to dashboard');
+    }
+
+    // Try to find contract in MyContracts component or manual input
     const contractAddressInput = page.locator('input[placeholder*="contract"], input[placeholder*="address"], input[name="contractAddress"]');
     if (await contractAddressInput.isVisible()) {
       await contractAddressInput.fill(rentContractAddress);
       console.log('✅ Entered contract address:', rentContractAddress.slice(0, 10) + '...');
-    }
-
-    // Look for load/connect button
-    const loadContractButton = page.locator('button:has-text("Load"), button:has-text("Connect to Contract"), button:has-text("View Contract")');
-    if (await loadContractButton.isVisible()) {
-      await loadContractButton.click();
       await page.waitForTimeout(2000); // Wait for contract to load
       console.log('✅ Attempted to load contract');
     }

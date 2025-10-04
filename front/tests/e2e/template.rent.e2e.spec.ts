@@ -7,10 +7,11 @@ import { ethers } from 'ethers';
  * Updated Rent Contract E2E Test for V7 Architecture
  * Uses Playwright for UI interactions and Ethers.js v6 for Smart Contract interactions
  * Connects to local Hardhat network and uses existing deployed contracts
+ * Updated to work with V7 UI selectors and admin dashboard
  */
 
-test.describe('Rent arbitration E2E (integration)', () => {
-  test('arbitration enforces bond cap and transfers available deposit', async ({ page }) => {
+test.describe('Rent arbitration E2E (V7 integration)', () => {
+  test('V7 arbitration enforces bond cap and transfers available deposit', async ({ page }) => {
     // Connect to local Hardhat node
     const rpc = process.env.RPC_URL || 'http://127.0.0.1:8545';
     let provider: ethers.JsonRpcProvider;

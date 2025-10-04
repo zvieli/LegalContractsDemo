@@ -10,6 +10,7 @@ import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import EvidenceList from '../Evidence/EvidenceList';
+import { useEvidence } from '../../hooks/useEvidence.js';
 import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
 import { IN_E2E } from '../../utils/env';
 
@@ -1986,7 +1987,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
 
             {activeTab === 'evidence' && (
               <div className="tab-content">
-                <EvidenceList contractAddress={contractDetails.address} />
+                <EvidenceTabContent contractDetails={contractDetails} signer={signer} contractInstanceRef={contractInstanceRef} />
               </div>
             )}
           </div>
@@ -2183,6 +2184,23 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       )}
     </div>
   );
+}
+// Evidence tab content extracted to respect hooks rules
+function EvidenceTabContent({ contractDetails, signer, contractInstanceRef }) {
+  const canLoad = !!(contractDetails?.address && signer && contractInstanceRef?.current);
+  const evidenceHook = useEvidence(
+    canLoad ? contractInstanceRef.current : null,
+    0,
+    async (cid) => {
+      const res = await fetch(`https://ipfs.io/ipfs/${cid}`);
+      if(!res.ok) throw new Error('ipfs fetch failed');
+      return await res.json();
+    }
+  );
+  if (!canLoad) return <div className="muted">Connect wallet to view evidence</div>;
+  if (evidenceHook.loading) return <div className="muted">Loading evidence...</div>;
+  if (evidenceHook.error) return <div style={{color:'crimson'}}>Evidence error: {evidenceHook.error}</div>;
+  return <EvidenceList evidence={evidenceHook.evidence} />;
 }
 
 export default ContractModal;

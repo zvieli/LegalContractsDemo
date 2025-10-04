@@ -53,7 +53,9 @@ contract ArbitrationService {
         require(beneficiary != address(0), "Invalid beneficiary");
 
         // Mitigation 4.2: compute a request hash and ensure it wasn't processed before
-        bytes32 reqHash = keccak256(abi.encodePacked(targetContract, caseId, approve, appliedAmount, beneficiary, msg.sender, msg.value, block.timestamp));
+    // Replay guard: use a deterministic hash of parameters (exclude timestamp so repeated identical
+    // requests cannot bypass guard simply by occurring in a later block).
+    bytes32 reqHash = keccak256(abi.encodePacked(targetContract, caseId, approve, appliedAmount, beneficiary, msg.sender, msg.value));
         require(!processedRequests[reqHash], "Request already processed");
         processedRequests[reqHash] = true;
 
