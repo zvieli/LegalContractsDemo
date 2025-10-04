@@ -46,6 +46,11 @@ AggregatorV3Interface public immutable priceFeed;
         "RENT(address contractAddress,address landlord,address tenant,uint256 rentAmount,uint256 dueDate)"
     );
 
+    // Evidence signature verification
+    bytes32 private constant EVIDENCE_TYPEHASH = keccak256(
+        "Evidence(uint256 caseId,bytes32 contentDigest,bytes32 recipientsHash,address uploader,string cid)"
+    );
+
     // Cancellation policy and state
     bool public requireMutualCancel;           // if true, both parties must approve
     uint256 public noticePeriod;               // seconds to wait before unilateral finalize
@@ -74,6 +79,8 @@ AggregatorV3Interface public immutable priceFeed;
         bool resolved;
         bool approved;
         uint256 appliedAmount;      // actual amount applied (deducted or released)
+        bool closed;                // explicitly closed flag for UI clarity
+        uint256 closedAt;           // timestamp when case was closed
     }
 
     struct DisputeMeta { // classification & rationale produced by oracle/AI
@@ -107,6 +114,7 @@ AggregatorV3Interface public immutable priceFeed;
     event DisputeFiled(uint256 indexed caseId, address indexed debtor, uint256 requestedAmount);
     event DisputeResolved(uint256 indexed caseId, bool approved, uint256 appliedAmount, address beneficiary);
     event DisputeAppliedCapped(uint256 indexed caseId, uint256 requestedAmount, uint256 available, uint256 applied);
+    event DisputeClosed(uint256 indexed caseId, uint256 timestamp);
     event DebtRecorded(address indexed debtor, uint256 amount);
     // ERC20 support removed: ERC20DebtCollected event intentionally omitted
     event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
@@ -115,6 +123,9 @@ AggregatorV3Interface public immutable priceFeed;
     event EvidenceSubmitted(uint256 indexed caseId, bytes32 indexed cidDigest, address indexed submitter, string cid);
     // Optional extended event capturing contentDigest (if reporter supplies canonical content hash)
     event EvidenceSubmittedDigest(uint256 indexed caseId, bytes32 indexed cidDigest, bytes32 contentDigest, address indexed submitter, string cid);
+    // Signature verification events
+    event EvidenceSignatureInvalid(uint256 indexed caseId, bytes32 indexed cidDigest, address indexed claimed, address recovered);
+    event EvidenceSignatureVerified(uint256 indexed caseId, bytes32 indexed cidDigest, address indexed signer);
     mapping(bytes32 => bool) private _evidenceSeen; // cidDigest => seen
     // Optional mapping to persist contentDigest (gas trade-off). Zero value means not supplied.
     mapping(bytes32 => bytes32) public evidenceContentDigest; // cidDigest => contentDigest
@@ -227,21 +238,57 @@ AggregatorV3Interface public immutable priceFeed;
     /// @notice Submit off-chain evidence CID for a given caseId (dispute or general).
     /// Stores only the cidDigest (keccak256 of the UTF8 CID string) to minimize gas.
     /// Reverts if the same cidDigest already submitted (duplicate prevention).
+    /// @notice DEPRECATED: Use submitEvidenceWithSignature instead for security
     function submitEvidence(uint256 caseId, string calldata cid) external {
-        bytes32 d = keccak256(bytes(cid));
-        require(!_evidenceSeen[d], "Evidence duplicate");
-        _evidenceSeen[d] = true;
-        emit EvidenceSubmitted(caseId, d, msg.sender, cid);
+        require(false, "Use submitEvidenceWithSignature for security");
     }
 
-    /// @notice Extended variant allowing the uploader to anchor both the CID (via cidDigest) and a canonical contentDigest.
-    /// This costs additional gas (one extra SSTORE) but enables stronger tamper resistance if off-chain JSON is modified.
+    /// @notice Submit evidence with mandatory contentDigest, recipientsHash, and EIP-712 signature verification
+    /// @param caseId The dispute case ID
+    /// @param cid The IPFS CID string
+    /// @param contentDigest Hash of canonicalized content
+    /// @param recipientsHash Hash of recipients array for encryption tracking
+    /// @param signature EIP-712 signature by uploader
+    function submitEvidenceWithSignature(
+        uint256 caseId,
+        string calldata cid,
+        bytes32 contentDigest,
+        bytes32 recipientsHash,
+        bytes calldata signature
+    ) external {
+        require(contentDigest != bytes32(0), "ContentDigest required");
+        
+        bytes32 cidDigest = keccak256(bytes(cid));
+        require(!_evidenceSeen[cidDigest], "Evidence duplicate");
+        
+        // Verify EIP-712 signature
+        bytes32 structHash = keccak256(abi.encode(
+            EVIDENCE_TYPEHASH,
+            caseId,
+            contentDigest,
+            recipientsHash,
+            msg.sender,
+            keccak256(bytes(cid))
+        ));
+        
+        bytes32 digest = _hashTypedDataV4(structHash);
+        address recovered = ECDSA.recover(digest, signature);
+        
+        if (recovered != msg.sender) {
+            emit EvidenceSignatureInvalid(caseId, cidDigest, msg.sender, recovered);
+            revert("Invalid signature");
+        }
+        
+        _evidenceSeen[cidDigest] = true;
+        evidenceContentDigest[cidDigest] = contentDigest;
+        
+        emit EvidenceSignatureVerified(caseId, cidDigest, msg.sender);
+        emit EvidenceSubmittedDigest(caseId, cidDigest, contentDigest, msg.sender, cid);
+    }
+
+    /// @notice Legacy method with contentDigest but no signature verification (DEPRECATED)
     function submitEvidenceWithDigest(uint256 caseId, string calldata cid, bytes32 contentDigest) external {
-        bytes32 d = keccak256(bytes(cid));
-        require(!_evidenceSeen[d], "Evidence duplicate");
-        _evidenceSeen[d] = true;
-        evidenceContentDigest[d] = contentDigest; // store provided contentDigest
-        emit EvidenceSubmittedDigest(caseId, d, contentDigest, msg.sender, cid);
+        require(false, "Use submitEvidenceWithSignature for security");
     }
 
     /// @notice Returns true if a cidDigest was already submitted.
@@ -546,12 +593,12 @@ function getRentInEth() public view returns (uint256) {
     // store provided evidence URI
     dc.evidenceUri = evidenceUri;
 
-        // Enforce reporter bond = 0.5% of requestedAmount (anti-spam). Require msg.value >= requiredBond
+        // Dynamic bond calculation: higher of percentage-based or fixed minimum
         uint256 requiredBond = 0;
         if (requestedAmount > 0) {
-            requiredBond = (requestedAmount * 5) / 10000; // 0.05%
-            // ensure at least 1 wei if computed zero but request >0
-            if (requiredBond == 0) requiredBond = 1;
+            uint256 percentageBond = (requestedAmount * 50) / 10000; // 0.5% (increased from 0.05%)
+            uint256 minimumBond = 0.001 ether; // Fixed minimum to prevent micro-spam
+            requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
         }
         if (msg.value < requiredBond) revert InsufficientFee();
         // store the bond (allow callers to overpay; full msg.value credited)
@@ -700,8 +747,11 @@ function getRentInEth() public view returns (uint256) {
         }
 
         dc.appliedAmount = applied;
+        dc.closed = true;
+        dc.closedAt = block.timestamp;
         _disputeMeta[caseId] = DisputeMeta({classification: classification, rationale: rationale});
         emit DisputeResolved(caseId, approve, applied, beneficiary);
+        emit DisputeClosed(caseId, block.timestamp);
         emit DisputeRationale(caseId, classification, rationale);
     }
 

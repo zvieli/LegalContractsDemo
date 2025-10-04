@@ -1,0 +1,306 @@
+.key-management {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin: 20px 0;
+}
+
+.key-management h3 {
+  color: #2563eb;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 8px;
+}
+
+.key-management h4 {
+  color: #374151;
+  margin: 16px 0 12px 0;
+}
+
+/* Error and Success Messages */
+.error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.success-message {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #16a34a;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+/* Key Registration Form */
+.key-registration {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 24px;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 4px;
+}
+
+.key-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.key-input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.generate-key-btn {
+  background: #8b5cf6;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.generate-key-btn:hover {
+  background: #7c3aed;
+}
+
+.register-key-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+
+.register-key-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.register-key-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+/* Keys List */
+.keys-list {
+  margin-bottom: 24px;
+}
+
+.no-keys {
+  text-align: center;
+  color: #6b7280;
+  padding: 40px;
+  font-style: italic;
+}
+
+.key-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: all 0.2s;
+}
+
+.key-item:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.key-item.active {
+  border-color: #10b981;
+  background: #f0fdf4;
+}
+
+.key-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.key-id {
+  font-weight: 600;
+  color: #374151;
+}
+
+.active-badge {
+  background: #10b981;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.revoked-badge {
+  background: #ef4444;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.expired-badge {
+  background: #f59e0b;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.invalid-badge {
+  background: #6b7280;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.key-details {
+  margin-bottom: 12px;
+}
+
+.key-field {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.key-field strong {
+  color: #374151;
+  min-width: 100px;
+}
+
+.key-value {
+  background: #f3f4f6;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.key-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.set-active-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.set-active-btn:hover:not(:disabled) {
+  background: #059669;
+}
+
+.revoke-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+.revoke-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.set-active-btn:disabled,
+.revoke-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Key Management Tips */
+.key-tips {
+  background: #fffbeb;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.key-tips h4 {
+  color: #92400e;
+  margin-top: 0;
+}
+
+.key-tips ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.key-tips li {
+  color: #92400e;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.key-tips li strong {
+  color: #78350f;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .key-management {
+    padding: 16px;
+    margin: 10px 0;
+  }
+  
+  .key-field {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .key-field strong {
+    min-width: auto;
+  }
+  
+  .key-actions {
+    flex-direction: column;
+  }
+  
+  .set-active-btn,
+  .revoke-btn {
+    width: 100%;
+  }
+}

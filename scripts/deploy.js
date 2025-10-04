@@ -145,6 +145,20 @@ async function main() {
     }
   }
 
+  // === 2.6 Deploy RecipientKeyRegistry ===
+  console.log("📦 Deploying RecipientKeyRegistry...");
+  let keyRegistryAddress = null;
+  try {
+    const RecipientKeyRegistry = await ethers.getContractFactory("RecipientKeyRegistry");
+    const keyRegistry = await RecipientKeyRegistry.deploy();
+    await keyRegistry.waitForDeployment();
+    keyRegistryAddress = await keyRegistry.getAddress();
+    console.log("✅ RecipientKeyRegistry deployed to:", keyRegistryAddress);
+  } catch (err) {
+    console.error("❌ RecipientKeyRegistry deployment failed:", err.message || err);
+    throw err;
+  }
+
   if (deployArbitration) {
     console.log("📦 Deploying ArbitrationService...");
     try {
@@ -182,6 +196,9 @@ async function main() {
         parsed.contracts = parsed.contracts || {};
         parsed.contracts.ArbitrationService = arbitrationServiceAddress;
         parsed.contracts.ArbitrationContractV2 = arbitrationContractV2Address;
+        if (keyRegistryAddress) {
+          parsed.contracts.RecipientKeyRegistry = keyRegistryAddress;
+        }
         fs.writeFileSync(publicDeploymentFile, JSON.stringify(parsed, null, 2));
         console.log("💾 Updated ContractFactory.json with ArbitrationService and ArbitrationContractV2 addresses");
       } catch (err) {
@@ -198,6 +215,9 @@ async function main() {
         }
         existingMock.contracts = existingMock.contracts || {};
         existingMock.contracts.ArbitrationService = arbitrationServiceAddress;
+        if (keyRegistryAddress) {
+          existingMock.contracts.RecipientKeyRegistry = keyRegistryAddress;
+        }
         existingMock.contracts.ArbitrationContractV2 = arbitrationContractV2Address;
         fs.writeFileSync(mockContractsPath, JSON.stringify(existingMock, null, 2));
         console.log('💾 Updated MockContracts.json with ArbitrationService and ArbitrationContractV2 addresses');

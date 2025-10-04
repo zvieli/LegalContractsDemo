@@ -1,8 +1,8 @@
 // E2E Tests for ArbitrationService and Core DApp Logic
 // Covers: Factory, Deposits, Evidence, Disputes, Arbitration, Withdrawals, Permissions, Full Flow
 
-const { expect } = require('chai');
-const { ethers } = require('hardhat');
+import { expect } from 'chai';
+import { ethers } from 'hardhat';
 
 describe('ArbitrationService E2E Flow', function () {
   let factory, arbitrationService, arbitrator, rentContract;

@@ -43,10 +43,28 @@ function checkEnvironment() {
   const optionalVars = [
     'LLM_ARBITRATOR_URL',
     'IPFS_GATEWAY_URL',
-    'RPC_URL'
+    'RPC_URL',
+    'MOCK_IPFS'
   ];
   
   console.log(chalk.yellow('🔧 Environment Configuration:'));
+  
+  // Check environment modes
+  const isDev = process.env.NODE_ENV === 'development' || process.env.MOCK_IPFS === 'true';
+  const isProd = process.env.NODE_ENV === 'production';
+  
+  if (isDev) {
+    console.log(chalk.cyan(`  🔧 Development Mode: ENABLED`));
+    console.log(chalk.cyan(`     • Evidence: Mock evidence from JSON files`));
+    console.log(chalk.cyan(`     • Validation: Bypassed for QmMock* CIDs`));
+  } else if (isProd) {
+    console.log(chalk.green(`  🏭 Production Mode: ENABLED`));
+    console.log(chalk.green(`     • Evidence: Helia local node (127.0.0.1:5001)`));
+    console.log(chalk.green(`     • Validation: Real IPFS CID validation`));
+    console.log(chalk.yellow(`     • ⚠️  Make sure IPFS daemon is running!`));
+  } else {
+    console.log(chalk.gray(`  ⚪ Legacy Mode: Default validation`));
+  }
   
   requiredVars.forEach(varName => {
     const value = process.env[varName];
@@ -65,6 +83,14 @@ function checkEnvironment() {
       console.log(chalk.gray(`  ⚪ ${varName}: using default`));
     }
   });
+  
+  // Production mode warnings
+  if (isProd) {
+    console.log(chalk.yellow.bold('🏭 Production Mode Requirements:'));
+    console.log(chalk.yellow('   1. IPFS daemon must be running: ipfs daemon'));
+    console.log(chalk.yellow('   2. API available at: http://127.0.0.1:5001'));
+    console.log(chalk.yellow('   3. Test with: curl http://127.0.0.1:5001/api/v0/version'));
+  }
 }
 
 /**

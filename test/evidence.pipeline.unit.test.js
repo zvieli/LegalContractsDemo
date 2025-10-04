@@ -42,16 +42,64 @@ describe('Evidence pipeline unit', function(){
       ''
     );
     await rent.waitForDeployment();
-  const cid = 'bafybeigdyrzt5asamplecid';
-  const tx = await rent.connect(tenant).submitEvidence(0, cid);
-  const rc = await tx.wait();
-  let found=false; let parsedArgs=null; for(const log of rc.logs){ try{ const p=rent.interface.parseLog(log); if(p.name==='EvidenceSubmitted'){ found=true; parsedArgs=p.args; break; } }catch(_){} }
-  expect(found).to.equal(true);
-  const expectedDigest = keccak256(toUtf8Bytes(cid));
-  expect(parsedArgs.cidDigest).to.equal(expectedDigest);
-  expect(Number(parsedArgs.caseId)).to.equal(0);
-  expect(parsedArgs.submitter.toLowerCase()).to.equal(tenant.address.toLowerCase());
-    await expect(rent.connect(tenant).submitEvidence(0, cid)).to.be.revertedWith('Evidence duplicate');
+    
+    const cid = 'bafybeigdyrzt5asamplecid';
+    const contentDigest = keccak256(toUtf8Bytes('sample-content'));
+    const recipientsHash = ethers.ZeroHash;
+    
+    // Create EIP-712 signature
+    const domain = {
+      name: 'TemplateRentContract',
+      version: '1',
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: rent.target
+    };
+    
+    const types = {
+      Evidence: [
+        { name: 'caseId', type: 'uint256' },
+        { name: 'contentDigest', type: 'bytes32' },
+        { name: 'recipientsHash', type: 'bytes32' },
+        { name: 'uploader', type: 'address' },
+        { name: 'cid', type: 'string' }
+      ]
+    };
+    
+    const message = {
+      caseId: 0,
+      contentDigest: contentDigest,
+      recipientsHash: recipientsHash,
+      uploader: tenant.address,
+      cid: cid
+    };
+    
+    const signature = await tenant.signTypedData(domain, types, message);
+    
+    const tx = await rent.connect(tenant).submitEvidenceWithSignature(0, cid, contentDigest, recipientsHash, signature);
+    const rc = await tx.wait();
+    
+    let found=false; let parsedArgs=null; 
+    for(const log of rc.logs){ 
+      try{ 
+        const p=rent.interface.parseLog(log); 
+        if(p.name==='EvidenceSubmittedDigest'){ 
+          found=true; 
+          parsedArgs=p.args; 
+          break; 
+        } 
+      }catch(_){} 
+    }
+    
+    expect(found).to.equal(true);
+    const expectedDigest = keccak256(toUtf8Bytes(cid));
+    expect(parsedArgs.cidDigest).to.equal(expectedDigest);
+    expect(Number(parsedArgs.caseId)).to.equal(0);
+    expect(parsedArgs.submitter.toLowerCase()).to.equal(tenant.address.toLowerCase());
+    
+    // Test duplicate prevention
+    await expect(
+      rent.connect(tenant).submitEvidenceWithSignature(0, cid, contentDigest, recipientsHash, signature)
+    ).to.be.revertedWith('Evidence duplicate');
   });
 
   it('submitEvidenceWithDigest stores contentDigest mapping', async () => {
@@ -72,11 +120,53 @@ describe('Evidence pipeline unit', function(){
       ''
     );
     await rent.waitForDeployment();
+    
     const cid = 'bafybeigdyrzt5aEXTdigest';
     const contentDigest = keccak256(toUtf8Bytes('canon-json-placeholder'));
-    const tx = await rent.connect(tenant).submitEvidenceWithDigest(1, cid, contentDigest);
+    const recipientsHash = ethers.ZeroHash;
+    
+    // Create EIP-712 signature
+    const domain = {
+      name: 'TemplateRentContract',
+      version: '1',
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: rent.target
+    };
+    
+    const types = {
+      Evidence: [
+        { name: 'caseId', type: 'uint256' },
+        { name: 'contentDigest', type: 'bytes32' },
+        { name: 'recipientsHash', type: 'bytes32' },
+        { name: 'uploader', type: 'address' },
+        { name: 'cid', type: 'string' }
+      ]
+    };
+    
+    const message = {
+      caseId: 1,
+      contentDigest: contentDigest,
+      recipientsHash: recipientsHash,
+      uploader: tenant.address,
+      cid: cid
+    };
+    
+    const signature = await tenant.signTypedData(domain, types, message);
+    
+    const tx = await rent.connect(tenant).submitEvidenceWithSignature(1, cid, contentDigest, recipientsHash, signature);
     const rc = await tx.wait();
-    let parsedArgs; for(const log of rc.logs){ try { const p = rent.interface.parseLog(log); if(p.name==='EvidenceSubmittedDigest'){ parsedArgs=p.args; break; } } catch(_){} }
+    
+    let parsedArgs; 
+    for(const log of rc.logs){ 
+      try { 
+        const p = rent.interface.parseLog(log); 
+        if(p.name==='EvidenceSubmittedDigest'){ 
+          parsedArgs=p.args; 
+          break; 
+        } 
+      } catch(_){} 
+    }
+    
     expect(parsedArgs.contentDigest).to.equal(contentDigest);
     const stored = await rent.evidenceContentDigest(parsedArgs.cidDigest);
     expect(stored).to.equal(contentDigest);

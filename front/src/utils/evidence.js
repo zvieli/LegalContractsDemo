@@ -168,6 +168,71 @@ export async function buildEncryptedEnvelope(contentObj, recipientsPublicKeys = 
   return { envelope, symmetricKeyHex: Buffer.from(symKey).toString('hex'), cidDigest: null, contentDigest };
 }
 
+/**
+ * Sign evidence data using EIP-712 with recipients hash for tamper detection
+ * @param {Object} evidenceData - Contains caseId, contentDigest, recipients, cid
+ * @param {Object} contractInfo - Contains chainId, verifyingContract address
+ * @param {Object} signer - Ethers signer
+ * @returns {string} Signature
+ */
+export async function signEvidenceEIP712(evidenceData, contractInfo, signer) {
+  const { caseId, contentDigest, recipients, cid } = evidenceData;
+  const { chainId, verifyingContract } = contractInfo;
+  
+  // Hash recipients array for integrity
+  const recipientsHash = recipients && recipients.length > 0 
+    ? ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(recipients.map(r => r.address || r).sort())))
+    : ethers.ZeroHash;
+  
+  // EIP-712 domain
+  const domain = {
+    name: 'TemplateRentContract',
+    version: '1',
+    chainId: chainId,
+    verifyingContract: verifyingContract
+  };
+  
+  // EIP-712 types
+  const types = {
+    Evidence: [
+      { name: 'caseId', type: 'uint256' },
+      { name: 'contentDigest', type: 'bytes32' },
+      { name: 'recipientsHash', type: 'bytes32' },
+      { name: 'uploader', type: 'address' },
+      { name: 'cid', type: 'string' }
+    ]
+  };
+  
+  // Get uploader address
+  const uploader = await signer.getAddress();
+  
+  // Evidence message
+  const message = {
+    caseId: caseId,
+    contentDigest: contentDigest,
+    recipientsHash: recipientsHash,
+    uploader: uploader,
+    cid: cid
+  };
+  
+  // Sign using EIP-712
+  const signature = await signer.signTypedData(domain, types, message);
+  return signature;
+}
+
+/**
+ * Hash recipients array for consistent ordering
+ * @param {Array} recipients - Array of recipient objects or addresses
+ * @returns {string} Hash of recipients
+ */
+export function hashRecipients(recipients) {
+  if (!recipients || recipients.length === 0) {
+    return ethers.ZeroHash;
+  }
+  const addresses = recipients.map(r => r.address || r).sort();
+  return ethers.keccak256(ethers.toUtf8Bytes(JSON.stringify(addresses)));
+}
+
 // Example usage (not executed):
 // const { ciphertext, digest } = await prepareEvidencePayload('secret', { encryptToAdminPubKey: '04abcd...' });
 // upload ciphertext to off-chain store and keep location if desired; then call contract with `digest`.

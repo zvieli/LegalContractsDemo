@@ -9,7 +9,8 @@ export default {
   solidity: {
     version: "0.8.20",
     settings: {
-      optimizer: { enabled: true, runs: 150 }
+      optimizer: { enabled: true, runs: 150 },
+      viaIR: true
     },
     // no per-file overrides
     overrides: {}

@@ -11,6 +11,182 @@ import { ethers } from 'ethers';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import fs from 'fs';
+import { spawn, exec } from 'child_process';
+import { promisify } from 'util';
+
+// 🔧 Environment Mode Configuration
+const isDevelopment = process.env.NODE_ENV === 'development' || process.env.MOCK_IPFS === 'true';
+const isProduction = process.env.NODE_ENV === 'production';
+const allowMockEvidence = isDevelopment || process.env.ALLOW_MOCK_EVIDENCE === 'true';
+
+// IPFS Daemon Management
+let ipfsDaemonProcess = null;
+const execAsync = promisify(exec);
+
+// 🏭 IPFS Daemon Auto-Start for Production Mode
+async function startIPFSDaemon() {
+  if (isDevelopment) {
+    console.log('🔧 Development Mode: Skipping IPFS daemon auto-start');
+    return true;
+  }
+
+  try {
+    console.log('🔄 Production Mode: Checking IPFS daemon status...');
+    
+    // Check if IPFS daemon is already running
+    try {
+      const response = await fetch('http://127.0.0.1:5001/api/v0/version', {
+        method: 'POST',
+        timeout: 3000
+      });
+      if (response.ok) {
+        console.log('✅ IPFS daemon already running');
+        return true;
+      }
+      if (response.status === 403) {
+        console.log('🔧 IPFS daemon running but CORS not configured - will configure it');
+        await configureIPFSCORS();
+        return true;
+      }
+    } catch (error) {
+      console.log('📡 IPFS daemon not running, starting...');
+    }
+
+    // Initialize IPFS if needed
+    await initializeIPFS();
+
+    // Start IPFS daemon
+    console.log('🚀 Starting IPFS daemon...');
+    ipfsDaemonProcess = spawn('ipfs', ['daemon'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false
+    });
+
+    // Wait for daemon to be ready
+    let isReady = false;
+    let attempts = 0;
+    const maxAttempts = 30; // 30 seconds timeout
+
+    while (!isReady && attempts < maxAttempts) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        const response = await fetch('http://127.0.0.1:5001/api/v0/version', {
+          method: 'POST',
+          timeout: 2000
+        });
+        if (response.ok) {
+          isReady = true;
+          console.log('✅ IPFS daemon ready');
+        }
+      } catch (error) {
+        attempts++;
+        console.log(`⏳ Waiting for IPFS daemon... (${attempts}/${maxAttempts})`);
+      }
+    }
+
+    if (!isReady) {
+      throw new Error('IPFS daemon failed to start within 30 seconds');
+    }
+
+    // Handle daemon process events
+    ipfsDaemonProcess.on('error', (error) => {
+      console.error('❌ IPFS daemon error:', error.message);
+    });
+
+    ipfsDaemonProcess.on('exit', (code) => {
+      console.log(`🔴 IPFS daemon exited with code ${code}`);
+      ipfsDaemonProcess = null;
+    });
+
+    return true;
+
+  } catch (error) {
+    console.error('❌ Failed to start IPFS daemon:', error.message);
+    console.error('💡 Please ensure IPFS is installed: https://docs.ipfs.tech/install/');
+    console.error('💡 Or run manually: ipfs daemon');
+    return false;
+  }
+}
+
+async function stopIPFSDaemon() {
+  if (ipfsDaemonProcess) {
+    console.log('🔴 Stopping IPFS daemon...');
+    ipfsDaemonProcess.kill('SIGTERM');
+    ipfsDaemonProcess = null;
+  }
+}
+
+// Initialize IPFS repository if needed
+async function initializeIPFS() {
+  try {
+    console.log('🔧 Checking IPFS initialization...');
+    const { stdout } = await execAsync('ipfs id');
+    console.log('✅ IPFS already initialized');
+    return true;
+  } catch (error) {
+    console.log('🔧 Initializing IPFS repository...');
+    try {
+      await execAsync('ipfs init');
+      console.log('✅ IPFS initialized successfully');
+      await configureIPFSCORS();
+      return true;
+    } catch (initError) {
+      console.error('❌ Failed to initialize IPFS:', initError.message);
+      return false;
+    }
+  }
+}
+
+// Configure IPFS CORS settings
+async function configureIPFSCORS() {
+  try {
+    console.log('🔧 Configuring IPFS CORS settings...');
+    
+    const corsCommands = [
+      'ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin "[\"*\"]"',
+      'ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods "[\"GET\", \"POST\", \"PUT\", \"DELETE\"]"',
+      'ipfs config --json API.HTTPHeaders.Access-Control-Allow-Headers "[\"Authorization\", \"Content-Type\"]"'
+    ];
+    
+    for (const cmd of corsCommands) {
+      await execAsync(cmd);
+    }
+    
+    console.log('✅ IPFS CORS configured successfully');
+    return true;
+  } catch (error) {
+    console.error('⚠️ Failed to configure IPFS CORS:', error.message);
+    console.log('💡 IPFS will work but may have CORS issues');
+    return false;
+  }
+}
+
+// Environment logging
+if (isDevelopment) {
+  console.log(`🔧 Development Mode: ENABLED - Using mock evidence`);
+  console.log(`📝 Mock Evidence: ALLOWED`);
+} else if (isProduction) {
+  console.log(`🏭 Production Mode: ENABLED - Using Helia local node`);
+  console.log(`🔗 Helia Endpoint: http://127.0.0.1:5001`);
+  console.log(`📝 Mock Evidence: DISABLED`);
+} else {
+  console.log(`⚪ Default Mode: Using legacy validation`);
+  console.log(`📝 Mock Evidence: ${allowMockEvidence ? 'ALLOWED' : 'STRICT_VALIDATION'}`);
+}
+
+// Mock evidence structure for development
+const mockEvidenceTemplate = {
+  id: "mock-evidence-dev",
+  party: "claimant", 
+  content: "This is mock evidence for development testing.",
+  timestamp: Math.floor(Date.now() / 1000),
+  type: "text",
+  metadata: {
+    created: new Date().toISOString(),
+    source: "development-mock",
+    version: "1.0"
+  }
+};
 
 // V7 Modules
 import { validateIPFSEvidence } from './modules/evidenceValidator.js';
@@ -37,6 +213,109 @@ async function loadOllamaModule() {
   }
 }
 
+// 🔧 Mock Evidence Utilities for Development
+let mockEvidenceData = {};
+
+async function loadMockEvidence() {
+  try {
+    const mockPath = path.join(__dirname, '../evidence_storage/mock/evidence.json');
+    if (fs.existsSync(mockPath)) {
+      const mockData = fs.readFileSync(mockPath, 'utf8');
+      mockEvidenceData = JSON.parse(mockData);
+      console.log(`📝 Loaded ${Object.keys(mockEvidenceData).length} mock evidence entries`);
+    }
+  } catch (error) {
+    console.warn('⚠️ Failed to load mock evidence:', error.message);
+  }
+}
+
+function isMockCID(cid) {
+  return cid && (cid.startsWith('QmMock') || cid.startsWith('mock-'));
+}
+
+async function getMockEvidence(cid) {
+  if (mockEvidenceData[cid]) {
+    return mockEvidenceData[cid];
+  }
+  
+  // Return default mock evidence if CID not found in mock data
+  return {
+    ...mockEvidenceTemplate,
+    id: `mock-${cid}`,
+    content: `Development mock evidence for CID: ${cid}`,
+    cid: cid
+  };
+}
+
+// 🏭 Production Mode: Helia Evidence Fetching
+const HELIA_LOCAL_API = 'http://127.0.0.1:5001';
+
+async function fetchEvidenceFromHelia(cid) {
+  try {
+    console.log(`🔗 Production Mode: Fetching CID ${cid} from Helia node...`);
+    
+    // IPFS API requires POST method
+    const response = await fetch(`${HELIA_LOCAL_API}/api/v0/cat?arg=${cid}`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json, text/plain, */*'
+      },
+      timeout: 10000 // 10 second timeout
+    });
+
+    if (!response.ok) {
+      throw new Error(`Helia API error: ${response.status} ${response.statusText}`);
+    }
+
+    const contentText = await response.text();
+    
+    // Try to parse as JSON, fallback to text
+    let evidenceData;
+    try {
+      evidenceData = JSON.parse(contentText);
+    } catch {
+      // If not JSON, treat as plain text evidence
+      evidenceData = {
+        id: `helia-${cid}`,
+        content: contentText,
+        type: 'text',
+        cid: cid,
+        timestamp: Math.floor(Date.now() / 1000),
+        source: 'helia-local'
+      };
+    }
+
+    console.log(`✅ Successfully fetched evidence from Helia: ${cid}`);
+    return evidenceData;
+
+  } catch (error) {
+    console.error(`❌ Failed to fetch evidence from Helia:`, error.message);
+    throw new Error(`Unable to fetch CID ${cid} from Helia local node. Is IPFS daemon running on ${HELIA_LOCAL_API}?`);
+  }
+}
+
+async function validateEvidenceWithMockSupport(evidenceCID) {
+  // In development mode, allow mock CIDs
+  if (allowMockEvidence && isMockCID(evidenceCID)) {
+    console.log(`🔧 Dev Mode: Using mock evidence for CID ${evidenceCID}`);
+    return true;
+  }
+  
+  // In production mode, validate against Helia
+  if (!isDevelopment) {
+    try {
+      await fetchEvidenceFromHelia(evidenceCID);
+      return true;
+    } catch (error) {
+      console.error(`🏭 Production validation failed for ${evidenceCID}:`, error.message);
+      return false;
+    }
+  }
+  
+  // Fallback to original validation
+  return await validateIPFSEvidence(evidenceCID);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -49,13 +328,42 @@ app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ 
+app.get('/health', async (req, res) => {
+  const health = { 
     status: 'OK', 
     version: 'V7',
     services: ['evidence-validation', 'llm-arbitration', 'time-management'],
-    timestamp: new Date().toISOString()
-  });
+    timestamp: new Date().toISOString(),
+    mode: isDevelopment ? 'development' : isProduction ? 'production' : 'legacy'
+  };
+
+  // Check IPFS daemon status for production mode
+  if (isProduction) {
+    try {
+      const ipfsResponse = await fetch('http://127.0.0.1:5001/api/v0/version', {
+        method: 'POST',
+        timeout: 2000
+      });
+      health.ipfs = {
+        status: ipfsResponse.ok ? 'running' : 'error',
+        daemon: ipfsDaemonProcess ? 'managed' : 'external',
+        endpoint: 'http://127.0.0.1:5001'
+      };
+    } catch (error) {
+      health.ipfs = {
+        status: 'unreachable',
+        daemon: ipfsDaemonProcess ? 'managed' : 'external',
+        error: error.message
+      };
+    }
+  } else {
+    health.ipfs = {
+      status: 'not-required',
+      mode: 'mock-evidence'
+    };
+  }
+
+  res.json(health);
 });
 
 // V7 Evidence API - CID-based
@@ -70,12 +378,35 @@ app.post('/api/v7/dispute/report', async (req, res) => {
       });
     }
 
-    // Validate IPFS CID
-    const isValidEvidence = await validateIPFSEvidence(evidenceCID);
+    // 🔧 Evidence fetching based on environment mode
+    const isValidEvidence = await validateEvidenceWithMockSupport(evidenceCID);
     if (!isValidEvidence) {
-      return res.status(400).json({ 
-        error: 'Invalid or inaccessible IPFS evidence CID' 
-      });
+      let errorMsg = 'Invalid or inaccessible IPFS evidence CID';
+      if (isDevelopment) {
+        errorMsg = 'Invalid CID. Use real IPFS CID or mock CID starting with "QmMock"';
+      } else if (isProduction) {
+        errorMsg = 'Invalid CID or Helia local node unreachable. Is IPFS daemon running on 127.0.0.1:5001?';
+      }
+      return res.status(400).json({ error: errorMsg });
+    }
+
+    // Get evidence content based on mode
+    let evidenceContent = null;
+    let evidenceSource = 'unknown';
+    
+    if (isDevelopment && isMockCID(evidenceCID)) {
+      // Development: use mock evidence
+      evidenceContent = await getMockEvidence(evidenceCID);
+      evidenceSource = 'mock';
+    } else if (isProduction) {
+      // Production: fetch from Helia
+      try {
+        evidenceContent = await fetchEvidenceFromHelia(evidenceCID);
+        evidenceSource = 'helia';
+      } catch (error) {
+        console.error('Failed to fetch from Helia:', error.message);
+        // Continue without content, validation already passed
+      }
     }
 
     // Prepare dispute data for LLM
@@ -85,18 +416,33 @@ app.post('/api/v7/dispute/report', async (req, res) => {
       requestedAmount,
       evidenceCID,
       disputeId: disputeId || 0,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      developmentMode: isDevelopment,
+      evidenceSource,
+      evidencePreview: evidenceContent ? evidenceContent.content.substring(0, 100) + '...' : 'Evidence content not available'
     };
 
     // Trigger LLM arbitration process
     const arbitrationRequest = await triggerLLMArbitration(disputeData);
 
-    res.json({
+    // Build response
+    const response = {
       success: true,
       disputeData,
       arbitrationRequestId: arbitrationRequest.requestId,
       message: 'Dispute reported and LLM arbitration initiated'
-    });
+    };
+
+    // Add environment-specific notes
+    if (isDevelopment) {
+      response.developmentNote = isMockCID(evidenceCID) 
+        ? 'Using mock evidence for development' 
+        : 'Using development validation';
+    } else if (isProduction) {
+      response.productionNote = 'Evidence validated through Helia local node';
+    }
+
+    res.json(response);
 
   } catch (error) {
     console.error('Error in dispute report:', error);
@@ -226,11 +572,121 @@ app.post('/api/v7/llm/callback', async (req, res) => {
 app.get('/api/v7/debug/evidence/:cid', async (req, res) => {
   try {
     const { cid } = req.params;
+    
+    // 🔧 Development Mode: Handle mock evidence
+    if (isDevelopment && isMockCID(cid)) {
+      const mockEvidence = await getMockEvidence(cid);
+      return res.json({
+        cid,
+        isValid: true,
+        isMock: true,
+        evidence: mockEvidence,
+        mode: 'development',
+        timestamp: new Date().toISOString(),
+        note: 'This is mock evidence for development'
+      });
+    }
+    
+    // 🏭 Production Mode: Fetch from Helia
+    if (isProduction) {
+      try {
+        const evidence = await fetchEvidenceFromHelia(cid);
+        return res.json({
+          cid,
+          isValid: true,
+          isMock: false,
+          evidence: evidence,
+          mode: 'production',
+          source: 'helia-local',
+          timestamp: new Date().toISOString(),
+          note: 'Evidence fetched from Helia local node'
+        });
+      } catch (error) {
+        return res.status(400).json({
+          cid,
+          isValid: false,
+          isMock: false,
+          mode: 'production',
+          error: error.message,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+    
+    // Legacy validation for other modes
     const validationResult = await validateIPFSEvidence(cid);
     
     res.json({
       cid,
       isValid: validationResult,
+      isMock: false,
+      mode: 'legacy',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 🏭 Production Mode: IPFS daemon management endpoint
+app.post('/api/v7/debug/ipfs/restart', async (req, res) => {
+  if (!isProduction) {
+    return res.status(403).json({ 
+      error: 'IPFS daemon management only available in production mode',
+      mode: isDevelopment ? 'development' : 'legacy'
+    });
+  }
+  
+  try {
+    console.log('🔄 Manual IPFS daemon restart requested...');
+    
+    // Stop existing daemon
+    await stopIPFSDaemon();
+    
+    // Wait a moment
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Start daemon again
+    const success = await startIPFSDaemon();
+    
+    res.json({
+      success,
+      message: success ? 'IPFS daemon restarted successfully' : 'Failed to restart IPFS daemon',
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Failed to restart IPFS daemon',
+      details: error.message 
+    });
+  }
+});
+
+// 🔧 Development Mode: Mock evidence management
+app.get('/api/v7/debug/mock-evidence', async (req, res) => {
+  if (isProduction) {
+    return res.status(403).json({ 
+      error: 'Debug mock evidence disabled in production mode',
+      mode: 'production',
+      hint: 'Use real IPFS CIDs with Helia local node'
+    });
+  }
+  
+  if (!isDevelopment) {
+    return res.status(403).json({ 
+      error: 'Mock evidence only available in development mode',
+      hint: 'Set NODE_ENV=development to enable mock evidence' 
+    });
+  }
+  
+  try {
+    res.json({
+      mode: 'development',
+      mockEvidence: mockEvidenceData,
+      availableCIDs: Object.keys(mockEvidenceData),
+      usage: 'Use these CIDs in dispute reports or arbitration requests',
+      heliaEndpoint: 'Mock evidence - no Helia required',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -391,6 +847,8 @@ app.use((req, res) => {
       'GET /api/v7/arbitration/ollama/health',
       'GET /api/v7/arbitration/health',
       'GET /api/v7/debug/evidence/:cid',
+      'GET /api/v7/debug/mock-evidence',
+      'POST /api/v7/debug/ipfs/restart',
       'GET /api/v7/debug/time/:timestamp'
     ]
   });
@@ -401,14 +859,71 @@ app.listen(PORT, async () => {
   console.log(`🚀 ArbiTrust V7 Server running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
   
+  // 🏭 Auto-start IPFS daemon for production mode
+  if (isProduction) {
+    const ipfsReady = await startIPFSDaemon();
+    if (!ipfsReady) {
+      console.warn('⚠️ IPFS daemon failed to start - production features may be limited');
+      console.warn('💡 Run manually: ipfs daemon');
+    }
+  }
+  
+  // Environment-specific initialization
+  if (isDevelopment) {
+    console.log('🔧 Development Mode Configuration:');
+    console.log('   • Evidence: Mock evidence from evidence_storage/mock/evidence.json');
+    console.log('   • Validation: Bypassed for QmMock* CIDs');
+    console.log('   • IPFS: Daemon auto-start disabled');
+    await loadMockEvidence();
+    console.log(`📝 Mock Evidence available at: http://localhost:${PORT}/api/v7/debug/mock-evidence`);
+  } else if (isProduction) {
+    console.log('🏭 Production Mode Configuration:');
+    console.log('   • Evidence: Helia local node (127.0.0.1:5001)');
+    console.log('   • Validation: Real IPFS CID validation');
+    console.log('   • IPFS: Auto-started daemon');
+    console.log(`🔗 Test Helia: curl http://127.0.0.1:5001/api/v0/version`);
+  } else {
+    console.log('⚪ Legacy Mode: Using original evidence validation');
+  }
+  
   // Load Ollama module after server starts
   const ollamaLoaded = await loadOllamaModule();
   
+  // API endpoints
   if (ollamaLoaded) {
     console.log(`🤖 Ollama Arbitration: http://localhost:${PORT}/api/v7/arbitration/ollama`);
   }
   console.log(`🎯 Simulation Arbitration: http://localhost:${PORT}/api/v7/arbitration/simulate`);
   console.log(`🔧 Debug endpoints available at /api/v7/debug/`);
+  
+  // Mode-specific documentation
+  console.log('\n📋 Usage Instructions:');
+  if (isDevelopment) {
+    console.log('   Development Mode - Use mock CIDs:');
+    console.log('   • QmMock123 (tenant complaint)');
+    console.log('   • QmMockPayment (payment proof)');
+    console.log('   • QmMock456 (landlord response)');
+    console.log('   • QmMockDamages (damage assessment)');
+  } else if (isProduction) {
+    console.log('   Production Mode - Use real IPFS CIDs:');
+    console.log('   • IPFS daemon: Auto-started');
+    console.log('   • Upload evidence: ipfs add <file>');
+    console.log('   • Use returned CID in API calls');
+  }
+  console.log('');
+});
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n🔄 Shutting down ArbiTrust V7 Server...');
+  await stopIPFSDaemon();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n🔄 Shutting down ArbiTrust V7 Server...');
+  await stopIPFSDaemon();
+  process.exit(0);
 });
 
 export default app;

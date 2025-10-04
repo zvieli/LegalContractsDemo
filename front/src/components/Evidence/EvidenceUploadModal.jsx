@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { canonicalize, computeCidDigest, computeContentDigest } from '../../utils/evidenceCanonical.js';
-import { buildEncryptedEnvelope } from '../../utils/evidence.js';
+import { buildEncryptedEnvelope, signEvidenceEIP712, hashRecipients } from '../../utils/evidence.js';
 import { listRecipients } from '../../utils/recipientKeys.js';
 import { addJson } from '../../utils/heliaClient.js';
 import * as ethers from 'ethers';
@@ -15,6 +15,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
   const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
   const [signature, setSignature] = useState(null);
+  const [encryptionFallback, setEncryptionFallback] = useState(false);
 
   const makeBaseObject = (uploader, chainId, verifyingContract) => ({
     version: 1,
@@ -31,6 +32,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
 
   async function buildPreview() {
     setError(null);
+    setEncryptionFallback(false);
     try {
       if (!signer) throw new Error('Signer required to build evidence preview');
       const addr = await signer.getAddress();
@@ -50,8 +52,13 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       if (encrypt && targetRecipients.length) {
         const { envelope: env } = await buildEncryptedEnvelope(base, targetRecipients);
         envelope = env;
+        // Check for encryption failures
+        const failedRecipients = env.recipients?.filter(r => !r.ok) || [];
+        if (failedRecipients.length > 0) {
+          setEncryptionFallback(true);
+        }
       }
-      setPreview({ base, contentDigest, envelope });
+      setPreview({ base, contentDigest, envelope, targetRecipients: targetRecipients || [] });
     } catch (e) {
       setError(e.message || String(e));
     }
@@ -61,16 +68,18 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
     if (!signer) return;
     if (!preview) return;
     try {
-      const addr = await signer.getAddress();
       const chain = await signer.provider.getNetwork();
-      const domain = { name: 'Evidence', version: '1', chainId: Number(chain.chainId), verifyingContract: contract.target };
-      const types = { Evidence: [
-        { name: 'caseId', type: 'uint256' },
-        { name: 'uploader', type: 'address' },
-        { name: 'contentDigest', type: 'bytes32' }
-      ]};
-      const value = { caseId: BigInt(caseId), uploader: addr, contentDigest: preview.contentDigest };
-      const sig = await signer.signTypedData(domain, types, value);
+      const evidenceData = {
+        caseId: caseId,
+        contentDigest: preview.contentDigest,
+        recipients: preview.targetRecipients || [],
+        cid: 'placeholder' // Will be replaced after upload
+      };
+      const contractInfo = {
+        chainId: Number(chain.chainId),
+        verifyingContract: contract.target
+      };
+      const sig = await signEvidenceEIP712(evidenceData, contractInfo, signer);
       setSignature(sig);
     } catch (e) {
       setError(e.message || String(e));
@@ -80,28 +89,47 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
   async function submit() {
     if (!contract) return;
     if (!preview) return setError('Build preview first');
+    if (!signature) return setError('Sign evidence first');
     setBusy(true); setError(null);
     try {
       let toStore = preview.envelope ? { ...preview.envelope } : { ...preview.base };
       toStore.caseId = caseId;
       toStore.contentDigest = preview.contentDigest;
-      if (signature) toStore.signature = signature;
+      toStore.signature = signature;
       toStore.uploader = preview.base.uploader;
       toStore.chainId = preview.base.chainId;
       toStore.verifyingContract = preview.base.verifyingContract;
+      
       const cid = await addJson(toStore);
       const cidDigest = computeCidDigest(cid);
-      // call contract extended path if available
+      const recipientsHash = hashRecipients(preview.targetRecipients || []);
+      
+      // Try new secure method first
       let tx;
-      if (typeof contract.submitEvidenceWithDigest === 'function') {
-        try {
-          tx = await contract.submitEvidenceWithDigest(caseId, cid, preview.contentDigest);
-        } catch (_) {
-          tx = await contract.submitEvidence(caseId, cid);
-        }
+      if (typeof contract.submitEvidenceWithSignature === 'function') {
+        // Re-sign with actual CID
+        const chain = await signer.provider.getNetwork();
+        const evidenceData = {
+          caseId: caseId,
+          contentDigest: preview.contentDigest,
+          recipients: preview.targetRecipients || [],
+          cid: cid
+        };
+        const contractInfo = {
+          chainId: Number(chain.chainId),
+          verifyingContract: contract.target
+        };
+        const finalSignature = await signEvidenceEIP712(evidenceData, contractInfo, signer);
+        
+        tx = await contract.submitEvidenceWithSignature(
+          caseId, cid, preview.contentDigest, recipientsHash, finalSignature
+        );
       } else {
-        tx = await contract.submitEvidence(caseId, cid);
+        // Fallback to deprecated method (should not happen in production)
+        setError('Warning: Using deprecated submission method without signature verification');
+        return;
       }
+      
       await tx.wait();
       onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash });
       onClose && onClose();
@@ -129,10 +157,15 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
         <label style={{display:'flex',alignItems:'center',gap:6}}>
           <input type="checkbox" checked={encrypt} onChange={e=>setEncrypt(e.target.checked)} /> Encrypt envelope
         </label>
+        {encryptionFallback && (
+          <div style={{color:'orange', fontSize:'0.9em', marginTop:4}}>
+            ⚠️ Some recipients failed encryption - envelope contains mixed plaintext/encrypted data
+          </div>
+        )}
         <div style={{display:'flex',gap:8,marginTop:8}}>
           <button onClick={buildPreview} disabled={busy}>Build Preview</button>
           <button onClick={signUploader} disabled={!preview || busy}>Sign</button>
-          <button onClick={submit} disabled={!preview || busy}>Submit</button>
+          <button onClick={submit} disabled={!preview || !signature || busy}>Submit</button>
           <button className="outline" onClick={()=> onClose && onClose()}>Close</button>
         </div>
         {busy && <div className="muted">Processing...</div>}
