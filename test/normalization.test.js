@@ -19,10 +19,15 @@ describe('Normalization helpers', function() {
 
   it('canonicalize address variations', function() {
     const a = '0xAbC1230000000000000000000000000000000000';
-    const b = 'abc1230000000000000000000000000000000000';
+    const b = 'abc1230000000000000000000000000000000000'; // no 0x
     const c = '0x' + b;
-    assert.strictEqual(canonicalizeAddress(a), '0xabc1230000000000000000000000000000000000');
-    assert.strictEqual(canonicalizeAddress(b), '0xabc1230000000000000000000000000000000000');
-    assert.strictEqual(canonicalizeAddress(c), '0xabc1230000000000000000000000000000000000');
+    const expected = '0xabc1230000000000000000000000000000000000';
+    assert.strictEqual(canonicalizeAddress(a), expected);
+    const bCanon = canonicalizeAddress(b);
+    assert.strictEqual(bCanon, expected); // now always 0x-prefixed
+    assert.strictEqual(canonicalizeAddress(c), expected);
+    // malformed inputs
+    assert.strictEqual(canonicalizeAddress(''), null);
+    assert.strictEqual(canonicalizeAddress('0xZZZ'), null);
   });
 });

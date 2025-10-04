@@ -18,13 +18,17 @@ describe('Dispute bond & deposit flows', function () {
     factory = await Factory.deploy();
     await factory.waitForDeployment();
 
-    const MockPriceFeed = await ethers.getContractFactory('MockPriceFeed');
-    const mockPrice = await MockPriceFeed.deploy(2000);
-    await mockPrice.waitForDeployment();
+    // Use real Chainlink ETH/USD aggregator address
+    const priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
 
     await factory.setDefaultArbitrationService(arbitrationService.target, 0);
 
-    const tx = await factory.connect(landlord).createRentContract(tenant.address, ethers.parseEther('1'), mockPrice.target, 0);
+    const tx = await factory.connect(landlord).createRentContract(
+      tenant.address,
+      ethers.parseEther('1'),
+      priceFeedAddress,
+      0
+    );
     const receipt = await tx.wait();
     const evt = receipt.logs.find(l => l.fragment && l.fragment.name === 'RentContractCreated');
     const deployedAddr = evt.args.contractAddress;
@@ -78,22 +82,22 @@ describe('Dispute bond & deposit flows', function () {
     const caseId = evt.args.caseId;
 
     // debtor = landlord deposits requested amount
-    await rent.connect(landlord).depositForCase(caseId, { value: requested });
+  await rent.connect(landlord).depositForCase(caseId, { value: requested });
 
     // track balances
     const beforeReporter = await ethers.provider.getBalance(tenant.address);
     const beforeClaimant = await ethers.provider.getBalance(tenant.address);
 
     // Approve via arbitration service owner (deployer) as owner
-    const arbOwner = await arbitrationService.owner();
-    await arbitrationService.connect(landlord).applyResolutionToTarget(rent.target ?? rent.address, caseId, true, requested, tenant.address);
+  const arbOwnerAddr = await arbitrationService.owner();
+  await arbitrationService.connect(landlord).applyResolutionToTarget(rent.target, caseId, true, requested, tenant.address);
 
     // bond should be zeroed
-    const bondAfter = await rent.getDisputeBond(caseId);
+  const bondAfter = await rent.getDisputeBond(caseId);
     expect(bondAfter).to.equal(0);
 
     // partyDeposit of debtor should be reduced
-    const pd = await rent.partyDeposit(landlord);
+  const pd = await rent.partyDeposit(landlord.address);
     expect(pd).to.equal(0);
   });
 
@@ -105,21 +109,21 @@ describe('Dispute bond & deposit flows', function () {
     const caseId = evt.args.caseId;
 
     // transfer arbitration owner to arbOwner (EOA)
-    await arbitrationService.connect(landlord).transferOwnership(arbOwner.address);
+  await arbitrationService.connect(landlord).transferOwnership(arbOwner.address);
 
   // check contract balance before
-  const rentBalBefore = await ethers.provider.getBalance(rent.target ?? rent.address);
+  const rentBalBefore = await ethers.provider.getBalance(rent.target);
 
   // Reject via arbitrationService owner
-  await arbitrationService.connect(arbOwner).applyResolutionToTarget(rent.target ?? rent.address, caseId, false, 0, arbOwner.address);
+  await arbitrationService.connect(arbOwner).applyResolutionToTarget(rent.target, caseId, false, 0, arbOwner.address);
 
   // bond should be zero
-  const bondAfter = await rent.getDisputeBond(caseId);
-  expect(bondAfter).to.equal(0);
+  const bondAfter2 = await rent.getDisputeBond(caseId);
+  expect(bondAfter2).to.equal(0);
 
   // either the contract paid out the bond to the EOA (balance decreased) or the recipient was a rejecting contract
   // and the value was credited to withdrawable. Accept either behavior.
-  const rentBalAfter = await ethers.provider.getBalance(rent.target ?? rent.address);
+  const rentBalAfter = await ethers.provider.getBalance(rent.target);
   const delta = rentBalBefore - rentBalAfter;
   const w = await rent.withdrawable(arbOwner.address);
   const ok = (delta >= bond) || (w >= bond);

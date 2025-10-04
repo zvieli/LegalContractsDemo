@@ -23,66 +23,16 @@ async function main() {
 
   console.log("✅ ContractFactory deployed to:", factoryAddress);
 
-  // === 1.5 Optionally deploy mocks: MockPriceFeed ===
-  // Mock ERC20 support removed from project. We only deploy MockPriceFeed when needed.
-  let mockTokenAddress = null; // retained for compatibility but never set
-  let mockPriceAddress = null;
-  const envDeployMocks = process.env.DEPLOY_MOCKS;
-  let deployMocks = String(envDeployMocks ?? '').toLowerCase() === 'true';
-  if (typeof envDeployMocks === 'undefined') {
-    const localNames = ['localhost', 'hardhat'];
-    if (localNames.includes(network.name) || Number(process.env.CHAIN_ID) === 31337) {
-      deployMocks = true;
-      console.log('ℹ️  DEPLOY_MOCKS not set - defaulting to true on local network to populate MockContracts.json (price feed only)');
-    }
-  }
-
-  // Ensure frontend public contracts dir exists early. The dev server serves
-  // artifacts from `front/public/utils/contracts` at runtime (served at /utils/contracts/).
-  // Resolve frontend public contracts dir robustly (use path.resolve to handle Windows paths)
-  const frontendPublicContractsDir = path.resolve(__dirname, '..', 'front', 'public', 'utils', 'contracts');
-  // Primary contracts directory used for runtime fetch
-  const frontendContractsDir = frontendPublicContractsDir;
-  try {
-    fs.mkdirSync(frontendPublicContractsDir, { recursive: true });
-  } catch (e) {
-    console.error('❌ Could not create frontend public contracts directory:', frontendPublicContractsDir, e.message || e);
-    throw e;
-  }
-
-  // If DEPLOY_MOCKS is not explicitly true, check both src and public MockContracts.json
-  // and auto-enable mock deployment when the MockPriceFeed address is missing.
-  let shouldDeployMocks = deployMocks;
-  try {
-    const checkPaths = [
-      path.join(frontendPublicContractsDir, "MockContracts.json")
-    ];
-    for (const p of checkPaths) {
-      if (!deployMocks && fs.existsSync(p)) {
-        const existing = JSON.parse(fs.readFileSync(p, 'utf8')) || {};
-        const mp = existing?.contracts?.MockPriceFeed ?? null;
-        if (!mp) {
-          console.log('ℹ️  MockContracts.json missing MockPriceFeed address; enabling mock deployment to populate it');
-          shouldDeployMocks = true;
-          break;
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('⚠️  Could not inspect existing MockContracts.json:', e.message || e);
-  }
-
-  if (shouldDeployMocks) {
-    console.log("📦 Deploying mock price feed...");
-    const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
-    // initial price 2000
-    const mockPrice = await MockPriceFeed.deploy(2000);
-    await mockPrice.waitForDeployment();
-    mockPriceAddress = await mockPrice.getAddress();
-    console.log("✅ MockPriceFeed deployed to:", mockPriceAddress);
-  } else {
-    console.log('ℹ️  Skipping mock price feed deployment (set DEPLOY_MOCKS=true to enable)');
-  }
+  // === 1.5 Chainlink price feed integration ===
+  // Use real Chainlink ETH/USD aggregator address for Mainnet and Hardhat fork
+  let priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
+  if (network.name === "mainnet" || network.name === "hardhat") {
+    priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
+  } else if (network.name === "sepolia") {
+    // Sepolia ETH/USD aggregator
+    priceFeedAddress = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
+  } // Add more networks as needed
+  console.log(`� Using Chainlink price feed: ${priceFeedAddress}`);
 
   // === 2. Save deployment.json ===
   const deploymentData = {

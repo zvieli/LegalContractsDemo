@@ -15,9 +15,8 @@ import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
 
 // 🔧 Environment Mode Configuration
-const isDevelopment = process.env.NODE_ENV === 'development' || process.env.MOCK_IPFS === 'true';
+const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
-const allowMockEvidence = isDevelopment || process.env.ALLOW_MOCK_EVIDENCE === 'true';
 
 // IPFS Daemon Management
 let ipfsDaemonProcess = null;
@@ -163,30 +162,13 @@ async function configureIPFSCORS() {
 
 // Environment logging
 if (isDevelopment) {
-  console.log(`🔧 Development Mode: ENABLED - Using mock evidence`);
-  console.log(`📝 Mock Evidence: ALLOWED`);
+  console.log(`🔧 Development Mode: ENABLED - Limited functionality`);
 } else if (isProduction) {
   console.log(`🏭 Production Mode: ENABLED - Using Helia local node`);
   console.log(`🔗 Helia Endpoint: http://127.0.0.1:5001`);
-  console.log(`📝 Mock Evidence: DISABLED`);
 } else {
   console.log(`⚪ Default Mode: Using legacy validation`);
-  console.log(`📝 Mock Evidence: ${allowMockEvidence ? 'ALLOWED' : 'STRICT_VALIDATION'}`);
 }
-
-// Mock evidence structure for development
-const mockEvidenceTemplate = {
-  id: "mock-evidence-dev",
-  party: "claimant", 
-  content: "This is mock evidence for development testing.",
-  timestamp: Math.floor(Date.now() / 1000),
-  type: "text",
-  metadata: {
-    created: new Date().toISOString(),
-    source: "development-mock",
-    version: "1.0"
-  }
-};
 
 // V7 Modules
 import { validateIPFSEvidence } from './modules/evidenceValidator.js';
@@ -211,40 +193,6 @@ async function loadOllamaModule() {
     console.log('🔄 Ollama features will be disabled');
     return false;
   }
-}
-
-// 🔧 Mock Evidence Utilities for Development
-let mockEvidenceData = {};
-
-async function loadMockEvidence() {
-  try {
-    const mockPath = path.join(__dirname, '../evidence_storage/mock/evidence.json');
-    if (fs.existsSync(mockPath)) {
-      const mockData = fs.readFileSync(mockPath, 'utf8');
-      mockEvidenceData = JSON.parse(mockData);
-      console.log(`📝 Loaded ${Object.keys(mockEvidenceData).length} mock evidence entries`);
-    }
-  } catch (error) {
-    console.warn('⚠️ Failed to load mock evidence:', error.message);
-  }
-}
-
-function isMockCID(cid) {
-  return cid && (cid.startsWith('QmMock') || cid.startsWith('mock-'));
-}
-
-async function getMockEvidence(cid) {
-  if (mockEvidenceData[cid]) {
-    return mockEvidenceData[cid];
-  }
-  
-  // Return default mock evidence if CID not found in mock data
-  return {
-    ...mockEvidenceTemplate,
-    id: `mock-${cid}`,
-    content: `Development mock evidence for CID: ${cid}`,
-    cid: cid
-  };
 }
 
 // 🏭 Production Mode: Helia Evidence Fetching
@@ -294,15 +242,9 @@ async function fetchEvidenceFromHelia(cid) {
   }
 }
 
-async function validateEvidenceWithMockSupport(evidenceCID) {
-  // In development mode, allow mock CIDs
-  if (allowMockEvidence && isMockCID(evidenceCID)) {
-    console.log(`🔧 Dev Mode: Using mock evidence for CID ${evidenceCID}`);
-    return true;
-  }
-  
+async function validateEvidenceWithHelia(evidenceCID) {
   // In production mode, validate against Helia
-  if (!isDevelopment) {
+  if (isProduction) {
     try {
       await fetchEvidenceFromHelia(evidenceCID);
       return true;
@@ -310,6 +252,12 @@ async function validateEvidenceWithMockSupport(evidenceCID) {
       console.error(`🏭 Production validation failed for ${evidenceCID}:`, error.message);
       return false;
     }
+  }
+  
+  // In development mode, skip validation
+  if (isDevelopment) {
+    console.log(`🔧 Dev Mode: Skipping evidence validation for ${evidenceCID}`);
+    return true;
   }
   
   // Fallback to original validation
@@ -359,7 +307,7 @@ app.get('/health', async (req, res) => {
   } else {
     health.ipfs = {
       status: 'not-required',
-      mode: 'mock-evidence'
+      mode: 'development'
     };
   }
 
@@ -378,12 +326,12 @@ app.post('/api/v7/dispute/report', async (req, res) => {
       });
     }
 
-    // 🔧 Evidence fetching based on environment mode
-    const isValidEvidence = await validateEvidenceWithMockSupport(evidenceCID);
+    // 🔧 Evidence validation based on environment mode
+    const isValidEvidence = await validateEvidenceWithHelia(evidenceCID);
     if (!isValidEvidence) {
       let errorMsg = 'Invalid or inaccessible IPFS evidence CID';
       if (isDevelopment) {
-        errorMsg = 'Invalid CID. Use real IPFS CID or mock CID starting with "QmMock"';
+        errorMsg = 'Evidence validation disabled in development mode';
       } else if (isProduction) {
         errorMsg = 'Invalid CID or Helia local node unreachable. Is IPFS daemon running on 127.0.0.1:5001?';
       }
@@ -394,11 +342,7 @@ app.post('/api/v7/dispute/report', async (req, res) => {
     let evidenceContent = null;
     let evidenceSource = 'unknown';
     
-    if (isDevelopment && isMockCID(evidenceCID)) {
-      // Development: use mock evidence
-      evidenceContent = await getMockEvidence(evidenceCID);
-      evidenceSource = 'mock';
-    } else if (isProduction) {
+    if (isProduction) {
       // Production: fetch from Helia
       try {
         evidenceContent = await fetchEvidenceFromHelia(evidenceCID);
@@ -407,6 +351,9 @@ app.post('/api/v7/dispute/report', async (req, res) => {
         console.error('Failed to fetch from Helia:', error.message);
         // Continue without content, validation already passed
       }
+    } else if (isDevelopment) {
+      // Development: no evidence fetching
+      evidenceSource = 'development-skip';
     }
 
     // Prepare dispute data for LLM
@@ -435,9 +382,7 @@ app.post('/api/v7/dispute/report', async (req, res) => {
 
     // Add environment-specific notes
     if (isDevelopment) {
-      response.developmentNote = isMockCID(evidenceCID) 
-        ? 'Using mock evidence for development' 
-        : 'Using development validation';
+      response.developmentNote = 'Development mode - evidence validation skipped';
     } else if (isProduction) {
       response.productionNote = 'Evidence validated through Helia local node';
     }
@@ -573,17 +518,19 @@ app.get('/api/v7/debug/evidence/:cid', async (req, res) => {
   try {
     const { cid } = req.params;
     
-    // 🔧 Development Mode: Handle mock evidence
-    if (isDevelopment && isMockCID(cid)) {
-      const mockEvidence = await getMockEvidence(cid);
+    // 🔧 Development Mode: Skip validation
+    if (isDevelopment) {
       return res.json({
         cid,
         isValid: true,
-        isMock: true,
-        evidence: mockEvidence,
+        evidence: {
+          id: `dev-${cid}`,
+          content: 'Development mode - validation skipped',
+          type: 'development'
+        },
         mode: 'development',
         timestamp: new Date().toISOString(),
-        note: 'This is mock evidence for development'
+        note: 'Development mode - evidence validation disabled'
       });
     }
     
@@ -594,7 +541,6 @@ app.get('/api/v7/debug/evidence/:cid', async (req, res) => {
         return res.json({
           cid,
           isValid: true,
-          isMock: false,
           evidence: evidence,
           mode: 'production',
           source: 'helia-local',
@@ -605,7 +551,6 @@ app.get('/api/v7/debug/evidence/:cid', async (req, res) => {
         return res.status(400).json({
           cid,
           isValid: false,
-          isMock: false,
           mode: 'production',
           error: error.message,
           timestamp: new Date().toISOString()
@@ -619,7 +564,6 @@ app.get('/api/v7/debug/evidence/:cid', async (req, res) => {
     res.json({
       cid,
       isValid: validationResult,
-      isMock: false,
       mode: 'legacy',
       timestamp: new Date().toISOString()
     });
@@ -663,30 +607,24 @@ app.post('/api/v7/debug/ipfs/restart', async (req, res) => {
   }
 });
 
-// 🔧 Development Mode: Mock evidence management
-app.get('/api/v7/debug/mock-evidence', async (req, res) => {
-  if (isProduction) {
-    return res.status(403).json({ 
-      error: 'Debug mock evidence disabled in production mode',
-      mode: 'production',
-      hint: 'Use real IPFS CIDs with Helia local node'
-    });
-  }
-  
+// 🔧 Development Mode: Limited functionality
+app.get('/api/v7/debug/development-info', async (req, res) => {
   if (!isDevelopment) {
     return res.status(403).json({ 
-      error: 'Mock evidence only available in development mode',
-      hint: 'Set NODE_ENV=development to enable mock evidence' 
+      error: 'Development info only available in development mode',
+      hint: 'Set NODE_ENV=development to enable development features' 
     });
   }
   
   try {
     res.json({
       mode: 'development',
-      mockEvidence: mockEvidenceData,
-      availableCIDs: Object.keys(mockEvidenceData),
-      usage: 'Use these CIDs in dispute reports or arbitration requests',
-      heliaEndpoint: 'Mock evidence - no Helia required',
+      features: {
+        evidenceValidation: 'disabled',
+        ipfsDaemon: 'not-required',
+        heliaIntegration: 'disabled'
+      },
+      usage: 'Development mode has limited functionality - use production mode for full features',
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -847,7 +785,7 @@ app.use((req, res) => {
       'GET /api/v7/arbitration/ollama/health',
       'GET /api/v7/arbitration/health',
       'GET /api/v7/debug/evidence/:cid',
-      'GET /api/v7/debug/mock-evidence',
+      'GET /api/v7/debug/development-info',
       'POST /api/v7/debug/ipfs/restart',
       'GET /api/v7/debug/time/:timestamp'
     ]
@@ -871,11 +809,9 @@ app.listen(PORT, async () => {
   // Environment-specific initialization
   if (isDevelopment) {
     console.log('🔧 Development Mode Configuration:');
-    console.log('   • Evidence: Mock evidence from evidence_storage/mock/evidence.json');
-    console.log('   • Validation: Bypassed for QmMock* CIDs');
+    console.log('   • Evidence: Validation disabled');
     console.log('   • IPFS: Daemon auto-start disabled');
-    await loadMockEvidence();
-    console.log(`📝 Mock Evidence available at: http://localhost:${PORT}/api/v7/debug/mock-evidence`);
+    console.log(`📝 Development info available at: http://localhost:${PORT}/api/v7/debug/development-info`);
   } else if (isProduction) {
     console.log('🏭 Production Mode Configuration:');
     console.log('   • Evidence: Helia local node (127.0.0.1:5001)');
@@ -899,11 +835,9 @@ app.listen(PORT, async () => {
   // Mode-specific documentation
   console.log('\n📋 Usage Instructions:');
   if (isDevelopment) {
-    console.log('   Development Mode - Use mock CIDs:');
-    console.log('   • QmMock123 (tenant complaint)');
-    console.log('   • QmMockPayment (payment proof)');
-    console.log('   • QmMock456 (landlord response)');
-    console.log('   • QmMockDamages (damage assessment)');
+    console.log('   Development Mode - Limited functionality:');
+    console.log('   • Evidence validation disabled');
+    console.log('   • Use production mode for full features');
   } else if (isProduction) {
     console.log('   Production Mode - Use real IPFS CIDs:');
     console.log('   • IPFS daemon: Auto-started');

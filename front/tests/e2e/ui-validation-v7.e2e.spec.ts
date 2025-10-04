@@ -37,8 +37,8 @@ test.describe('V7 UI Validation E2E Tests', () => {
     const factoryArtifact = loadArtifact('ContractFactory.sol/ContractFactory.json');
     const factory = new ethers.Contract(contractFactory, factoryArtifact.abi, deployer);
 
-    const mockJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'public', 'utils', 'contracts', 'MockContracts.json'), 'utf8'));
-    const priceFeed = mockJson.contracts.MockPriceFeed;
+    // Use Sepolia ETH/USD price feed for testing
+    const priceFeed = '0x694AA1769357215DE4FAC081bf1f309aDC325306';
     const requiredDeposit = ethers.parseEther('1');
     const rentAmount = 100;
     const dueDate = Math.floor(Date.now() / 1000) + 86400;

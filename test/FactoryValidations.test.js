@@ -1,3 +1,4 @@
+const CHAINLINK_ETH_USD = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
 import pkg from "hardhat";
 const { ethers } = pkg;
 import { expect } from "chai";
@@ -7,15 +8,12 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 describe("ContractFactory with Validations", function () {
   let factory;
   let landlord, tenant, partyA, partyB, other;
-  let mockPriceFeed;
+  // let mockPriceFeed;
 
   beforeEach(async function () {
     [landlord, tenant, partyA, partyB, other] = await ethers.getSigners();
 
-    // Deploy MockPriceFeed
-    const MockPriceFeed = await ethers.getContractFactory("MockPriceFeed");
-    mockPriceFeed = await MockPriceFeed.deploy(2000);
-    await mockPriceFeed.waitForDeployment();
+  // No mock price feed, use Chainlink aggregator
 
     // Deploy Factory 
   const Factory = await ethers.getContractFactory("ContractFactory");
@@ -27,10 +25,10 @@ describe("ContractFactory with Validations", function () {
     it("should revert with zero tenant address", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-            ZERO_ADDRESS,
-            100,
-            mockPriceFeed.target,
-            0
+          ZERO_ADDRESS,
+          100,
+          CHAINLINK_ETH_USD,
+          0
         )
       ).to.be.revertedWithCustomError(factory, 'ZeroTenant');
     });
@@ -38,21 +36,21 @@ describe("ContractFactory with Validations", function () {
     it("should revert when landlord is also tenant", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-            landlord.address,
-            100,
-            mockPriceFeed.target,
-            0
+          landlord.address,
+          100,
+          CHAINLINK_ETH_USD,
+          0
         )
       ).to.be.revertedWithCustomError(factory, 'SameAddresses');
     });
-
+        let priceFeed;
     it("should revert with zero rent amount", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-            tenant.address,
-            0,
-            mockPriceFeed.target,
-            0
+          tenant.address,
+          0,
+          CHAINLINK_ETH_USD,
+          0
         )
       ).to.be.revertedWithCustomError(factory, 'ZeroRentAmount');
     });
@@ -60,10 +58,10 @@ describe("ContractFactory with Validations", function () {
     it("should revert with zero price feed address", async function () {
       await expect(
         factory.connect(landlord).createRentContract(
-            tenant.address,
-            100,
-            ZERO_ADDRESS,
-            0
+          tenant.address,
+          100,
+          ZERO_ADDRESS,
+          0
         )
       ).to.be.revertedWithCustomError(factory, 'ZeroPriceFeed');
     });
@@ -147,6 +145,6 @@ describe("ContractFactory with Validations", function () {
       ).to.be.revertedWithCustomError(factory, 'MinDepositZero');
     });
   });
+  });
 
  
-});

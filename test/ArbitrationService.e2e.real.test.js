@@ -201,8 +201,10 @@ describe('ArbitrationService E2E (Mainnet Fork, Real Infra)', function () {
   const beforeCount = await ethers.provider.getBalance(rentContract.target);
   const requested = ethers.parseEther('0.1');
   requestedDisputeAmount = requested; // persist for resolution test
-    const bond = requested / 2000n + 1n; // slightly above 0.05%
-  const reportTx = await rentContract.connect(tenant).reportDispute(0, requested, `ipfs://${evidenceCid}`, { value: bond });
+  const percentageBond = requested * 50n / 10000n; // 0.5%
+  const minimumBond = ethers.parseEther('0.001');
+  const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
+  const reportTx = await rentContract.connect(tenant).reportDispute(0, requested, `ipfs://${evidenceCid}`, { value: requiredBond });
     const r = await reportTx.wait();
     // Parse events manually due to v6
     let caseId;
@@ -218,8 +220,8 @@ describe('ArbitrationService E2E (Mainnet Fork, Real Infra)', function () {
     expect(caseId, 'extracted caseId').to.not.be.undefined;
     storedCaseId = Number(caseId);
     const afterCount = await ethers.provider.getBalance(rentContract.target);
-    // Bond sits in contract balance until resolution paths move it, so balance increases by bond
-    expect(afterCount - beforeCount).to.equal(bond);
+  // Bond sits in contract balance until resolution paths move it, so balance increases by requiredBond
+  expect(afterCount - beforeCount).to.equal(requiredBond);
   });
 
   it('LLM (simulated) produces recommendation & admin applies resolution', async function () {
@@ -316,9 +318,11 @@ describe('ArbitrationService E2E (Mainnet Fork, Real Infra)', function () {
     const preDeposit = await rentContract.partyDeposit(landlord.address);
     expect(preDeposit).to.be.greaterThan(0n);
     // Request more than available to trigger DisputeAppliedCapped
-    const requested = preDeposit + ethers.parseEther('0.2'); // exceed remaining
-    const bond = requested / 2000n + 1n;
-    const repTx = await rentContract.connect(tenant).reportDispute(0, requested, 'ipfs://dummyCapped', { value: bond });
+  const requested = preDeposit + ethers.parseEther('0.2'); // exceed remaining
+  const percentageBond = requested * 50n / 10000n; // 0.5%
+  const minimumBond = ethers.parseEther('0.001');
+  const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
+  const repTx = await rentContract.connect(tenant).reportDispute(0, requested, 'ipfs://dummyCapped', { value: requiredBond });
     const repRc = await repTx.wait();
     let caseId;
     for (const log of repRc.logs) {
@@ -353,9 +357,11 @@ describe('ArbitrationService E2E (Mainnet Fork, Real Infra)', function () {
     await (await rentContract.connect(landlord).depositSecurity({ value: REQUIRED_DEPOSIT })).wait();
     const preDeposit = await rentContract.partyDeposit(landlord.address);
     expect(preDeposit).to.equal(REQUIRED_DEPOSIT);
-    const requested = ethers.parseEther('0.02');
-    const bond = requested / 2000n + 1n;
-    const repTx = await rentContract.connect(tenant).reportDispute(0, requested, 'ipfs://dummyReject', { value: bond });
+  const requested = ethers.parseEther('0.02');
+  const percentageBond = requested * 50n / 10000n; // 0.5%
+  const minimumBond = ethers.parseEther('0.001');
+  const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
+  const repTx = await rentContract.connect(tenant).reportDispute(0, requested, 'ipfs://dummyReject', { value: requiredBond });
     const repRc = await repTx.wait();
     let caseId;
     for (const log of repRc.logs) {
@@ -398,9 +404,11 @@ describe('ArbitrationService E2E (Mainnet Fork, Real Infra)', function () {
     const add = ethers.parseEther('0.4');
     await (await rentContract.connect(landlord).depositSecurity({ value: add })).wait();
     const pre = await rentContract.partyDeposit(landlord.address);
-    const requested = pre + ethers.parseEther('0.3'); // bigger than deposit
-    const bond = requested/2000n + 1n;
-    const repTx = await rentContract.connect(tenant).reportDispute(0, requested, 'ipfs://largeReject', { value: bond });
+  const requested = pre + ethers.parseEther('0.3'); // bigger than deposit
+  const percentageBond = requested * 50n / 10000n; // 0.5%
+  const minimumBond = ethers.parseEther('0.001');
+  const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
+  const repTx = await rentContract.connect(tenant).reportDispute(0, requested, 'ipfs://largeReject', { value: requiredBond });
     const repRc = await repTx.wait();
     let caseId; for (const log of repRc.logs) { try { const p = rentContract.interface.parseLog(log); if (p.name==='DisputeReported'){ caseId = Number(p.args[0]); break; } } catch(_){} }
     expect(caseId).to.be.a('number');

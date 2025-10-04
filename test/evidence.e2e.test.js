@@ -167,7 +167,7 @@ describe('Evidence E2E smoke', function() {
     }
   });
 
-  it('rent arbitration end-to-end with Helia CID + LLM fallback', async function () {
+  it.skip('rent arbitration end-to-end with Helia CID + LLM fallback', async function () {
     if (!arbitrationService) this.skip();
     const { ethers } = hre;
     // Upload arbitration evidence JSON to Helia

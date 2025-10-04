@@ -27,8 +27,17 @@ const __dirname = path.dirname(__filename);
 
 // Legacy compatibility exports
 export function canonicalizeAddress(addr) {
-  if (!addr) return null;
-  return String(addr).toLowerCase();
+  if (addr === undefined || addr === null) return null;
+  let s = String(addr).trim();
+  if (s.length === 0) return null;
+  if (s.startsWith('0x') || s.startsWith('0X')) s = s.slice(2);
+  s = s.toLowerCase();
+  // Reject non-hex chars
+  if (!/^[0-9a-f]*$/.test(s)) return null;
+  // If shorter than 40 chars (rare / sloppy input), left-pad with zeros; if longer, invalid
+  if (s.length > 40) return null;
+  if (s.length < 40) s = s.padStart(40, '0');
+  return '0x' + s;
 }
 
 export function normalizePubForEthCrypto(pub) {

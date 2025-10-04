@@ -21,7 +21,20 @@ export default {
       forking: {
         url: "https://eth-mainnet.g.alchemy.com/v2/C71xjjRnVc5bmInmm-AQ3",
         enabled: true
-      }
+      },
+      // Fix ProviderError: Transaction maxFeePerGas is too low
+      mining: {
+        auto: true,
+        interval: 0
+      },
+      // Set high enough gas fees for tests
+      initialBaseFeePerGas: 0,
+      blockGasLimit: 30000000,
+      allowUnlimitedContractSize: true,
+      gas: "auto",
+      gasPrice: 30000000000,
+      maxFeePerGas: 300000000000,
+      maxPriorityFeePerGas: 30000000000
     },
     localhost: {
       url: "http://127.0.0.1:8545",

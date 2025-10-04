@@ -13,7 +13,7 @@
 
 import EthCrypto from 'eth-crypto';
 import crypto from 'crypto';
-import { appendTestingTrace, logAdminKeyDerivation } from '../../utils/testing-helpers.js';
+// import { appendTestingTrace, logAdminKeyDerivation } from '../../utils/testing-helpers.js';
 
 // Prefer canonical ECIES implementation
 let canonicalEcies = null;

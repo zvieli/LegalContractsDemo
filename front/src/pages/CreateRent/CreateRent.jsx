@@ -6,16 +6,6 @@ import './CreateRent.css';
 import '../../styles/notAllowed.css';
 
 function CreateRent() {
-  // Mock Price Feed: attempt to load a generated MockContracts.json at runtime if present.
-  // We avoid a static import because the file is generated at deploy-time and may be absent
-  // in checkout/build environments. We fetch it at runtime and fall back gracefully.
-  const [mockPriceFeedAddress, setMockPriceFeedAddress] = useState(null);
-  // Log mock price feed only when it changes (avoid noisy logs on every render)
-  useEffect(() => {
-    // Use debug-level log to reduce console noise in production/devtools
-    console.debug('mockPriceFeedAddress changed:', mockPriceFeedAddress);
-  }, [mockPriceFeedAddress]);
-
   const { account, signer, isConnected, chainId } = useEthers();
   const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
   const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
@@ -23,7 +13,7 @@ function CreateRent() {
   const [formData, setFormData] = useState({
     tenantAddress: '',
     rentAmount: '',
-    // Default to mock price feed on localhost when available; otherwise use Sepolia by default
+    // Default to Sepolia ETH/USD price feed
     priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
     duration: '',
     startDate: '',
@@ -44,33 +34,8 @@ function CreateRent() {
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => {
-      const next = { ...prev, [name]: value.trim() };
-      // If switching to localhost, prefer the Mock Price Feed automatically
-      if (name === 'network' && value === 'localhost' && mockPriceFeedAddress) {
-        next.priceFeed = mockPriceFeedAddress;
-      }
-      return next;
-    });
+    setFormData(prev => ({ ...prev, [name]: value.trim() }));
   };
-
-  // Try to fetch generated MockContracts.json at runtime (optional). This keeps the bundle
-  // independent of generated artifacts while still allowing local dev to use mocks.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const resp = await fetch('/utils/contracts/MockContracts.json');
-        if (!resp.ok) return;
-        const mc = await resp.json();
-        const addr = mc?.contracts?.MockPriceFeed?.trim() || null;
-        if (!cancelled && addr) setMockPriceFeedAddress(addr);
-      } catch (e) {
-        // ignore — file may not exist in many environments
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   const handleCreateContract = async (e) => {
     e.preventDefault();
@@ -158,15 +123,10 @@ function CreateRent() {
 
       const contractService = new ContractService(signer, expectedChainId); // ✅ Use expectedChainId
 
-      // If localhost is selected, force the Mock Price Feed if available
-      const effectivePriceFeed = (isLocalSelected && mockPriceFeedAddress)
-        ? mockPriceFeedAddress
-        : formData.priceFeed;
-
       const params = {
         tenant: formData.tenantAddress,
         rentAmount: formData.rentAmount,
-        priceFeed: effectivePriceFeed,
+        priceFeed: formData.priceFeed,
         duration: formData.duration,
         startDate: Math.floor(new Date(formData.startDate).getTime() / 1000),
         network: formData.network
@@ -314,7 +274,6 @@ function CreateRent() {
               <option value="0x694AA1769357215DE4FAC081bf1f309aDC325306">ETH/USD (Sepolia)</option>
               <option value="0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419">ETH/USD (Mainnet)</option>
               <option value="0xAb5c49580294Aff77670F839ea425f5b78ab3Ae7">USDC/USD (Mainnet)</option>
-              {mockPriceFeedAddress && <option value={mockPriceFeedAddress}>Mock Price Feed (Local)</option>}
             </select>
             <small>Price feed contract used for conversion rates</small>
           </div>
