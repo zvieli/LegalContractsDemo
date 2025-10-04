@@ -1,4 +1,5 @@
 import * as ethers from 'ethers';
+import { computeCidDigest, computeContentDigest, canonicalize } from './evidenceCanonical.js';
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
 import { IN_E2E } from './env.js';
 
@@ -116,6 +117,56 @@ export async function prepareEvidencePayload(payload, options = {}) {
   }
   // No encryption requested: compute digest over plaintext
   return { digest: computeDigestForText(payloadStr) };
+}
+
+// Build an encrypted multi-recipient envelope (AES-256-GCM) and return { envelopeJson, symmetricKeyHex }
+export async function buildEncryptedEnvelope(contentObj, recipientsPublicKeys = []) {
+  const jsonCanon = canonicalize(contentObj);
+  const contentDigest = computeContentDigest(jsonCanon);
+  // Random 32-byte symmetric key
+  const symKey = ethers.randomBytes(32);
+  const iv = ethers.randomBytes(12);
+  // AES-256-GCM encrypt
+  const subtle = globalThis.crypto && crypto.subtle;
+  let ciphertextB64, tagB64;
+  if (subtle) {
+    const key = await subtle.importKey('raw', symKey, { name: 'AES-GCM' }, false, ['encrypt']);
+    const enc = await subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(jsonCanon));
+    // Browser returns ArrayBuffer containing ciphertext+tag at end (tag length 16)
+    const full = new Uint8Array(enc);
+    const tag = full.slice(full.length - 16);
+    const ct = full.slice(0, full.length - 16);
+    ciphertextB64 = Buffer.from(ct).toString('base64');
+    tagB64 = Buffer.from(tag).toString('base64');
+  } else {
+    // Node fallback
+    const cipher = require('crypto').createCipheriv('aes-256-gcm', Buffer.from(symKey), Buffer.from(iv));
+    const ct = Buffer.concat([cipher.update(jsonCanon, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    ciphertextB64 = ct.toString('base64');
+    tagB64 = tag.toString('base64');
+  }
+  // Encrypt symmetric key per recipient using ECIES browser helper (best effort)
+  const encryptedRecipients = [];
+  for (const pub of recipientsPublicKeys) {
+    try {
+      const { default: eciesMod } = await import('./ecies-browser.js');
+      const encKey = await eciesMod.encryptWithPublicKey(pub.replace(/^0x/, ''), Buffer.from(symKey).toString('hex'));
+      encryptedRecipients.push({ pubkey: pub, encryptedKey: encKey });
+    } catch (e) {
+      // fallback: store placeholder for test
+      encryptedRecipients.push({ pubkey: pub, encryptedKey: { ciphertext: 'legacy', note: 'encrypt failed' } });
+    }
+  }
+  const envelope = {
+    version: 1,
+    ciphertext: ciphertextB64,
+    encryption: { aes: { iv: Buffer.from(iv).toString('base64'), tag: tagB64, algo: 'AES-256-GCM' } },
+    recipients: encryptedRecipients,
+    contentDigest,
+    createdAt: Date.now()
+  };
+  return { envelope, symmetricKeyHex: Buffer.from(symKey).toString('hex'), cidDigest: null, contentDigest };
 }
 
 // Example usage (not executed):

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
+import { computeCidDigest } from '../../utils/evidenceCanonical.js';
 import { decryptEnvelopeWithPrivateKey } from '../../utils/clientDecrypt';
 import { ethers } from 'ethers';
 
-function EvidenceList({ contractAddress }) {
+function EvidenceList({ contractAddress, onSelect }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -76,22 +77,33 @@ function EvidenceList({ contractAddress }) {
         <div>
           {entries.length === 0 ? <p className="muted">No evidence found for this contract.</p> : (
             <div className="transactions-list">
-              {entries.map(e => (
-                <div key={e.digest} className="transaction-item" style={{display:'flex',flexDirection:'column'}}>
+              {entries.map(e => {
+                const cid = e.cid || e.CID || e.uri?.startsWith('ipfs://') ? e.uri?.replace('ipfs://','') : null;
+                let verified = false;
+                try { if (cid && e.digest) verified = computeCidDigest(cid) === e.digest; } catch(_) {}
+                const encrypted = !!(e.encryption || e.ciphertext);
+                return (
+                <div key={e.digest} className="transaction-item" style={{display:'flex',flexDirection:'column',position:'relative'}}>
+                  <div style={{position:'absolute',top:6,right:6,display:'flex',gap:6}}>
+                    <span style={{padding:'2px 6px',borderRadius:4,fontSize:11,background:'#eef'}}>{e.type||'evidence'}</span>
+                    <span style={{padding:'2px 6px',borderRadius:4,fontSize:11,background: verified? '#d2f8d2':'#fdd'}}>{verified? 'Verified':'Invalid'}</span>
+                    {encrypted && <span style={{padding:'2px 6px',borderRadius:4,fontSize:11,background:'#ffe4b3'}}>Encrypted</span>}
+                  </div>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
                     <div style={{flex:1}}>
                       <div><strong>Digest:</strong> {e.digest}</div>
                       <div><strong>Saved:</strong> {new Date(e.savedAt || Date.now()).toLocaleString()}</div>
-                      <div><strong>CID:</strong> {e.cid || '—'}</div>
+                      <div><strong>CID:</strong> {cid || '—'}</div>
                       <div><strong>fileHash:</strong> {e.fileHash || '—'}</div>
                     </div>
                     <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                      <button className="btn-sm" onClick={() => openEnvelope(e.digest)}>Open</button>
-                      <a className="btn-sm outline" href={e.uri || '#'} target="_blank" rel="noreferrer">View raw</a>
+                      <button className="btn-sm" onClick={() => { openEnvelope(e.digest); onSelect && onSelect(e); }}>View JSON</button>
+                      <a className="btn-sm outline" href={e.uri || '#'} target="_blank" rel="noreferrer">Raw</a>
+                      <button className="btn-sm outline" onClick={()=>{ try { const blob = new Blob([JSON.stringify(e,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`evidence-${e.digest.slice(2,10)}.json`; a.click(); } catch(_){} }}>Export</button>
                     </div>
                   </div>
                 </div>
-              ))}
+                ); })}
             </div>
           )}
         </div>
