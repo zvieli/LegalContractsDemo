@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import EvidenceCard from './EvidenceCard.jsx';
 
-export default function EvidenceList({ evidence }) {
+export default function EvidenceList({ evidence, activePrivateKey, activeAddress }) {
   const [open, setOpen] = useState(null);
   return (
     <div className="section">
@@ -9,7 +9,7 @@ export default function EvidenceList({ evidence }) {
       {!evidence || evidence.length === 0 ? <div className="muted">No evidence</div> : (
         <div className="transactions-list">
           {evidence.map(ev => (
-            <EvidenceCard key={ev.txHash + ev.cidDigestEvent} ev={ev} onView={(e)=> setOpen(e)} />
+            <EvidenceCard key={ev.txHash + ev.cidDigestEvent} ev={ev} onView={(e)=> setOpen(e)} activePrivateKey={activePrivateKey} activeAddress={activeAddress} />
           ))}
         </div>
       )}

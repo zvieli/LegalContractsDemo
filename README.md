@@ -290,6 +290,113 @@ Admin decryption utilities live under `tools/admin/`. These helpers are intended
 
 If you maintain integrations or UIs, update your contract ABIs and prefer providing the digest precomputed by the frontend (see `front/src/services/contractService.js`).
 
+## Evidence Submission (submitEvidence vs submitEvidenceWithDigest)
+
+Two related evidence anchoring entrypoints exist on the rent template (and may be mirrored on future templates):
+
+- `submitEvidence(caseId, cid)`
+	- Stores ONLY `cidDigest = keccak256(utf8Bytes(cid))`.
+	- Emits `EvidenceSubmitted(caseId, cidDigest, submitter, cid)`.
+	- Lowest gas cost (single SSTORE for the duplicate-prevention bitmap/mapping).
+	- Suitable when the off-chain object is content-addressed (e.g., IPFS CID already binds content) and you only need duplicate prevention + a stable reference.
+
+- `submitEvidenceWithDigest(caseId, cid, contentDigest)`
+	- Stores both `cidDigest` (for duplicate prevention) AND a caller‑provided `contentDigest` (a keccak256 hash of a canonicalized JSON payload or other deterministic representation).
+	- Emits `EvidenceSubmittedDigest(caseId, cidDigest, contentDigest, submitter, cid)`.
+	- Adds one extra SSTORE (slightly higher gas) but enables stronger tamper detection if the underlying off-chain CID ever re-hosts modified data or if you use gateways that could return inconsistent encodings.
+	- Recommended when: (1) you canonicalize JSON client-side (e.g., stable key order, stripped whitespace) and hash that canonical string, or (2) you want a chain-stored digest independent from any particular content-addressing scheme.
+
+### Choosing which to call
+
+Frontend logic can optimistically attempt `submitEvidenceWithDigest` first (providing both the CID and the precomputed `contentDigest`) and fall back to `submitEvidence` if the extended function is unavailable on older deployments. This repository's current frontend already follows that pattern.
+
+### Digest computation reference
+
+See `front/src/utils/evidenceCanonical.js` (or similarly named utility) for:
+1. Canonicalizing a JSON envelope.
+2. Computing `contentDigest = keccak256(canonicalBytes)`.
+3. Computing `cidDigest = keccak256(utf8Bytes(cid))`.
+
+Store only the 32-byte digest(s) on-chain; do NOT store raw ciphertext, large JSON, or CIDs unless absolutely required—this keeps gas low and simplifies verification.
+
+### Verifying on the client / admin side
+
+1. Fetch the evidence record (CID + stored digests) via events (`EvidenceSubmitted` or `EvidenceSubmittedDigest`).
+2. Retrieve the off-chain object (Helia/IPFS, HTTPS, etc.).
+3. Canonicalize (exact same algorithm) and recompute contentDigest.
+4. Compare with the on-chain `contentDigest` (when using the extended method). If mismatch → treat as tampered / invalid.
+5. Optionally recompute `cidDigest` from the original CID string and ensure it matches what was emitted.
+
+## Recipient Public Key Sync CLI
+
+Encrypted evidence expects a registry of recipient ECIES public keys (e.g., admin, landlord, tenant). To reduce manual editing, a lightweight CLI tool normalizes a config file into the runtime JSON consumed by the frontend.
+
+Script: `tools/admin/sync-recipient-keys.js`
+
+Usage:
+
+```
+node tools/admin/sync-recipient-keys.js path/to/recipients.config.json recipient_pubkeys.json
+```
+
+Input config structure example (`recipients.config.json`):
+
+```json
+{
+	"recipients": [
+		{ "address": "0xAbC123...", "pubkey": "04abcdef..." },
+		{ "address": "0xDeF456...", "pubkey": "0499ffee..." }
+	]
+}
+```
+
+Output: A normalized array written to the specified output path (commonly the project root `recipient_pubkeys.json`):
+
+```json
+[
+	{ "address": "0xAbC123...", "pubkey": "04abcdef..." },
+	{ "address": "0xDeF456...", "pubkey": "0499ffee..." }
+]
+```
+
+### Exit codes & validation
+
+- 1: Usage error (missing args)
+- 2: Config file not found
+- 3: Invalid JSON
+- 4: Missing `recipients` array
+- 5: No valid recipients after filtering
+
+Recipients missing either `address` or `pubkey` are skipped with a console warning.
+
+### Frontend auto-registration flow
+
+On load, the Evidence UI reads `recipient_pubkeys.json` and registers each `{address, pubkey}` into an in-memory registry. When a user enables encryption and no explicit recipients were manually selected, the registry list is used automatically—ensuring consistent encryption targets across runs and test environments.
+
+### Recommended workflow
+
+1. Maintain a human-friendly source file: `recipients.config.json` (can include comments if you preprocess; JSON5 not directly supported).
+2. Run the sync script whenever keys change:
+	 ```
+	 node tools/admin/sync-recipient-keys.js recipients.config.json recipient_pubkeys.json
+	 ```
+3. Commit `recipient_pubkeys.json` ONLY if keys are public (they should be). Never place private keys in these files.
+4. Restart / refresh the frontend so it picks up the updated registry.
+
+### Security notes
+
+- Only public encryption keys should appear here—no signing or private keys.
+- Rotate keys by updating the source config and re-running the sync tool; consumers will start encrypting to the new keys once redeployed/refreshed.
+- If a key is compromised, remove its entry and (optionally) publish an on-chain revocation or registry update depending on your broader key management strategy.
+
+### Testing convenience
+
+Playwright tests can inject a known private key (for a test recipient) into the window scope to allow deterministic decryption assertions. Ensure this key is never a production key.
+
+---
+
+For additional admin-side decryption and verification utilities, see `tools/admin/` and associated README notes.
+
 ## License
 
 This is a demo. Add your preferred license file if you plan to distribute.

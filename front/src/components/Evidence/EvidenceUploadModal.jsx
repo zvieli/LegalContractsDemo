@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { canonicalize, computeCidDigest, computeContentDigest } from '../../utils/evidenceCanonical.js';
 import { buildEncryptedEnvelope } from '../../utils/evidence.js';
+import { listRecipients } from '../../utils/recipientKeys.js';
 import { addJson } from '../../utils/heliaClient.js';
 import * as ethers from 'ethers';
 
@@ -39,8 +40,15 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       const canon = canonicalize(base);
       const contentDigest = computeContentDigest(canon);
       let envelope = null;
-      if (encrypt && recipientsPubkeys.length) {
-        const { envelope: env } = await buildEncryptedEnvelope(base, recipientsPubkeys);
+      let targetRecipients = recipientsPubkeys;
+      if (encrypt && (!targetRecipients || targetRecipients.length === 0)) {
+        try {
+          const seeded = listRecipients();
+          targetRecipients = seeded.map(r => r.pubkey).filter(Boolean);
+        } catch (_) { /* ignore */ }
+      }
+      if (encrypt && targetRecipients.length) {
+        const { envelope: env } = await buildEncryptedEnvelope(base, targetRecipients);
         envelope = env;
       }
       setPreview({ base, contentDigest, envelope });
@@ -83,8 +91,17 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       toStore.verifyingContract = preview.base.verifyingContract;
       const cid = await addJson(toStore);
       const cidDigest = computeCidDigest(cid);
-      // call contract submitEvidence(caseId, cid)
-      const tx = await contract.submitEvidence(caseId, cid);
+      // call contract extended path if available
+      let tx;
+      if (typeof contract.submitEvidenceWithDigest === 'function') {
+        try {
+          tx = await contract.submitEvidenceWithDigest(caseId, cid, preview.contentDigest);
+        } catch (_) {
+          tx = await contract.submitEvidence(caseId, cid);
+        }
+      } else {
+        tx = await contract.submitEvidence(caseId, cid);
+      }
       await tx.wait();
       onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash });
       onClose && onClose();

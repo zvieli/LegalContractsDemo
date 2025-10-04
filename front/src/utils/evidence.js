@@ -152,10 +152,9 @@ export async function buildEncryptedEnvelope(contentObj, recipientsPublicKeys = 
     try {
       const { default: eciesMod } = await import('./ecies-browser.js');
       const encKey = await eciesMod.encryptWithPublicKey(pub.replace(/^0x/, ''), Buffer.from(symKey).toString('hex'));
-      encryptedRecipients.push({ pubkey: pub, encryptedKey: encKey });
+      encryptedRecipients.push({ pubkey: pub, encryptedKey: encKey, ok: true });
     } catch (e) {
-      // fallback: store placeholder for test
-      encryptedRecipients.push({ pubkey: pub, encryptedKey: { ciphertext: 'legacy', note: 'encrypt failed' } });
+      encryptedRecipients.push({ pubkey: pub, encryptedKey: { code: 'ECIES_ENCRYPT_FAIL', message: e?.message || 'encrypt failed', legacy: true }, ok: false });
     }
   }
   const envelope = {

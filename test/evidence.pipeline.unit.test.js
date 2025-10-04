@@ -53,4 +53,32 @@ describe('Evidence pipeline unit', function(){
   expect(parsedArgs.submitter.toLowerCase()).to.equal(tenant.address.toLowerCase());
     await expect(rent.connect(tenant).submitEvidence(0, cid)).to.be.revertedWith('Evidence duplicate');
   });
+
+  it('submitEvidenceWithDigest stores contentDigest mapping', async () => {
+    const [landlord, tenant] = await ethers.getSigners();
+    const Price = await ethers.getContractFactory('MockPriceFeed');
+    const pf = await Price.deploy(2000);
+    await pf.waitForDeployment();
+    const Rent = await ethers.getContractFactory('TemplateRentContract');
+    const rent = await Rent.deploy(
+      landlord.address,
+      tenant.address,
+      100,
+      0,
+      await pf.getAddress(),
+      0,
+      landlord.address,
+      0,
+      ''
+    );
+    await rent.waitForDeployment();
+    const cid = 'bafybeigdyrzt5aEXTdigest';
+    const contentDigest = keccak256(toUtf8Bytes('canon-json-placeholder'));
+    const tx = await rent.connect(tenant).submitEvidenceWithDigest(1, cid, contentDigest);
+    const rc = await tx.wait();
+    let parsedArgs; for(const log of rc.logs){ try { const p = rent.interface.parseLog(log); if(p.name==='EvidenceSubmittedDigest'){ parsedArgs=p.args; break; } } catch(_){} }
+    expect(parsedArgs.contentDigest).to.equal(contentDigest);
+    const stored = await rent.evidenceContentDigest(parsedArgs.cidDigest);
+    expect(stored).to.equal(contentDigest);
+  });
 });

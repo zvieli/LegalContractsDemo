@@ -11,6 +11,7 @@ import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import EvidenceList from '../Evidence/EvidenceList';
 import { useEvidence } from '../../hooks/useEvidence.js';
+import { registerRecipient } from '../../utils/recipientKeys.js';
 import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
 import { IN_E2E } from '../../utils/env';
 
@@ -2197,10 +2198,38 @@ function EvidenceTabContent({ contractDetails, signer, contractInstanceRef }) {
       return await res.json();
     }
   );
+  const [activePriv, setActivePriv] = React.useState(null);
+  React.useEffect(()=>{
+    if(!canLoad) return;
+    (async () => {
+      // Load static recipient pubkeys list if present
+      try {
+        const resp = await fetch('/recipient_pubkeys.json');
+        if(resp.ok){
+          const list = await resp.json();
+          if(Array.isArray(list)){
+            for(const entry of list){
+              if(entry.address && entry.pubkey){
+                try { registerRecipient(entry.address, entry.pubkey); } catch(_){}
+              }
+            }
+          }
+        }
+      } catch(_){}
+      // Window-provided hooks
+      try { if(window.__LANDLORD_PUBKEY && contractDetails?.landlord) registerRecipient(contractDetails.landlord, window.__LANDLORD_PUBKEY); } catch(_){}
+      try { if(window.__TENANT_PUBKEY && contractDetails?.tenant) registerRecipient(contractDetails.tenant, window.__TENANT_PUBKEY); } catch(_){}
+      try { if(window.__ADMIN_PUBKEY && window.__PLATFORM_ADMIN_ADDR) registerRecipient(window.__PLATFORM_ADMIN_ADDR, window.__ADMIN_PUBKEY); } catch(_){}
+    })();
+  }, [canLoad, contractDetails]);
+  React.useEffect(()=>{
+    // Test hook: window.__TEST_EVIDENCE_PRIVKEY can inject a decrypt key during E2E
+    try { if (typeof window !== 'undefined' && window.__TEST_EVIDENCE_PRIVKEY) setActivePriv(window.__TEST_EVIDENCE_PRIVKEY); } catch(_){}
+  }, []);
   if (!canLoad) return <div className="muted">Connect wallet to view evidence</div>;
   if (evidenceHook.loading) return <div className="muted">Loading evidence...</div>;
   if (evidenceHook.error) return <div style={{color:'crimson'}}>Evidence error: {evidenceHook.error}</div>;
-  return <EvidenceList evidence={evidenceHook.evidence} />;
+  return <EvidenceList evidence={evidenceHook.evidence} activePrivateKey={activePriv} activeAddress={null} />;
 }
 
 export default ContractModal;

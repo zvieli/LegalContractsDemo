@@ -21,8 +21,33 @@ test.describe('Evidence Upload Modal Flow', () => {
     await page.getByRole('button', { name: 'Submit' }).click();
     // Wait a moment for tx & list refresh
     await page.waitForTimeout(1500);
-    // Check evidence list shows verified or pending
-    const anyCard = page.locator('.transactions-list .transaction-item').first();
-    await expect(anyCard).toBeVisible();
+    // Inject a dummy private key for decrypt tests (test hook consumed in ContractModal)
+    await page.addInitScript(() => {
+      (window as any).__TEST_EVIDENCE_PRIVKEY = '0x01'.padEnd(66,'0');
+    });
+
+    // Wait for evidence list to populate & verify status badge appears
+    const card = page.locator('.transactions-list .transaction-item').first();
+    await expect(card).toBeVisible();
+    // Basic CID presence check
+    await expect(card.locator('text=CID:')).toBeVisible();
+    // Optional: open JSON view if button exists
+    const viewBtn = card.getByRole('button', { name: /View JSON/i });
+    if (await viewBtn.count()) {
+      await viewBtn.click();
+      await expect(page.locator('h5', { hasText: 'Evidence JSON' })).toBeVisible();
+    }
+    // If decrypt button appears (when encrypted + key), click it
+    const decryptBtn = card.getByRole('button', { name: /Decrypt/i });
+    if (await decryptBtn.count()) {
+      await decryptBtn.click();
+      await page.waitForTimeout(800);
+      const decryptedPre = card.locator('pre');
+      if (await decryptedPre.count()) {
+        const txt = (await decryptedPre.first().innerText()).toLowerCase();
+        // Expect some fragment of the narrative
+        expect(txt).toContain('playwright');
+      }
+    }
   });
 });

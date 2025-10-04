@@ -113,7 +113,11 @@ AggregatorV3Interface public immutable priceFeed;
     event PaymentWithdrawn(address indexed to, uint256 amount);
     // Evidence management (optional off-chain content anchoring)
     event EvidenceSubmitted(uint256 indexed caseId, bytes32 indexed cidDigest, address indexed submitter, string cid);
+    // Optional extended event capturing contentDigest (if reporter supplies canonical content hash)
+    event EvidenceSubmittedDigest(uint256 indexed caseId, bytes32 indexed cidDigest, bytes32 contentDigest, address indexed submitter, string cid);
     mapping(bytes32 => bool) private _evidenceSeen; // cidDigest => seen
+    // Optional mapping to persist contentDigest (gas trade-off). Zero value means not supplied.
+    mapping(bytes32 => bytes32) public evidenceContentDigest; // cidDigest => contentDigest
     /// @notice emitted when an attempted approval fails due to insufficient deposit
     error InsufficientDepositForResolution(uint256 available, uint256 required);
 
@@ -228,6 +232,16 @@ AggregatorV3Interface public immutable priceFeed;
         require(!_evidenceSeen[d], "Evidence duplicate");
         _evidenceSeen[d] = true;
         emit EvidenceSubmitted(caseId, d, msg.sender, cid);
+    }
+
+    /// @notice Extended variant allowing the uploader to anchor both the CID (via cidDigest) and a canonical contentDigest.
+    /// This costs additional gas (one extra SSTORE) but enables stronger tamper resistance if off-chain JSON is modified.
+    function submitEvidenceWithDigest(uint256 caseId, string calldata cid, bytes32 contentDigest) external {
+        bytes32 d = keccak256(bytes(cid));
+        require(!_evidenceSeen[d], "Evidence duplicate");
+        _evidenceSeen[d] = true;
+        evidenceContentDigest[d] = contentDigest; // store provided contentDigest
+        emit EvidenceSubmittedDigest(caseId, d, contentDigest, msg.sender, cid);
     }
 
     /// @notice Returns true if a cidDigest was already submitted.
