@@ -10,6 +10,8 @@ import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import EvidenceList from '../Evidence/EvidenceList';
+import EvidenceBatchModal from '../Evidence/EvidenceBatchModal.jsx';
+import { useNotifications } from '../../contexts/NotificationContext.jsx';
 import { useEvidence } from '../../hooks/useEvidence.js';
 import { registerRecipient } from '../../utils/recipientKeys.js';
 import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
@@ -1988,7 +1990,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
 
             {activeTab === 'evidence' && (
               <div className="tab-content">
-                <EvidenceTabContent contractDetails={contractDetails} signer={signer} contractInstanceRef={contractInstanceRef} />
+                <EvidenceTabContent contractDetails={contractDetails} signer={signer} account={account} contractInstanceRef={contractInstanceRef} />
               </div>
             )}
           </div>
@@ -2187,8 +2189,9 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   );
 }
 // Evidence tab content extracted to respect hooks rules
-function EvidenceTabContent({ contractDetails, signer, contractInstanceRef }) {
+function EvidenceTabContent({ contractDetails, signer, account, contractInstanceRef }) {
   const canLoad = !!(contractDetails?.address && signer && contractInstanceRef?.current);
+  const { addNotification } = useNotifications();
   const evidenceHook = useEvidence(
     canLoad ? contractInstanceRef.current : null,
     0,
@@ -2199,6 +2202,52 @@ function EvidenceTabContent({ contractDetails, signer, contractInstanceRef }) {
     }
   );
   const [activePriv, setActivePriv] = React.useState(null);
+  const [showBatch, setShowBatch] = React.useState(false);
+  const [batchSubmitStatus, setBatchSubmitStatus] = React.useState(null);
+  const [merkleMgrAddress, setMerkleMgrAddress] = React.useState(null);
+  const [currentCaseId, setCurrentCaseId] = React.useState(0n);
+
+  // Derive a contextual caseId:
+  // Priority: active dispute (arbCaseId style) -> first known dispute event -> fallback hash of contract address lower bits
+  React.useEffect(() => {
+    (async () => {
+      if(!canLoad) return;
+      try {
+        // Attempt method getActiveDisputeId or similar (best-effort)
+        if (contractInstanceRef.current.getActiveDisputeId) {
+          const v = await contractInstanceRef.current.getActiveDisputeId();
+          if (v != null) { setCurrentCaseId(BigInt(v)); return; }
+        }
+      } catch(_){}
+      try {
+        // fallback: if contract has disputeCount()
+        if (contractInstanceRef.current.disputeCount) {
+          const c = await contractInstanceRef.current.disputeCount();
+          if (c && c > 0n) { setCurrentCaseId(c - 1n); return; }
+        }
+      } catch(_){}
+      // Final fallback: derive pseudo id from address
+      try {
+        if (contractDetails?.address) {
+          const tail = contractDetails.address.slice(-6);
+            setCurrentCaseId(BigInt('0x' + tail));
+        }
+      } catch(_){}
+    })();
+  }, [canLoad, contractDetails]);
+
+  // Attempt to detect merkle evidence manager via contract call if available
+  React.useEffect(() => {
+    (async () => {
+      if(!canLoad) return;
+      try {
+        if (contractInstanceRef.current && contractInstanceRef.current.getMerkleEvidenceManager) {
+          const addr = await contractInstanceRef.current.getMerkleEvidenceManager();
+          if (addr && /^0x[0-9a-fA-F]{40}$/.test(addr) && addr !== '0x0000000000000000000000000000000000000000') setMerkleMgrAddress(addr);
+        }
+      } catch(_){/* ignore */}
+    })();
+  }, [canLoad]);
   React.useEffect(()=>{
     if(!canLoad) return;
     (async () => {
@@ -2229,7 +2278,44 @@ function EvidenceTabContent({ contractDetails, signer, contractInstanceRef }) {
   if (!canLoad) return <div className="muted">Connect wallet to view evidence</div>;
   if (evidenceHook.loading) return <div className="muted">Loading evidence...</div>;
   if (evidenceHook.error) return <div style={{color:'crimson'}}>Evidence error: {evidenceHook.error}</div>;
-  return <EvidenceList evidence={evidenceHook.evidence} activePrivateKey={activePriv} activeAddress={null} />;
+  return <>
+    <EvidenceList
+      evidence={evidenceHook.evidence}
+      activePrivateKey={activePriv}
+      activeAddress={null}
+      extraHeaderActions={merkleMgrAddress && (
+        <button className="btn-sm" onClick={() => setShowBatch(true)} title="Batch submit evidence via Merkle root">Batch submit</button>
+      )}
+    />
+    {merkleMgrAddress && showBatch && (
+      <EvidenceBatchModal
+        uploaderAddress={account}
+        caseId={currentCaseId}
+        onClose={() => setShowBatch(false)}
+        onSubmit={async ({ root, count }) => {
+          try {
+            setBatchSubmitStatus('Submitting transaction...');
+            // Assume merkle manager ABI is available globally via window or import; dynamic import fallback
+            let mgr;
+            try {
+              const { default: abi } = await import('../../utils/contracts/MerkleEvidenceManager.json');
+              mgr = new (await import('ethers')).Contract(merkleMgrAddress, abi, signer);
+            } catch (e) { throw new Error('Failed to load MerkleEvidenceManager ABI: ' + (e?.message||e)); }
+            const tx = await mgr.submitEvidenceBatch(root, count);
+            setBatchSubmitStatus('Waiting for confirmation...');
+            await tx.wait();
+            setBatchSubmitStatus('Batch submitted');
+            addNotification({ type:'success', title:'Evidence Batch Submitted', message:`Root: ${root.slice(0,18)}… count=${count}` });
+            setShowBatch(false);
+          } catch (e) {
+            setBatchSubmitStatus('Batch submission failed: ' + (e?.message||e));
+            addNotification({ type:'error', title:'Batch Submission Failed', message:(e?.message||String(e)) });
+          }
+        }}
+      />
+    )}
+    {batchSubmitStatus && <div style={{marginTop:8, fontSize:12}}>{batchSubmitStatus}</div>}
+  </>;
 }
 
 export default ContractModal;

@@ -10,11 +10,17 @@ function CreateRent() {
   const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
   const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const [loading, setLoading] = useState(false);
+  // Canonical ETH/USD feed addresses (Chainlink)
+  const FEEDS = {
+    mainnet: '0x5f4eC3Df9cbd43714FE2740f5E3616155C5b8419',
+    sepolia: '0x694AA1769357215DE4FAC081bf1f309aDC325306'
+  };
+
   const [formData, setFormData] = useState({
     tenantAddress: '',
     rentAmount: '',
-    // Default to Sepolia ETH/USD price feed
-    priceFeed: '0x694AA1769357215DE4FAC081bf1f309aDC325306', // ETH/USD Sepolia
+    // Start with empty; we'll auto-populate based on selected network below
+    priceFeed: '',
     duration: '',
     startDate: '',
     network: 'localhost' // Default to localhost for developer workflows
@@ -36,6 +42,87 @@ function CreateRent() {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value.trim() }));
   };
+
+  // Whenever network selection changes, choose an appropriate default price feed if current one is empty or mismatched
+  useEffect(() => {
+    (async () => {
+      const net = formData.network;
+      // If user already typed a feed, leave it (unless it's the wrong Sepolia feed on localhost)
+      let current = formData.priceFeed;
+      const normalize = v => (v || '').toLowerCase();
+      const isEmpty = !current || current.trim() === '';
+      if (net === 'sepolia') {
+        const target = FEEDS.sepolia;
+        if (isEmpty || normalize(current) === normalize(FEEDS.mainnet)) {
+          setFormData(prev => ({ ...prev, priceFeed: target }));
+        }
+      } else if (net === 'mainnet') {
+        const target = FEEDS.mainnet;
+        if (isEmpty || normalize(current) === normalize(FEEDS.sepolia)) {
+          setFormData(prev => ({ ...prev, priceFeed: target }));
+        }
+      } else if (net === 'localhost') {
+        // Attempt fork detection: if mainnet feed has code at local node, use mainnet feed; else leave empty and user can pick mock
+        try {
+          if (signer && signer.provider) {
+            const code = await signer.provider.getCode(FEEDS.mainnet).catch(() => '0x');
+            if (code && code !== '0x') {
+              if (isEmpty || normalize(current) === normalize(FEEDS.sepolia)) {
+                setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
+              }
+              return;
+            }
+          }
+          // Fallback: if still empty and not a fork, keep Sepolia feed out (no code) to force user to choose a mock or deployed local feed
+          if (isEmpty) {
+            setFormData(prev => ({ ...prev, priceFeed: '' }));
+          }
+        } catch (_) {}
+      }
+    })();
+  // Re-run when signer or chainId ready, not only network selection
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.network, signer, chainId]);
+
+  // Manual feed detection helper (user-invoked)
+  async function manualDetectFeed() {
+    try {
+      if (!signer) return;
+      if (formData.network === 'localhost') {
+        const code = await signer.provider.getCode(FEEDS.mainnet).catch(() => '0x');
+        if (code && code !== '0x') {
+          setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
+          alert('Detected mainnet ETH/USD feed on local fork and applied it.');
+          return;
+        }
+        alert('Mainnet feed not detected on localhost. Deploy a mock AggregatorV3 and paste its address.');
+      } else if (formData.network === 'sepolia') {
+        setFormData(prev => ({ ...prev, priceFeed: FEEDS.sepolia }));
+      } else if (formData.network === 'mainnet') {
+        setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
+      }
+    } catch (e) {
+      console.warn('manualDetectFeed failed', e);
+    }
+  }
+
+  // Ensure provider network is stable after a wallet network switch (ethers BrowserProvider may briefly report a stale chainId)
+  async function ensureStableNetwork(expectedChainId, maxWaitMs = 4000) {
+    const start = Date.now();
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        const net = await signer?.provider?.getNetwork();
+        if (net && Number(net.chainId) === Number(expectedChainId)) return true;
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (/network changed/i.test(msg)) {
+          // brief backoff then retry
+        }
+      }
+      await new Promise(r => setTimeout(r, 250));
+    }
+    return false;
+  }
 
   const handleCreateContract = async (e) => {
     e.preventDefault();
@@ -109,16 +196,34 @@ function CreateRent() {
         }
       }
 
-      // Extra preflight: ensure the wallet provider is on the expected chain
-      try {
-        const providerNetwork = await signer.provider.getNetwork();
-        if (Number(providerNetwork.chainId) !== expectedChainId) {
-          alert(`Please switch your wallet network to the selected network (expected chainId ${expectedChainId}, got ${providerNetwork.chainId}).`);
-          setLoading(false);
-          return;
+      // Wait for a stable provider network after switch
+      const stable = await ensureStableNetwork(expectedChainId, 6000);
+      if (!stable) {
+        try {
+          const providerNetwork = await signer.provider.getNetwork();
+          alert(`Provider network still unstable or mismatched (expected ${expectedChainId}, got ${providerNetwork.chainId}). Please retry after your wallet finishes switching.`);
+        } catch (_) {
+          alert('Provider network not ready. Please retry in a moment.');
         }
-      } catch (netErr) {
-        console.warn('Could not detect provider network before creating contract:', netErr);
+        setLoading(false);
+        return;
+      }
+
+      // Localhost convenience: if user left priceFeed empty, try auto-detection (mainnet fork) else instruct user
+      if (formData.network === 'localhost') {
+        let pf = formData.priceFeed;
+        if (!pf || pf.trim() === '') {
+          // Try mainnet feed (fork) again
+            const code = await signer.provider.getCode(FEEDS.mainnet).catch(() => '0x');
+            if (code && code !== '0x') {
+              pf = FEEDS.mainnet;
+              setFormData(prev => ({ ...prev, priceFeed: pf }));
+            } else {
+              alert('No local price feed detected. Deploy or configure a mock price feed, then paste its address.');
+              setLoading(false);
+              return;
+            }
+        }
       }
 
       const contractService = new ContractService(signer, expectedChainId); // ✅ Use expectedChainId
@@ -212,6 +317,9 @@ function CreateRent() {
               <option value="polygon">Polygon Mainnet</option>
             </select>
             <small>Select the blockchain network for deployment</small>
+            <div style={{ marginTop: '6px' }}>
+              <button type="button" className="btn-secondary" onClick={manualDetectFeed}>Auto Detect Price Feed</button>
+            </div>
           </div>
 
           {/* Tenant Address */}

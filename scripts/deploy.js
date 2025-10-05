@@ -10,11 +10,13 @@ const __dirname = path.dirname(__filename);
 
 async function main() {
   console.log("🚀 Starting Unified V7 + Merkle Evidence Deployment...");
+  console.log("DEBUG: Starting main()...");
 
+  console.log("DEBUG: Getting signers...");
   const [deployer, tenant] = await ethers.getSigners();
   console.log("📝 Deploying with deployer:", deployer.address, " tenant:", tenant.address);
 
-  // Ensure frontend directories exist
+  console.log("DEBUG: Ensuring frontend directories exist...");
   const frontendPublicContractsDir = path.resolve(__dirname, '..', 'front', 'public', 'utils', 'contracts');
   const frontendContractsDir = path.resolve(__dirname, '..', 'front', 'src', 'utils', 'contracts');
   
@@ -26,53 +28,51 @@ async function main() {
     throw e;
   }
 
-  // === 1. Deploy Core Infrastructure ===
   console.log("\n📦 Deploying Core Infrastructure...");
-
-  // Deploy MerkleEvidenceManager first (required by EnhancedRentContract)
-  console.log("1️⃣ Deploying MerkleEvidenceManager...");
+  console.log("DEBUG: Deploying MerkleEvidenceManager...");
   const MerkleEvidenceManager = await ethers.getContractFactory('MerkleEvidenceManager');
   const merkleEvidenceManager = await MerkleEvidenceManager.deploy();
   await merkleEvidenceManager.waitForDeployment();
   const merkleAddress = await merkleEvidenceManager.getAddress();
   console.log("✅ MerkleEvidenceManager deployed to:", merkleAddress);
+  console.log("DEBUG: MerkleEvidenceManager deployed.");
 
-  // Deploy ContractFactory
-  console.log("2️⃣ Deploying ContractFactory...");
+  console.log("DEBUG: Deploying ContractFactory...");
   const ContractFactory = await ethers.getContractFactory("ContractFactory");
   const contractFactory = await ContractFactory.deploy();
   await contractFactory.waitForDeployment();
   const factoryAddress = await contractFactory.getAddress();
   console.log("✅ ContractFactory deployed to:", factoryAddress);
+  console.log("DEBUG: ContractFactory deployed.");
 
-  // Deploy ArbitrationService
-  console.log("3️⃣ Deploying ArbitrationService...");
+  console.log("DEBUG: Deploying ArbitrationService...");
   const ArbitrationService = await ethers.getContractFactory("ArbitrationService");
   const arbitrationService = await ArbitrationService.deploy();
   await arbitrationService.waitForDeployment();
   const arbitrationServiceAddress = await arbitrationService.getAddress();
   console.log("✅ ArbitrationService deployed to:", arbitrationServiceAddress);
+  console.log("DEBUG: ArbitrationService deployed.");
 
-  // Deploy RecipientKeyRegistry
-  console.log("4️⃣ Deploying RecipientKeyRegistry...");
+  console.log("DEBUG: Deploying RecipientKeyRegistry...");
   const RecipientKeyRegistry = await ethers.getContractFactory("RecipientKeyRegistry");
   const keyRegistry = await RecipientKeyRegistry.deploy();
   await keyRegistry.waitForDeployment();
   const keyRegistryAddress = await keyRegistry.getAddress();
   console.log("✅ RecipientKeyRegistry deployed to:", keyRegistryAddress);
+  console.log("DEBUG: RecipientKeyRegistry deployed.");
 
-  // Deploy Arbitrator Oracle
-  console.log("5️⃣ Deploying Arbitrator Oracle...");
+  console.log("DEBUG: Deploying Arbitrator Oracle...");
   const Arbitrator = await ethers.getContractFactory("Arbitrator");
   const arbitrator = await Arbitrator.deploy(arbitrationServiceAddress);
   await arbitrator.waitForDeployment();
   const arbitratorAddress = await arbitrator.getAddress();
   console.log("✅ Arbitrator deployed to:", arbitratorAddress);
+  console.log("DEBUG: Arbitrator deployed.");
 
-  // === 2. Configure Contracts ===
+  console.log("DEBUG: All contracts deployed. Starting configuration...");
   console.log("\n🔧 Configuring Contracts...");
 
-  // Set default arbitration service in factory
+  console.log("DEBUG: Setting default arbitration service in factory...");
   try {
     await contractFactory.setDefaultArbitrationService(arbitrationServiceAddress, ethers.parseEther('0.5'));
     console.log("✅ Factory configured with ArbitrationService");
@@ -80,7 +80,7 @@ async function main() {
     console.warn("⚠️ Could not set arbitration service in factory:", e.message);
   }
 
-  // Set Merkle evidence manager in factory
+  console.log("DEBUG: Setting Merkle evidence manager in factory...");
   try {
     await contractFactory.setMerkleEvidenceManager(merkleAddress);
     console.log("✅ Factory configured with MerkleEvidenceManager");
@@ -88,7 +88,7 @@ async function main() {
     console.warn("⚠️ Could not set Merkle evidence manager in factory:", e.message);
   }
 
-  // Configure ArbitrationService
+  console.log("DEBUG: Configuring ArbitrationService...");
   try {
     await arbitrationService.setFactory(arbitratorAddress);
     console.log("✅ ArbitrationService configured with Arbitrator");
@@ -96,16 +96,18 @@ async function main() {
     console.warn("⚠️ Could not configure ArbitrationService:", e.message);
   }
 
-  // === 3. Chainlink Price Feed Setup ===
+  console.log("DEBUG: Contracts configured. Setting up price feed...");
   console.log("\n🔗 Setting up Chainlink Price Feed...");
-  let priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419"; // ETH/USD Mainnet
-  
+  let priceFeedAddress;
   if (network.name === "mainnet" || network.name === "hardhat") {
     priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
+    console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
   } else if (network.name === "sepolia") {
     priceFeedAddress = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
+    console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
+  } else {
+    throw new Error("Unsupported network for price feed. Use mainnet, hardhat fork, or sepolia.");
   }
-  console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
 
   // === 4. Test Merkle Evidence System ===
   console.log("\n🧪 Testing Merkle Evidence System...");

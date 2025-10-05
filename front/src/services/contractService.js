@@ -386,10 +386,44 @@ export class ContractService {
 
       // Preflight checks: ensure price feed exists on-chain (common localhost pitfall)
       try {
-        const code = await this.getCodeSafe(params.priceFeed);
+        const feedAddr = params.priceFeed;
+        const code = await this.getCodeSafe(feedAddr);
         if (!code || code === '0x') {
           const chain = Number(this.chainId);
-          throw new Error(`Selected price feed has no contract code on chain ${chain}. If you're on localhost, choose "Mock Price Feed (Local)".`);
+          const isLocal = chain === 31337 || chain === 1337 || chain === 5777;
+          // Attempt fork auto-detection: if user supplied Sepolia feed on a forked mainnet, swap to mainnet feed if present
+          const MAINNET_FEED = '0x5f4eC3Df9cbd43714FE2740f5E3616155C5b8419';
+          if (isLocal) {
+            try {
+              let mainnetFeedCode = '0x';
+              const maxAttempts = 5;
+              for (let a = 1; a <= maxAttempts; a++) {
+                try {
+                  mainnetFeedCode = await this.getCodeSafe(MAINNET_FEED);
+                } catch (_) {
+                  mainnetFeedCode = '0x';
+                }
+                if (mainnetFeedCode && mainnetFeedCode !== '0x') {
+                  console.warn(`Provided price feed ${feedAddr} has no code, but mainnet feed exists in local fork (attempt ${a}). Substituting automatically.`);
+                  params.priceFeed = MAINNET_FEED; // mutate params before factory call
+                  break;
+                }
+                // brief backoff before retrying; handles race where node not fully indexed yet
+                await new Promise(r => setTimeout(r, 600));
+              }
+            } catch (_) {
+              // ignore; will throw below if substitution not successful
+            }
+          }
+          if (params.priceFeed === feedAddr) { // substitution not performed
+            let advice = '';
+            if (isLocal) {
+              advice = ' (Tip: If running a fork, use mainnet ETH/USD feed; otherwise deploy a mock AggregatorV3 and paste its address.)';
+            } else if (chain === 11155111) {
+              advice = ' (Ensure you are using the Sepolia ETH/USD feed address and that your wallet is actually on Sepolia.)';
+            }
+            throw new Error(`Selected price feed has no contract code on chain ${chain}.${advice}`);
+          }
         }
       } catch (pfErr) {
         throw pfErr;

@@ -2,28 +2,32 @@ import React, { useState } from 'react';
 import EvidenceCard from './EvidenceCard.jsx';
 import EvidenceBadgeLegend from './EvidenceBadgeLegend.jsx';
 
-export default function EvidenceList({ evidence, activePrivateKey, activeAddress }) {
+// Added optional extraHeaderActions prop (React node) to inject custom controls (e.g., batch submit)
+export default function EvidenceList({ evidence, activePrivateKey, activeAddress, extraHeaderActions = null }) {
   const [open, setOpen] = useState(null);
   const [showLegend, setShowLegend] = useState(false);
   
   return (
     <div className="section">
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <h4>Evidence (on-chain indexed)</h4>
-        <button 
-          onClick={() => setShowLegend(true)}
-          style={{
-            padding:'4px 8px',
-            fontSize:'12px',
-            border:'1px solid #ccc',
-            borderRadius:'4px',
-            background:'#f9f9f9',
-            cursor:'pointer'
-          }}
-          title="Show badge meanings"
-        >
-          📖 Legend
-        </button>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center', gap:12, flexWrap:'wrap'}}>
+        <h4 style={{margin:0}}>Evidence (on-chain indexed)</h4>
+        <div style={{display:'flex', alignItems:'center', gap:8}}>
+          {extraHeaderActions}
+          <button
+            onClick={() => setShowLegend(true)}
+            style={{
+              padding:'4px 8px',
+              fontSize:'12px',
+              border:'1px solid #ccc',
+              borderRadius:'4px',
+              background:'#f9f9f9',
+              cursor:'pointer'
+            }}
+            title="Show badge meanings"
+          >
+            📖 Legend
+          </button>
+        </div>
       </div>
       {!evidence || evidence.length === 0 ? <div className="muted">No evidence</div> : (
         <div className="transactions-list">

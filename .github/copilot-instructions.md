@@ -1,1 +1,95 @@
-PurposeShort, focused guidance for an AI coding agent working in this repo. Include the big-picture architecture, common developer workflows (build/test/debug), project-specific patterns, and high-value file references so an LLM can be immediately productive.Big picture (V7 - LLM-Driven Arbitration)Smart contracts live under contracts/. Major templates: NDATemplate.sol (NDA flow) and TemplateRentContract.sol (rent flow).Arbitration is now driven solely by a Structured LLM Decision via an Oracle.Arbitration is centralized through ArbitrationService.sol. The Arbitrator.sol contract acts as the Oracle Interface, accepting the final, structured decision (JSON Schema) from the off-chain LLM Arbitrator API (Python/FastAPI).Templates are designed to be created via ContractFactory.sol so arbitration wiring is immutably set at creation.Frontend under front/ (Vite + React). ABIs copied to front/src/utils/contracts by scripts/copy-abi.js and the deploy scripts.Evidence is stored off-chain; contracts store a bytes32 keccak256 digest only (see README and front/src/utils/evidence.js). Admin-side decryption tools are in tools/admin/ and must run in a trusted environment.Key files to inspect firsthardhat.config.cjs — compiler, networks, gas reporter, and etherscan wiring.scripts/deploy.js — automated local wiring: deploys ContractFactory, ArbitrationService, and the Oracle interface (Arbitrator.sol). Sets factory in the service and copies ABIs.contracts/Arbitrator.sol — CRITICAL: The Oracle/LLM endpoint on-chain. It defines the structure for the final decision received from the off-chain system.contracts/ArbitrationService.sol — important: it tries multiple resolution entrypoints via low-level call and is the authorized caller on templates.scripts/copy-abi.js — copy ABI/artifact conventions used by the frontend.start-all.ps1 — convenience script that starts Hardhat node, runs deploy, serves the front-end, and runs tests; useful to replicate developer environment on Windows.front/src/services/contractService.js and front/src/utils/evidence.js — frontend patterns for computing evidence digests and calling contracts.Developer workflows (concrete)Local dev (typical):  1. Start local Hardhat node.  2. Deploy with scripts/deploy.js (copies ABIs into front/).  3. Ensure the LLM Arbitrator API (Python FastAPI) service is running separately.  4. Run frontend (front/) and run tests.  5. start-all.ps1 automates these steps in separate terminals on Windows.Common npm scripts (root package.json): npm run node, npm run deploy:localhost, npm run compile, npm test, npm run copy-abi, npm run build:all.Tests: Hardhat tests are npm test. Playwright and Vitest lives in front/ with their own scripts.Project-specific conventions & patterns (V7)Arbitration Flow (LLM Focused): Templates do NOT store an arbitrator or use old voting flows. Resolutions must be applied via the ArbitrationService. The final resolution is determined by the off-chain LLM Arbitrator API, which an authorized Oracle relays to Arbitrator.sol (the interface) -> which then authorizes ArbitrationService to execute the decision.LLM Decisions: The LLM Arbitrator API must return a strictly formatted JSON (tested via test_arbitrator_api.py) that matches the expected input schema of Arbitrator.sol.Evidence digest only: templates accept a bytes32 evidenceDigest. Frontend computes the digest (keccak256). Do not expect raw CIDs or URIs on-chain.ABI/Artifact syncing: the deploy process and scripts/copy-abi.js place compiled artifacts under front/src/utils/contracts. Any code changes to contracts should be followed by npm run compile + npm run copy-abi (or run npm run build:all).Admin tooling and secrets: admin decryptors are intentionally out-of-band under tools/admin/. Never import or bundle those into front/.Integration points & external depsV7 LLM Arbitrator Stack: This is an external service (e.g., Python/FastAPI) that calls  and is the ultimate source of the structured arbitration decision.RPC endpoints: hardhat local node at http://127.0.0.1:8545. Remote networks use env vars in hardhat.config.cjs (e.g., RPC_URL, PRIVATE_KEY).Etherscan verification controlled by ETHERSCAN_API_KEY env var.Evidence storage is off-chain (S3/HTTPS/Helia) — contracts only keep keccak256 digest.Testing & debugging tipsTDD Priority: Ensure the core logic and tests for the LLM Arbitrator API (e.g., test_arbitrator_api.py) pass before integrating with the Arbitrator.sol contract.If MetaMask shows RPC "circuit breaker" errors during local dev, the frontend falls back to http://127.0.0.1:8545 for certain read-only calls; ensure the local Hardhat node chainId (31337) matches MetaMask.Use start-all.ps1 to open separate windows: Hardhat node, deploy, frontend, and tests — this reduces race conditions and exposes logs.For gas numbers, run tests with REPORT_GAS=true npm test.What changed recently (helpful cues for edits)AI, Chainlink Functions, and voting logic were REMOVED.Focus shifted entirely to LLM-based, Oracle-relayed, structured arbitration.The Arbitrator.sol contract is now a passive receiver of the final  decision from the Oracle.Examples (where to implement/patch)When adding a new template contract, ensure it accepts arbitrationService as an immutable or constructor-set address and that ArbitrationService.applyResolutionToTarget will be able to call the template's resolution entrypoint.When updating frontend evidence flow, update front/src/utils/evidence.js and keep tools/admin/ in sync for decrypt helpers. The UI should call contract entrypoints with a bytes32 digest, not the raw ciphertext.Quick checklist for PRsVerify LLM Arbitrator API tests pass (if applicable to the PR).Update ABIs (npm run compile && npm run copy-abi) and verify front/src/utils/contracts contains expected artifacts.Update README snippets if you add or change deployment wiring.Run unit tests (npm test) and, if touching UI, run front tests (npm --prefix front test).Copilot Instructions (Frontend E2E Specific)Project ContextThis repository contains a decentralized rental contracts system.The frontend is in React + Playwright for E2E tests.Contracts are written in Solidity and deployed with Hardhat.E2E tests (front/tests/e2e/template.rent.e2e.spec.ts) must interact with the real UI and trigger on-chain transactions.Rules for CopilotWhen modifying Playwright specs:   - Always use real UI selectors from the components under front/src/pages/.   - Do not invent fake selectors or mocks.   - Prefer getByRole, getByLabel, or getByText over raw CSS selectors when possible.When orchestrating scenarios:   - Each CASE in the test should run a full flow: create rent contract via UI, perform payments, report evidence/disputes, and verify the outcome of the LLM-driven resolution applied by the Oracle/Admin.   - Use real Hardhat wallets (from hardhat.config.js / WALLETS.txt) and treat wallet #0 as the admin (who acts as the Oracle relay operator).   - Transactions should go on-chain via the deployed contracts, not mocked calls.When generating helper functions:   - If fetching contract ABI or addresses, read them from /front/src/services/contractService.js or artifacts/ instead of hardcoding.   - Handle async with proper await page.waitFor... to sync with UI actions.   - Ensure waitForTx waits for chain confirmations before proceeding.When writing files:   - Record results in evidence_storage/e2e_cases.json and logs in evidence_storage/e2e_cases_verbose.log.   - JSON should contain the contract address, case name, involved parties, and transaction hashes.General coding style:   - TypeScript strict mode compliant.   - Avoid require, use import.   - Prefer named imports from ethers (v6 API).GoalAchieve true end-to-end tests where every flow in CASES validates the actual system (frontend + backend + blockchain).Tests should be deterministic and repeatable, not flaky.Ensure all interactions mimic real user behavior as closely as possible.Maintain high code quality and readability for future maintainers.
+# Copilot Instructions for LegalContractsDemo
+
+## Project Overview
+- **Purpose:** Smart contract templates (NDA, Rent) with AI-powered arbitration using Chainlink Functions and Ollama LLMs.
+- **Major Components:**
+  - Solidity contracts in `contracts/` (NDA, Rent, ArbitrationService, MerkleEvidenceManager)
+  - V7 backend in `server/` (Node.js, direct Ollama LLM integration, fallback simulation)
+  - Frontend in `front/` (uses contract helpers, evidence digest computation)
+  - Tools in `tools/` (legacy Python arbitrator, Chainlink scripts, admin utilities)
+
+## Architecture & Data Flow
+- **Dispute Resolution:**
+  - On-chain contracts emit dispute events
+  - Evidence digests submitted (keccak256, optionally encrypted off-chain)
+  - Backend (`server/index.js`) processes arbitration using Ollama LLM or simulation fallback
+  - Chainlink Functions (`tools/chainlink_arbitrator.js`) can call AI arbitrator API (legacy)
+- **Evidence Handling:**
+  - Frontend computes evidence digests, never handles admin private keys
+  - Encrypted evidence uploaded off-chain; digest stored on-chain
+  - Admin decryption tools in `tools/admin/` (never bundle in frontend)
+
+## Developer Workflows
+- **Build & Test:**
+  - Install: `npm install` in root, `front/`, and `server/`
+  - Run backend: `npm run start:v7` in `server/`
+  - Run frontend: `npm run dev` in `front/`
+  - Run Hardhat node: `npx hardhat node`
+  - Run tests: `npx hardhat test test/NDA.test.js` or `npx hardhat test test/evidence.e2e.test.js`
+  - Deploy contracts: `npx hardhat run scripts/deploy.js`
+- **Legacy AI Arbitrator (Python):**
+  - Setup: Install Ollama, models, Python deps (see `tools/README.md`)
+  - Run: `uvicorn arbitrator_api:app --host 0.0.0.0 --port 8000`
+
+## Key Patterns & Conventions
+- **Evidence:** Use `front/src/utils/evidence.js` for digest/encryption. Store only digests on-chain.
+- **Security:** Never expose admin keys in frontend. Use explicit memory cleanup and error codes in Chainlink scripts.
+- **Testing:** E2E tests use Playwright and modern ethers v6 API.
+- **Fallbacks:** Backend arbitration falls back to simulation if LLM fails.
+- **Deprecated:** Python arbitrator is legacy; use Node.js backend for new development.
+
+## Integration Points
+- **Chainlink Functions:** JS scripts in `tools/` interact with arbitrator API.
+- **Ollama LLM:** Backend integrates directly for arbitration decisions.
+- **Admin Tools:** Evidence decryption and management in `tools/admin/` (trusted environments only).
+
+## Example: Evidence Digest Workflow
+```js
+import { prepareEvidencePayload } from 'front/src/utils/evidence';
+const { digest } = await prepareEvidencePayload('evidence text');
+// Submit digest to contract
+```
+
+## References
+- Contracts: `contracts/`
+- Backend: `server/index.js`, `server/modules/`
+- Frontend: `front/src/`
+- Tools: `tools/README.md`, `tools/chainlink_arbitrator.js`, `tools/arbitrator_api.py` (legacy)
+
+---
+**Feedback requested:** Please review for missing or unclear sections. Suggest improvements for agent productivity.
+
+## Frontend Merkle Improvements (A–D)
+Implemented Full Struct Mode for `MerkleEvidenceManager` batching:
+
+### A. Real caseId Source
+- `ContractModal.jsx` derives a contextual `caseId` (active dispute via contract methods, fallback to last disputeCount or address tail) and passes it to `EvidenceBatchModal`.
+- Each evidence item leaf encodes: `(caseId, contentDigest, cidHash, uploader, timestamp)`.
+
+### B. Client-side Merkle Proof Generation
+- `merkleHelper.js` now exports `generateMerkleProof(leaves, index)` producing sibling path (bottom-up) consistent with contract verification logic.
+- `EvidenceBatchModal.jsx` adds a Generate Proof button per stored item. Downloads JSON: `{ root, leaf, caseId, contentDigest, cidHash, uploader, timestamp, proof[] }`.
+
+### C. Memory Optimization
+- After Helia upload, raw `bytes` are removed from state (`bytes: undefined`) to reduce memory footprint for large batches.
+
+### D. UX / Feedback Layer
+- Replaced `alert()` with notification toasts via existing `NotificationContext` (types: success, error, info).
+- Added status strings (`batchSubmitStatus`) and notifications for batch submission lifecycle.
+- Proof generation success/failure also surfaces via toasts.
+
+### Tree Construction & Ordering
+- Leaves are full struct hashes: `keccak256(abi.encode(EvidenceItem))`.
+- Pair hashing uses lexicographic ordering of the two child hashes; odd-last duplication rule preserved.
+- Proofs are sibling list in leaf-to-root order; contract `verifyEvidence` recomputation matches root using same ordering.
+
+### Developer Notes
+- When integrating a canonical dispute/case ID in future contracts, replace fallback logic in `EvidenceTabContent`.
+- If batch size grows large, consider streaming leaf computation and incremental Merkle layer caching for O(n) memory.
+- For gas analysis, batch size limit currently guided by `MAX_BATCH_SIZE` on-chain (256).
+
+### Future Enhancements (Not Yet Implemented)
+- On-chain proof preview before submission.
+- Optional manifest CID anchoring.
+- Batch finalization UI (calls `finalizeBatch`).
+- E2E tests for proof JSON export and verification round-trip.

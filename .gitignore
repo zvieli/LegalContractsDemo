@@ -1,3 +1,5 @@
+# Prevent leaking secrets
+start-all.ps1
 node_modules
 .env
 
