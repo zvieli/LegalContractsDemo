@@ -189,7 +189,7 @@ export class ContractService {
   async uploadEvidence(payloadStr) {
     try {
       const payload = payloadStr ? String(payloadStr) : '';
-      const runtimeEndpoint = getEvidenceEndpoint();
+        const runtimeEndpoint = getEvidenceEndpoint(); 
       const runtimeAdmin = getAdminPub();
       const requireUpload = getRequireEvidenceUpload();
       // If no endpoint or admin key, just compute digest locally
@@ -254,11 +254,41 @@ export class ContractService {
 
   // Prefer wallet provider, but on localhost fall back to a direct JSON-RPC provider if the wallet provider glitches
   async getCodeSafe(address) {
+    // Address normalization strategy:
+    // - Mainnet: enforce checksum with ethers.getAddress.
+    // - Other chains (fork/local/test): skip checksum enforcement to avoid v6 "bad address checksum" when using mainnet addresses on a dev chainId.
+    const chainNum = Number(this.chainId);
+    let addr = address;
+    if (chainNum === 1) {
+      try { addr = ethers.getAddress(address); } catch (_) { /* let provider surface later */ }
+    } else {
+      if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return '0x';
+      addr = address; // keep as-is
+    }
     const primary = this.signer.provider;
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const code = await primary.getCode(address);
+        let code;
+        try {
+          code = await primary.getCode(addr);
+        } catch (primaryErr) {
+          const msg0 = String(primaryErr?.message || '');
+          const checksumFail = /bad address checksum/i.test(msg0);
+          const nonMainnet = chainNum !== 1;
+          if (checksumFail && nonMainnet) {
+            try {
+              // Direct raw RPC with lowercase address
+              const raw = await primary.send('eth_getCode', [addr.toLowerCase(), 'latest']);
+              code = raw || '0x';
+            } catch (_) {
+              throw primaryErr;
+            }
+          } else {
+            throw primaryErr;
+          }
+        }
+        console.log(`[DEBUG] getCodeSafe: Attempt ${attempt} for address ${addr} on chainId ${this.chainId} returned:`, code);
         // If the provider returns an empty code ("0x") while we're targeting a
         // local chain, try the local JSON-RPC directly. This handles the common
         // dev case where MetaMask (the injected provider) is pointed at a
@@ -268,7 +298,8 @@ export class ContractService {
         if (isLocal && code === '0x') {
           try {
             const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-            const fallbackCode = await rpc.getCode(address);
+            const fallbackCode = await rpc.getCode(addr);
+            console.log(`[DEBUG] getCodeSafe: Fallback local RPC for address ${addr} returned:`, fallbackCode);
             if (fallbackCode && fallbackCode !== '0x') return fallbackCode;
           } catch (rpcErr) {
             // ignore and fall through to returning the original empty code
@@ -277,18 +308,8 @@ export class ContractService {
         }
         return code;
       } catch (e) {
-        const msg = String(e?.message || '');
-        // If the provider is in the middle of a network switch, ethers may throw a transient 'network changed' error.
-        // Retry a couple times with exponential backoff to avoid spamming the node with eth_call that can show as
-        // 'Contract call: <unrecognized-selector>' in the node logs during transitions.
-        if (/network changed/i.test(msg) && attempt < maxAttempts) {
-          const backoff = 100 * Math.pow(2, attempt - 1);
-          console.warn(`Transient network change detected while reading code for ${address}, retrying in ${backoff}ms (${attempt}/${maxAttempts})`);
-          await new Promise(r => setTimeout(r, backoff));
-          continue;
-        }
-
         // MetaMask wraps certain errors and exposes a nested cause for a 'circuit breaker' condition.
+        const msg = String(e?.message || '');
         const isBrokenCircuit = Boolean(e?.data?.cause?.isBrokenCircuitError) || /circuit breaker/i.test(msg);
         const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
         // If we're on localhost and the injected provider is failing (invalid block tag, internal error, or the circuit-breaker),
@@ -316,6 +337,7 @@ export class ContractService {
   const contract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
     // Lightweight sanity check to catch wrong/stale addresses on localhost
     const code = await this.getCodeSafe(factoryAddress);
+    console.log(`[DEBUG] getFactoryContract: getCodeSafe for factoryAddress ${factoryAddress} returned:`, code);
     if (!code || code === '0x') {
       throw new Error(`No contract code at ${factoryAddress}. Is the node running and deployed and is your wallet connected to the same network?`);
     }
@@ -328,8 +350,11 @@ export class ContractService {
       if (!params.tenant.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
         throw new Error('Tenant address must be a valid Ethereum address');
       }
-      if (!params.priceFeed.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
-        throw new Error('PriceFeed address must be a valid Ethereum address');
+      // For localhost/fork, skip strict checksum validation
+      if (Number(this.chainId) !== 31337) {
+        if (!params.priceFeed.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
+          throw new Error('PriceFeed address must be a valid Ethereum address');
+        }
       }
       // ERC20 support removed: do not validate or accept `paymentToken` parameter
 
@@ -464,6 +489,34 @@ export class ContractService {
           throw walletStateErr;
         }
       } catch (_) {}
+
+      // ----------------------------------------------------------------------------------
+      // Local chain (fork) checksum mitigation for price feed address.
+      // On some setups the mainnet feed address (mixed-case) is flagged as a bad checksum
+      // when passed through ethers v6 ABI encoding while on a dev chain (31337). Ethers
+      // accepts either: (a) a properly checksummed mixed-case address, or (b) an all
+      // lowercase / all uppercase address. If the provided address triggers a checksum
+      // error, we coerce to lowercase on localhost/fork to bypass the mixed-case rule.
+      // This avoids user-facing failures while preserving validation on live networks.
+      try {
+        if (params.priceFeed && /^0x[0-9a-fA-F]{40}$/.test(params.priceFeed)) {
+          // Try normal checksum normalization first.
+          params.priceFeed = ethers.getAddress(params.priceFeed.trim());
+        }
+      } catch (ckErr) {
+        if (Number(this.chainId) === 31337) {
+          const lower = params.priceFeed.trim().toLowerCase();
+          if (/^0x[0-9a-f0-9]{40}$/.test(lower)) {
+            console.warn('Bypassing checksum for priceFeed on local chain by lowercasing', { original: params.priceFeed, lower });
+            params.priceFeed = lower; // ethers will accept all-lowercase
+          } else {
+            throw new Error('Invalid price feed address format after checksum bypass attempt');
+          }
+        } else {
+          // Propagate original checksum error off local chain.
+            throw ckErr;
+        }
+      }
 
       let tx;
       try {
@@ -826,59 +879,39 @@ export class ContractService {
       const factory = await this.getFactoryContract();
       const total = Number(await factory.getAllContractsCount());
       const toScan = Math.min(total, maxScan);
-      const pages = Math.ceil(toScan / pageSize) || 0;
       const discovered = new Set();
-
-      for (let p = 0; p < pages; p++) {
-        const start = p * pageSize;
-        const count = Math.min(pageSize, toScan - start);
-        if (count <= 0) break;
-        const page = await factory.getAllContractsPaged(start, count);
-
-        // For each address in the page, check participation
-        // We keep it sequential to avoid node overload; small datasets stay fast.
-        // If needed, this can be parallelized with Promise.allSettled.
-        for (const addr of page) {
+      const addresses = await factory.getAllContractsPaged(0, toScan);
+      for (const addr of addresses) {
+        try {
+          const code = await this.signer.provider.getCode(addr);
+          if (!code || code === '0x') continue;
+          // Try Rent
+          let matched = false;
           try {
-            const code = await this.signer.provider.getCode(addr);
-            if (!code || code === '0x') continue;
-
-            // Try as Rent first
-            try {
-              const rent = await this.getRentContract(addr);
-              const [landlord, tenant] = await Promise.all([
-                rent.landlord(),
-                rent.tenant()
-              ]);
-              if (
-                landlord?.toLowerCase() === userAddress.toLowerCase() ||
-                tenant?.toLowerCase() === userAddress.toLowerCase()
-              ) {
-                discovered.add(addr);
-                continue; // no need to test NDA if matched
-              }
-            } catch (_) {}
-
-            // Try as NDA
+            const rent = await this.getRentContract(addr);
+            const [landlord, tenant] = await Promise.all([
+              rent.landlord(),
+              rent.tenant()
+            ]);
+            if (landlord?.toLowerCase() === userAddress.toLowerCase() || tenant?.toLowerCase() === userAddress.toLowerCase()) {
+              discovered.add(addr);
+              matched = true;
+            }
+          } catch (_) {}
+          if (matched) continue;
+          // Try NDA
             try {
               const nda = await this.getNDAContract(addr);
               const [partyA, partyB] = await Promise.all([
                 nda.partyA(),
                 nda.partyB()
               ]);
-              if (
-                partyA?.toLowerCase() === userAddress.toLowerCase() ||
-                partyB?.toLowerCase() === userAddress.toLowerCase()
-              ) {
+              if (partyA?.toLowerCase() === userAddress.toLowerCase() || partyB?.toLowerCase() === userAddress.toLowerCase()) {
                 discovered.add(addr);
               }
             } catch (_) {}
-          } catch (_) {
-            // ignore address
-          }
-        }
+        } catch (_) { /* ignore */ }
       }
-
       return Array.from(discovered);
     } catch (err) {
       console.error('Error discovering participant contracts:', err);

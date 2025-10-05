@@ -99,14 +99,14 @@ async function main() {
   console.log("DEBUG: Contracts configured. Setting up price feed...");
   console.log("\n🔗 Setting up Chainlink Price Feed...");
   let priceFeedAddress;
-  if (network.name === "mainnet" || network.name === "hardhat") {
+  if (network.name === "mainnet" || network.name === "hardhat" || network.name === "localhost") {
     priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
     console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
   } else if (network.name === "sepolia") {
     priceFeedAddress = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
     console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
   } else {
-    throw new Error("Unsupported network for price feed. Use mainnet, hardhat fork, or sepolia.");
+    throw new Error("Unsupported network for price feed. Use mainnet, hardhat fork, sepolia, or localhost.");
   }
 
   // === 4. Test Merkle Evidence System ===

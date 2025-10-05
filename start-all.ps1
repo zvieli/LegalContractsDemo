@@ -120,8 +120,8 @@ try {
     
     if ($onlyProbe) { return }
 
-    Write-Host "Step 2: Deploying Contracts..." -ForegroundColor Cyan
-    $deployOut = & cmd /c "npm run deploy:hardhat" 2>&1
+    Write-Host "Step 2: Deploying Contracts to localhost node..." -ForegroundColor Cyan
+    $deployOut = & cmd /c "npx hardhat run scripts/deploy.js --network localhost" 2>&1
     $deployExit = $LASTEXITCODE
     Write-Host $deployOut
     if ($deployExit -ne 0) {

@@ -17,11 +17,11 @@ function CreateRent() {
   };
 
   const [formData, setFormData] = useState({
-    tenantAddress: '',
-    rentAmount: '',
-    // Start with empty; we'll auto-populate based on selected network below
-    priceFeed: '',
-    duration: '',
+  tenantAddress: '',
+  rentAmount: '',
+  // Use mainnet feed by default for localhost/fork
+  priceFeed: FEEDS.mainnet,
+  duration: '',
     startDate: '',
     network: 'localhost' // Default to localhost for developer workflows
   });
@@ -45,44 +45,18 @@ function CreateRent() {
 
   // Whenever network selection changes, choose an appropriate default price feed if current one is empty or mismatched
   useEffect(() => {
-    (async () => {
-      const net = formData.network;
-      // If user already typed a feed, leave it (unless it's the wrong Sepolia feed on localhost)
-      let current = formData.priceFeed;
-      const normalize = v => (v || '').toLowerCase();
-      const isEmpty = !current || current.trim() === '';
-      if (net === 'sepolia') {
-        const target = FEEDS.sepolia;
-        if (isEmpty || normalize(current) === normalize(FEEDS.mainnet)) {
-          setFormData(prev => ({ ...prev, priceFeed: target }));
-        }
-      } else if (net === 'mainnet') {
-        const target = FEEDS.mainnet;
-        if (isEmpty || normalize(current) === normalize(FEEDS.sepolia)) {
-          setFormData(prev => ({ ...prev, priceFeed: target }));
-        }
-      } else if (net === 'localhost') {
-        // Attempt fork detection: if mainnet feed has code at local node, use mainnet feed; else leave empty and user can pick mock
-        try {
-          if (signer && signer.provider) {
-            const code = await signer.provider.getCode(FEEDS.mainnet).catch(() => '0x');
-            if (code && code !== '0x') {
-              if (isEmpty || normalize(current) === normalize(FEEDS.sepolia)) {
-                setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
-              }
-              return;
-            }
-          }
-          // Fallback: if still empty and not a fork, keep Sepolia feed out (no code) to force user to choose a mock or deployed local feed
-          if (isEmpty) {
-            setFormData(prev => ({ ...prev, priceFeed: '' }));
-          }
-        } catch (_) {}
-      }
-    })();
-  // Re-run when signer or chainId ready, not only network selection
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.network, signer, chainId]);
+    const net = formData.network;
+    if (net === 'sepolia') {
+      setFormData(prev => ({ ...prev, priceFeed: FEEDS.sepolia }));
+    } else if (net === 'mainnet') {
+      setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
+    } else if (net === 'localhost') {
+      // Always force mainnet price feed for localhost/fork
+      setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
+    }
+    // For other networks, leave as is
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData.network]);
 
   // Manual feed detection helper (user-invoked)
   async function manualDetectFeed() {
@@ -211,27 +185,27 @@ function CreateRent() {
 
       // Localhost convenience: if user left priceFeed empty, try auto-detection (mainnet fork) else instruct user
       if (formData.network === 'localhost') {
-        let pf = formData.priceFeed;
-        if (!pf || pf.trim() === '') {
-          // Try mainnet feed (fork) again
-            const code = await signer.provider.getCode(FEEDS.mainnet).catch(() => '0x');
-            if (code && code !== '0x') {
-              pf = FEEDS.mainnet;
-              setFormData(prev => ({ ...prev, priceFeed: pf }));
-            } else {
-              alert('No local price feed detected. Deploy or configure a mock price feed, then paste its address.');
-              setLoading(false);
-              return;
-            }
-        }
+        setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
       }
 
       const contractService = new ContractService(signer, expectedChainId); // ✅ Use expectedChainId
 
+      // Normalize priceFeed to EIP-55 checksum only for mainnet; skip for localhost/fork
+      let priceFeedAddress = formData.priceFeed;
+      if (expectedChainId === 1) {
+        try {
+          priceFeedAddress = ethers.getAddress(priceFeedAddress);
+        } catch (err) {
+          alert('Invalid price feed address: ' + priceFeedAddress);
+          setLoading(false);
+          return;
+        }
+      }
+
       const params = {
         tenant: formData.tenantAddress,
         rentAmount: formData.rentAmount,
-        priceFeed: formData.priceFeed,
+        priceFeed: priceFeedAddress,
         duration: formData.duration,
         startDate: Math.floor(new Date(formData.startDate).getTime() / 1000),
         network: formData.network
@@ -372,17 +346,28 @@ function CreateRent() {
           {/* Price Feed */}
           <div className="form-group">
             <label htmlFor="priceFeed">Price Feed Address *</label>
-            <select
-              id="priceFeed"
-              name="priceFeed"
-              value={formData.priceFeed}
-              onChange={handleInputChange}
-              required
-            >
-              <option value="0x694AA1769357215DE4FAC081bf1f309aDC325306">ETH/USD (Sepolia)</option>
-              <option value="0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419">ETH/USD (Mainnet)</option>
-              <option value="0xAb5c49580294Aff77670F839ea425f5b78ab3Ae7">USDC/USD (Mainnet)</option>
-            </select>
+            {formData.network === 'localhost' ? (
+              <input
+                id="priceFeed"
+                name="priceFeed"
+                value={FEEDS.mainnet}
+                readOnly
+                disabled
+                style={{ backgroundColor: '#eee', color: '#888' }}
+              />
+            ) : (
+              <select
+                id="priceFeed"
+                name="priceFeed"
+                value={formData.priceFeed}
+                onChange={handleInputChange}
+                required
+              >
+                <option value="0x694AA1769357215DE4FAC081bf1f309aDC325306">ETH/USD (Sepolia)</option>
+                <option value="0x5f4eC3Df9cbd43714FE2740f5E3616155C5b8419">ETH/USD (Mainnet)</option>
+                <option value="0xAb5c49580294Aff77670F839ea425f5b78ab3Ae7">USDC/USD (Mainnet)</option>
+              </select>
+            )}
             <small>Price feed contract used for conversion rates</small>
           </div>
 
