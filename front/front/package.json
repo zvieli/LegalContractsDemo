@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@playwright/test": "^1.55.1",
     "legal-contracts-frontend": "file:.."
   },
   "devDependencies": {

@@ -177,7 +177,7 @@ async function startV7System() {
     if (llmProcess) {
       console.log(chalk.white('   • LLM Arbitrator API: http://localhost:8000'));
     }
-    console.log(chalk.white('   • Health Check: http://localhost:3001/api/v7/health'));
+  console.log(chalk.white('   • Health Check: http://localhost:3001/api/v7/arbitration/health'));
     console.log(chalk.gray('\nPress Ctrl+C to stop all services'));
     
     // Handle graceful shutdown

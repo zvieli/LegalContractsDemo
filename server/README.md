@@ -95,7 +95,7 @@ Content-Type: application/json
 
 #### 4. בדיקת תקינות המערכת
 ```http
-GET /api/v7/health
+GET /api/v7/arbitration/health
 ```
 
 ### תשובות API
@@ -238,7 +238,7 @@ npm run test:time
 ### דוגמת בדיקה ידנית
 ```bash
 # בדיקת תקינות המערכת
-curl http://localhost:3001/api/v7/health
+curl http://localhost:3001/api/v7/arbitration/health
 
 # בדיקת חישוב תשלום
 curl -X POST http://localhost:3001/api/v7/rent/calculate-payment \

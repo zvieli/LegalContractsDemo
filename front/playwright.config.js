@@ -6,6 +6,7 @@ process.env.TESTING = process.env.TESTING || '1';
 
 export default defineConfig({
   testDir: './tests/e2e',
+  testMatch: '**/*.e2e.test.ts',
   timeout: 120_000, // Increased for MetaMask interactions
   expect: { timeout: 15000 },
   // run tests in a single worker to avoid per-worker beforeAll launching the dev server

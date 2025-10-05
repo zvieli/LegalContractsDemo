@@ -36,5 +36,5 @@ Write-Host "Setup complete! You can now:" -ForegroundColor Green
 Write-Host "  - Start frontend: cd front && npm run dev" -ForegroundColor Gray
 Write-Host "  - Run tests: npm test" -ForegroundColor Gray
 Write-Host "  - Node running at: http://127.0.0.1:8545" -ForegroundColor Gray
-Write-Host "  - Backend running at: http://localhost:3001" -ForegroundColor Gray
+Write-Host "  - Backend API base: http://localhost:3001/api/v7" -ForegroundColor Gray
 Write-Host "  - Check backend health: http://localhost:3001/api/v7/health" -ForegroundColor Gray

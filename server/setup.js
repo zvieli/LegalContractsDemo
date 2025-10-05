@@ -63,7 +63,7 @@ fi
 
 # Check if Python FastAPI is running (for LLM)
 echo "🔍 Checking LLM Arbitrator API..."
-if curl -s http://localhost:8000/health > /dev/null; then
+if curl -s http://localhost:8000/api/v7/arbitration/health > /dev/null; then
     echo "✅ LLM Arbitrator API is running"
 else
     echo "⚠️  LLM Arbitrator API not running at http://localhost:8000"
@@ -144,7 +144,7 @@ The V7 Backend provides enhanced evidence management, LLM arbitration integratio
 - \`POST /api/v7/llm/callback\` - Handle LLM arbitration responses
 
 ### System
-- \`GET /health\` - Health check
+-- \`GET /api/v7/arbitration/health\` - Health check
 
 ## Testing
 
@@ -271,4 +271,4 @@ console.log('1. Review and update .env configuration');
 console.log('2. Install dependencies: npm install');
 console.log('3. Start LLM service: cd ../tools && python arbitrator_api.py');
 console.log('4. Start backend: npm start or ./start.sh');
-console.log('5. Test endpoints: curl http://localhost:3001/health');
+console.log('5. Test endpoints: curl http://localhost:3001/api/v7/arbitration/health');

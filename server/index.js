@@ -270,49 +270,19 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json({ limit: '10mb' }));
+
+// Global logger for /api/v7 endpoints
+app.use('/api/v7', (req, res, next) => {
+  console.warn(`[API LOG] ${req.method} ${req.originalUrl}`);
+  next();
+});
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Health check
-app.get('/health', async (req, res) => {
-  const health = { 
-    status: 'OK', 
-    version: 'V7',
-    services: ['evidence-validation', 'llm-arbitration', 'time-management'],
-    timestamp: new Date().toISOString(),
-    mode: isDevelopment ? 'development' : isProduction ? 'production' : 'legacy'
-  };
 
-  // Check IPFS daemon status for production mode
-  if (isProduction) {
-    try {
-      const ipfsResponse = await fetch('http://127.0.0.1:5001/api/v0/version', {
-        method: 'POST',
-        timeout: 2000
-      });
-      health.ipfs = {
-        status: ipfsResponse.ok ? 'running' : 'error',
-        daemon: ipfsDaemonProcess ? 'managed' : 'external',
-        endpoint: 'http://127.0.0.1:5001'
-      };
-    } catch (error) {
-      health.ipfs = {
-        status: 'unreachable',
-        daemon: ipfsDaemonProcess ? 'managed' : 'external',
-        error: error.message
-      };
-    }
-  } else {
-    health.ipfs = {
-      status: 'not-required',
-      mode: 'development'
-    };
-  }
-
-  res.json(health);
-});
 
 // V7 Evidence API - CID-based
 app.post('/api/v7/dispute/report', async (req, res) => {
@@ -795,7 +765,7 @@ app.use((req, res) => {
 // Start server
 app.listen(PORT, async () => {
   console.log(`🚀 ArbiTrust V7 Server running on port ${PORT}`);
-  console.log(`📡 Health check: http://localhost:${PORT}/health`);
+  console.log(`📡 Health check: http://localhost:${PORT}/api/v7/arbitration/health`);
   
   // 🏭 Auto-start IPFS daemon for production mode
   if (isProduction) {

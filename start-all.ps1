@@ -154,7 +154,7 @@ try {
     Write-Host "Service Status:" -ForegroundColor White
     Write-Host "  Hardhat Node (Forked Mainnet): http://127.0.0.1:8545" -ForegroundColor Gray
     if ($forkUrl) { Write-Host "  Fork Source: $forkUrl" -ForegroundColor Gray }
-    Write-Host "  V7 Backend: http://localhost:3001" -ForegroundColor Gray
+    Write-Host "  V7 Backend API base: http://localhost:3001/api/v7" -ForegroundColor Gray
     Write-Host "  Frontend: http://localhost:5173" -ForegroundColor Gray
     Write-Host "  Tests: Running in separate window" -ForegroundColor Gray
     Write-Host "  Gas Reports: Available in test output" -ForegroundColor Gray
@@ -168,9 +168,17 @@ try {
     Write-Host "  LLM-Driven Oracle Arbitration" -ForegroundColor Gray
     Write-Host "" -ForegroundColor Green
     Write-Host "Backend APIs Available:" -ForegroundColor White
-    Write-Host "  POST /api/v7/evidence/upload - Evidence upload with encryption" -ForegroundColor Gray
-    Write-Host "  GET /api/v7/evidence/{id} - Evidence retrieval" -ForegroundColor Gray
-    Write-Host "  POST /api/v7/arbitration/decision - LLM arbitration decisions" -ForegroundColor Gray
+    Write-Host "  POST /api/v7/dispute/report - Report dispute with evidence CID" -ForegroundColor Gray
+    Write-Host "  POST /api/v7/dispute/appeal - Submit appeal with evidence CID" -ForegroundColor Gray
+    Write-Host "  POST /api/v7/rent/calculate-payment - Calculate payment with late fees" -ForegroundColor Gray
+    Write-Host "  POST /api/v7/arbitration/ollama - LLM arbitration (Ollama)" -ForegroundColor Gray
+    Write-Host "  POST /api/v7/arbitration/simulate - Arbitration simulation mode" -ForegroundColor Gray
+    Write-Host "  GET /api/v7/arbitration/ollama/health - Ollama service health check" -ForegroundColor Gray
+    Write-Host "  GET /api/v7/arbitration/health - Arbitration service health check" -ForegroundColor Gray
+    Write-Host "  GET /api/v7/debug/evidence/:cid - Validate evidence CID" -ForegroundColor Gray
+    Write-Host "  GET /api/v7/debug/development-info - Backend development info" -ForegroundColor Gray
+    Write-Host "  POST /api/v7/debug/ipfs/restart - Restart IPFS (dev mode)" -ForegroundColor Gray
+    Write-Host "  GET /api/v7/debug/time/:timestamp - Get time-based data" -ForegroundColor Gray
     Write-Host "  GET /api/v7/health - System health check" -ForegroundColor Gray
     Write-Host "" -ForegroundColor Green
     Write-Host "Next Steps:" -ForegroundColor White

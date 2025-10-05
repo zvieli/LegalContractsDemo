@@ -35,3 +35,4 @@ admin.pub
 /evidence_storage
 /test-results
 /tools/legacy
+front/tests/e2e/metamask-extension

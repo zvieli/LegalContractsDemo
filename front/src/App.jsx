@@ -1,3 +1,4 @@
+import './utils/fetchLogger';
 import Header from './components/common/Header/Header';
 import Footer from './components/common/Footer/Footer';
 import Home from './pages/Home/Home';
