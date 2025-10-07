@@ -2,9 +2,9 @@
 // Implements Mitigation 4.5 (robust error handling) and 4.4 (financial precision using BigInt)
 // Based on arbitration_specification_v7_final.md requirements
 
-const ARBITRATOR_API_URL = process.env.ARBITRATOR_API_URL || 'http://localhost:8000/arbitrate';
+export const ARBITRATOR_API_URL = process.env.ARBITRATOR_API_URL || 'http://localhost:8000/arbitrate';
 // FAILURE_CODE per spec: MAX_UINT256 - 1 (Mitigation 4.5)
-const FAILURE_CODE = (BigInt(2) ** BigInt(256)) - BigInt(2);
+export const FAILURE_CODE = (BigInt(2) ** BigInt(256)) - BigInt(2);
 
 /**
  * Main handler function for Chainlink Functions
@@ -12,7 +12,7 @@ const FAILURE_CODE = (BigInt(2) ** BigInt(256)) - BigInt(2);
  * @param {Array} args - [contractText, evidenceText, disputeQuestion]
  * @returns {string} - Wei amount as decimal string or FAILURE_CODE
  */
-async function handleRequest(args) {
+export async function handleRequest(args) {
   try {
     // Input validation
     if (!args || args.length !== 3) {
@@ -142,14 +142,10 @@ async function handleRequest(args) {
   }
 }
 
-// Export for testing and module usage
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { handleRequest, FAILURE_CODE };
-}
+// ESM: exports above
 
-// For Chainlink Functions runtime
+// For Chainlink Functions runtime (if running as script)
 if (typeof args !== 'undefined') {
-  // This is the main execution path for Chainlink Functions
   handleRequest(args).then(result => {
     console.log('Final result:', result);
     return result;

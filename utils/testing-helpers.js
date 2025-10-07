@@ -61,6 +61,9 @@
 //     // Node.js-only testing helpers removed for frontend compatibility.
 //     if (!(process && process.env && process.env.TESTING)) return;
     
+//     import { fileURLToPath } from 'url';
+//     const __filename = fileURLToPath(import.meta.url);
+//     const __dirname = path.dirname(__filename);
 //     const dbgDir = path.resolve(__dirname, '..', '..', 'evidence_storage');
 //     if (!fs.existsSync(dbgDir)) {
 //       fs.mkdirSync(dbgDir, { recursive: true });

@@ -5,6 +5,8 @@ import { BatchHelper } from '../../utils/batchHelper.js';
 import { computeMerkleRoot, verifyMerkleProof } from '../../utils/merkleHelper.js';
 import EvidenceCard from './EvidenceCard.jsx';
 import EvidenceBadgeLegend from './EvidenceBadgeLegend.jsx';
+import BatchDashboard from '../Dashboard/BatchDashboard.jsx';
+import BatchDashboardAdvanced from '../Dashboard/BatchDashboardAdvanced.jsx';
 
 // Added optional extraHeaderActions prop (React node) to inject custom controls (e.g., batch submit)
 export default function EvidenceList({ evidence, caseId, activePrivateKey, activeAddress, extraHeaderActions = null }) {
@@ -206,6 +208,7 @@ export default function EvidenceList({ evidence, caseId, activePrivateKey, activ
         </div>
       )}
       <EvidenceBadgeLegend isOpen={showLegend} onClose={() => setShowLegend(false)} />
+      {caseId && <BatchDashboardAdvanced caseId={caseId} />}
     </div>
   );
 }

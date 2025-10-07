@@ -124,6 +124,14 @@ async function main() {
   console.log("✅ Arbitrator deployed to:", arbitratorAddress);
   console.log("DEBUG: Arbitrator deployed.");
 
+  // Deploy ArbitrationContractV2 with real Chainlink Functions Router address
+  const chainlinkRouter = '0x65Dcc24F8ff9e51F10DCc7Ed1e4e2A61e6E14bd6';
+  const ArbitrationContractV2 = await ethers.getContractFactory('ArbitrationContractV2');
+  const arbitrationContractV2 = await ArbitrationContractV2.deploy(arbitrationServiceAddress, chainlinkRouter);
+  await arbitrationContractV2.waitForDeployment();
+  const arbitrationContractV2Address = await arbitrationContractV2.getAddress();
+  console.log('✅ ArbitrationContractV2 deployed to:', arbitrationContractV2Address);
+
   console.log("DEBUG: All contracts deployed. Starting configuration...");
   console.log("\n🔧 Configuring Contracts...");
 

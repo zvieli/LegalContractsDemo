@@ -1,5 +1,54 @@
-// Dispute history endpoint
-const disputeHistory = require('./modules/disputeHistory.js');
+import express from 'express';
+import cors from 'cors';
+import bodyParser from 'body-parser';
+import { ethers } from 'ethers';
+import { fileURLToPath } from 'url';
+import path from 'path';
+import fs from 'fs';
+import { spawn, exec } from 'child_process';
+import { promisify } from 'util';
+import disputeHistory from './modules/disputeHistory.js';
+
+// In-memory evidence store for integration tests (non-persistent)
+const evidenceStore = {};
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+app.get('/api/dispute-history/:caseId', (req, res) => {
+  try {
+    const history = disputeHistory.getDisputeHistory(req.params.caseId);
+    res.json(history);
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+// Evidence upload endpoint for integration tests
+app.post('/api/evidence/upload', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const cid = 'QmMockEvidence' + Math.floor(Math.random() * 1e16).toString(16);
+    let decoded = null;
+    if (payload.ciphertext) {
+      try {
+        const jsonStr = Buffer.from(payload.ciphertext, 'base64').toString('utf8');
+        decoded = JSON.parse(jsonStr);
+      } catch (err) {
+        decoded = { raw: payload.ciphertext, parseError: err.message };
+      }
+    } else if (typeof payload === 'object') {
+      decoded = payload;
+    }
+    if (decoded) {
+      evidenceStore[cid] = decoded;
+    }
+    res.json({ cid, evidence: decoded, stored: !!decoded });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
 
 app.get('/api/dispute-history/:caseId', (req, res) => {
   try {
@@ -12,7 +61,7 @@ app.get('/api/dispute-history/:caseId', (req, res) => {
 // Arbitration endpoint for batch integration
 app.post('/api/arbitrate-batch', async (req, res) => {
   try {
-    const { caseId, batchId, merkleRoot, proofs, evidenceItems, disputeType, requestedAmount } = req.body;
+    const { caseId, batchId, merkleRoot, proofs, evidenceItems, disputeType, requestedAmount, category, requestReasoning } = req.body;
     if (!caseId || !merkleRoot || !evidenceItems || !proofs) {
       return res.status(400).json({ error: 'Missing required batch/arbitration fields' });
     }
@@ -25,6 +74,8 @@ app.post('/api/arbitrate-batch', async (req, res) => {
       evidenceItems,
       disputeType: disputeType || 0,
       requestedAmount: requestedAmount || 0,
+      category,
+      requestReasoning,
       timestamp: Date.now()
     };
     // Use LLM/Arbitrator (simulate or real)
@@ -34,6 +85,33 @@ app.post('/api/arbitrate-batch', async (req, res) => {
     } else {
       result = await processV7Arbitration(arbitrationPayload);
     }
+
+    // Save decision, reasoning, and category to dispute history and update batch status
+    try {
+      disputeHistory.addDisputeRecord(caseId, batchId, {
+        merkleRoot,
+        status: 'arbitrated',
+        decision: result?.decision || result?.arbitration || JSON.stringify(result),
+        reasoning: result?.reasoning || result?.legalReasoning || '',
+        category: category || result?.category || '',
+        createdAt: Date.now(),
+        evidenceCount: evidenceItems.length,
+        proofs
+      });
+      // Also update batch status in evidenceBatch
+      evidenceBatch.getBatches && evidenceBatch.saveBatches && (() => {
+        const batches = evidenceBatch.getBatches(caseId);
+        const batchIdx = batches.findIndex(b => b.timestamp === batchId);
+        if (batchIdx >= 0) {
+          batches[batchIdx].status = 'arbitrated';
+          batches[batchIdx].decision = result?.decision || result?.arbitration || JSON.stringify(result);
+          batches[batchIdx].reasoning = result?.reasoning || result?.legalReasoning || '';
+          batches[batchIdx].category = category || result?.category || '';
+          evidenceBatch.saveBatches({ [caseId]: batches });
+        }
+      })();
+    } catch (e) {}
+
     res.json({ success: true, arbitration: result });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -45,15 +123,6 @@ app.post('/api/arbitrate-batch', async (req, res) => {
  * and time management for the V7 architecture.
  */
 
-import express from 'express';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-import { ethers } from 'ethers';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import fs from 'fs';
-import { spawn, exec } from 'child_process';
-import { promisify } from 'util';
 
 // 🔧 Environment Mode Configuration
 const isDevelopment = process.env.NODE_ENV === 'development';
@@ -305,11 +374,6 @@ async function validateEvidenceWithHelia(evidenceCID) {
   return await validateIPFSEvidence(evidenceCID);
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const app = express();
-const PORT = process.env.PORT || 3001;
 
 
 // Middleware
@@ -528,6 +592,17 @@ app.post('/api/v7/llm/callback', async (req, res) => {
 app.get('/api/v7/debug/evidence/:cid', async (req, res) => {
   try {
     const { cid } = req.params;
+    // Return from in-memory store if available (integration test mode)
+    if (evidenceStore[cid]) {
+      return res.json({
+        cid,
+        isValid: true,
+        evidence: evidenceStore[cid],
+        mode: isDevelopment ? 'development' : (isProduction ? 'production' : 'legacy'),
+        source: 'in-memory-store',
+        timestamp: new Date().toISOString()
+      });
+    }
     
     // 🔧 Development Mode: Skip validation
     if (isDevelopment) {
@@ -803,10 +878,7 @@ app.use((req, res) => {
   });
 });
 
-// Batch management endpoints (persistent Merkle batches)
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const evidenceBatch = require('./modules/evidenceBatch.js');
+import evidenceBatch from './modules/evidenceBatch.js';
 
 // POST /api/batch - create batch for caseId
 app.post('/api/batch', async (req, res) => {
