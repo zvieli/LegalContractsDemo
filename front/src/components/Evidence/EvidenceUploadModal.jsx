@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import axios from 'axios';
 import { canonicalize, computeCidDigest, computeContentDigest } from '../../utils/evidenceCanonical.js';
 import { computeEvidenceLeaf, verifyMerkleProof } from '../../utils/merkleHelper.js';
 import { BatchHelper } from '../../utils/batchHelper.js';
@@ -125,10 +126,30 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
         timestamp: BigInt(Math.floor(Date.now() / 1000))
       });
 
-      // Batch integration: collect all leafs for this case (for demo, single leaf)
-      // In real usage, collect all leafs for caseId from state/storage
-      const batch = BatchHelper.buildBatch([{ leaf }]);
-      // batch.root, batch.leaves, batch.proofs
+      // Batch integration: collect all leaves for this caseId from backend
+      // For demo, single leaf; in production, collect all leaves for this caseId
+      let leaves = [leaf];
+      // TODO: Replace with real leaves collection logic (e.g., from state/storage)
+      // Send leaves to backend to create batch and get root/proofs
+      let batchResult;
+      try {
+        const resp = await axios.post('/api/batch', {
+          caseId,
+          evidenceItems: leaves.map(l => ({
+            caseId,
+            contentDigest: preview.contentDigest,
+            cidHash,
+            uploader: preview.base.uploader,
+            timestamp: BigInt(Math.floor(Date.now() / 1000))
+          }))
+        });
+        batchResult = resp.data;
+      } catch (err) {
+        setError('Batch creation failed: ' + (err?.response?.data?.error || err.message));
+        return;
+      }
+
+      // Use batchResult.merkleRoot, batchResult.proofs, batchResult.evidenceItems
 
       // Try new secure method first
       let tx;
@@ -151,14 +172,13 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
           caseId, cid, preview.contentDigest, recipientsHash, finalSignature
         );
       } else {
-        // Fallback to deprecated method (should not happen in production)
         setError('Warning: Using deprecated submission method without signature verification');
         return;
       }
 
       await tx.wait();
       // Pass batch data to backend/UI as needed
-      onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash, leaf, batch });
+      onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash, leaf, batch: batchResult });
       onClose && onClose();
     } catch (e) {
       setError(e.message || String(e));

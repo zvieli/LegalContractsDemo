@@ -1,3 +1,44 @@
+// Dispute history endpoint
+const disputeHistory = require('./modules/disputeHistory.js');
+
+app.get('/api/dispute-history/:caseId', (req, res) => {
+  try {
+    const history = disputeHistory.getDisputeHistory(req.params.caseId);
+    res.json(history);
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+// Arbitration endpoint for batch integration
+app.post('/api/arbitrate-batch', async (req, res) => {
+  try {
+    const { caseId, batchId, merkleRoot, proofs, evidenceItems, disputeType, requestedAmount } = req.body;
+    if (!caseId || !merkleRoot || !evidenceItems || !proofs) {
+      return res.status(400).json({ error: 'Missing required batch/arbitration fields' });
+    }
+    // Prepare arbitration payload
+    const arbitrationPayload = {
+      caseId,
+      batchId,
+      merkleRoot,
+      proofs,
+      evidenceItems,
+      disputeType: disputeType || 0,
+      requestedAmount: requestedAmount || 0,
+      timestamp: Date.now()
+    };
+    // Use LLM/Arbitrator (simulate or real)
+    let result;
+    if (processV7ArbitrationWithOllama) {
+      result = await processV7ArbitrationWithOllama(arbitrationPayload);
+    } else {
+      result = await processV7Arbitration(arbitrationPayload);
+    }
+    res.json({ success: true, arbitration: result });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
 /**
  * ArbiTrust V7 Backend Server
  * Main Express server handling evidence validation, LLM arbitration triggers,
@@ -760,6 +801,35 @@ app.use((req, res) => {
       'GET /api/v7/debug/time/:timestamp'
     ]
   });
+});
+
+// Batch management endpoints (persistent Merkle batches)
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const evidenceBatch = require('./modules/evidenceBatch.js');
+
+// POST /api/batch - create batch for caseId
+app.post('/api/batch', async (req, res) => {
+  try {
+    const { caseId, evidenceItems } = req.body;
+    if (!caseId || !Array.isArray(evidenceItems) || evidenceItems.length === 0) {
+      return res.status(400).json({ error: 'Missing caseId or evidenceItems' });
+    }
+    const batch = await evidenceBatch.createBatch(caseId, evidenceItems);
+    res.json(batch);
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
+
+// GET /api/batch/:caseId - get all batches for caseId
+app.get('/api/batch/:caseId', (req, res) => {
+  try {
+    const batches = evidenceBatch.getBatches(req.params.caseId);
+    res.json(batches);
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
 });
 
 // Start server
