@@ -1,12 +1,70 @@
-import "dotenv/config";
-import pkg from "hardhat";
+// --- COPY ABI JSON FILES FROM ARTIFACTS TO FRONTEND ---
+function copyAbisToFrontend() {
+  const artifactsDir = path.join(__dirname, '../artifacts/contracts');
+  const frontendDir = path.join(__dirname, '../front/src/utils/contracts');
+  if (!fs.existsSync(frontendDir)) {
+    fs.mkdirSync(frontendDir, { recursive: true });
+  }
+  // Recursively find all .json files in artifactsDir
+  function findJsonFiles(dir) {
+    let results = [];
+    const list = fs.readdirSync(dir);
+    for (const file of list) {
+      const filePath = path.join(dir, file);
+      const stat = fs.statSync(filePath);
+      if (stat && stat.isDirectory()) {
+        results = results.concat(findJsonFiles(filePath));
+      } else if (file.endsWith('.json')) {
+        results.push(filePath);
+      }
+    }
+    return results;
+  }
+  const jsonFiles = findJsonFiles(artifactsDir);
+  for (const srcPath of jsonFiles) {
+    // Only copy ABI files for top-level contracts (skip debug/build-info)
+    const fileName = path.basename(srcPath);
+    // Use contract name as file name (e.g., ContractFactory.json)
+    // Only copy if fileName matches a contract (not .dbg.json etc)
+    if (!fileName.endsWith('.dbg.json') && !fileName.endsWith('.t.json')) {
+      const destPath = path.join(frontendDir, fileName);
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+  console.log('Copied ABI JSON files to frontend ABI directory.');
+}
+
+// --- AUTO-GENERATE abisIndex.json FOR FRONTEND ABI LOADING ---
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const { ethers, network } = pkg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function generateAbisIndex() {
+  const contractsDir = path.join(__dirname, '../front/src/utils/contracts');
+  const abisIndexPath = path.join(contractsDir, 'abisIndex.json');
+  // Ensure directory exists
+  if (!fs.existsSync(contractsDir)) {
+    fs.mkdirSync(contractsDir, { recursive: true });
+  }
+  const files = fs.readdirSync(contractsDir).filter(f => f.endsWith('.json') && f !== 'abisIndex.json' && f !== 'deployment-summary.json');
+  const index = {};
+  for (const file of files) {
+    const name = file.replace('.json', '');
+    index[name] = `/utils/contracts/${file}`;
+  }
+  fs.writeFileSync(abisIndexPath, JSON.stringify(index, null, 2));
+  console.log('Generated abisIndex.json for frontend ABI loading.');
+}
+
+copyAbisToFrontend();
+generateAbisIndex();
+import "dotenv/config";
+import pkg from "hardhat";
+
+const { ethers, network } = pkg;
 
 async function main() {
   console.log("🚀 Starting Unified V7 + Merkle Evidence Deployment...");
@@ -17,14 +75,11 @@ async function main() {
   console.log("📝 Deploying with deployer:", deployer.address, " tenant:", tenant.address);
 
   console.log("DEBUG: Ensuring frontend directories exist...");
-  const frontendPublicContractsDir = path.resolve(__dirname, '..', 'front', 'public', 'utils', 'contracts');
   const frontendContractsDir = path.resolve(__dirname, '..', 'front', 'src', 'utils', 'contracts');
-  
   try {
-    fs.mkdirSync(frontendPublicContractsDir, { recursive: true });
     fs.mkdirSync(frontendContractsDir, { recursive: true });
   } catch (e) {
-    console.error('❌ Could not create frontend directories:', e.message || e);
+    console.error('❌ Could not create frontend directory:', e.message || e);
     throw e;
   }
 
@@ -186,53 +241,13 @@ async function main() {
   };
 
   // Write main deployment file
-  const publicDeploymentFile = path.join(frontendPublicContractsDir, "deployment-summary.json");
+  const deploymentFile = path.join(frontendContractsDir, "deployment-summary.json");
   try {
-    fs.writeFileSync(publicDeploymentFile, JSON.stringify(deploymentData, null, 2));
-    console.log("✅ Deployment summary saved:", publicDeploymentFile);
+    fs.writeFileSync(deploymentFile, JSON.stringify(deploymentData, null, 2));
+    console.log("✅ Deployment summary saved:", deploymentFile);
   } catch (e) {
     console.error('❌ Could not write deployment summary:', e.message);
     throw e;
-  }
-
-  // Write legacy ContractFactory.json for backward compatibility
-  const legacyFactoryFile = path.join(frontendPublicContractsDir, "ContractFactory.json");
-  try {
-    const legacyData = {
-      network: network.name,
-      contracts: {
-        ContractFactory: factoryAddress,
-        ArbitrationService: arbitrationServiceAddress,
-        RecipientKeyRegistry: keyRegistryAddress,
-        MerkleEvidenceManager: merkleAddress,
-        Arbitrator: arbitratorAddress
-      }
-    };
-    fs.writeFileSync(legacyFactoryFile, JSON.stringify(legacyData, null, 2));
-    console.log("✅ Legacy ContractFactory.json saved");
-  } catch (e) {
-    console.warn('⚠️ Could not write ContractFactory.json:', e.message);
-  }
-
-  // Write MockContracts.json for frontend
-  const mockContractsFile = path.join(frontendPublicContractsDir, "MockContracts.json");
-  try {
-    const mockData = {
-      network: network.name,
-      contracts: {
-        ContractFactory: factoryAddress,
-        ArbitrationService: arbitrationServiceAddress,
-        RecipientKeyRegistry: keyRegistryAddress,
-        MerkleEvidenceManager: merkleAddress,
-        Arbitrator: arbitratorAddress,
-        // Keep price feed for reference
-        ChainlinkPriceFeed: priceFeedAddress
-      }
-    };
-    fs.writeFileSync(mockContractsFile, JSON.stringify(mockData, null, 2));
-    console.log("✅ MockContracts.json saved");
-  } catch (e) {
-    console.warn('⚠️ Could not write MockContracts.json:', e.message);
   }
 
   // === 7. Copy Contract ABIs ===
@@ -286,13 +301,9 @@ async function main() {
             bytecode: chosenBytecode,
           };
 
-                  // Save to both directories for compatibility
-                  const publicDest = path.join(frontendPublicContractsDir, `${contractName}.json`);
+                  // Save only to src/utils/contracts
                   const srcDest = path.join(frontendContractsDir, `${contractName}.json`);
-
-                  fs.writeFileSync(publicDest, JSON.stringify(abiData, null, 2));
                   fs.writeFileSync(srcDest, JSON.stringify(abiData, null, 2));
-
                   console.log(`✅ Copied ${contractName} ABI`);
                   copiedCount++;
         } catch (error) {
@@ -336,7 +347,7 @@ async function main() {
   console.log("   2. Use factory.createRentContract() for traditional contracts");
   console.log("   3. Batch evidence off-chain using MerkleEvidenceHelper");
   console.log("   4. Submit batches via MerkleEvidenceManager");
-  console.log(`\n📁 Files saved to: ${frontendPublicContractsDir}`);
+  console.log(`\n📁 Files saved to: ${frontendContractsDir}`);
 }
 
 main().catch((error) => {

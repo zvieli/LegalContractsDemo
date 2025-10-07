@@ -1,3 +1,8 @@
+console.log('App loaded');
+import { getContractAddress } from './utils/contracts';
+getContractAddress(31337, 'ContractFactory').then(addr => {
+  console.log('Test getContractAddress:', addr);
+});
 import './utils/fetchLogger';
 import Header from './components/common/Header/Header';
 import Footer from './components/common/Footer/Footer';
@@ -12,6 +17,14 @@ import AppealPage from './pages/Appeal/AppealPage';
 import './App.css';
 
 function App() {
+  // Force test: call getContractAddress to verify contracts.js is loaded and logging works
+  import('./utils/contracts').then(mod => {
+    if (mod.getContractAddress) {
+      mod.getContractAddress(31337, 'ContractFactory').then(addr => {
+        console.log('Test getContractAddress:', addr);
+      });
+    }
+  });
   // Simple routing based on URL path
   const currentPath = window.location.pathname;
   
@@ -33,8 +46,6 @@ function App() {
 
     switch (currentPath) {
       case '/appeal':
-        return <AppealPage />;
-      
       case '/dashboard':
         return <Dashboard />;
       case '/create-rent':

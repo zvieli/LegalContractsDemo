@@ -57,7 +57,7 @@ export function EthersProvider({ children }) {
             setProvider(localProvider);
             // Override chainId to 31337 for localhost
             net = { chainId: 31337 };
-            console.debug('EthersContext: Forcing localhost provider and chainId 31337');
+              // console.debug('EthersContext: Forcing localhost provider and chainId 31337');
             
             // Override MetaMask provider to prevent mainnet queries
             if (window.ethereum && window.ethereum.request) {
@@ -84,6 +84,7 @@ export function EthersProvider({ children }) {
               setIsConnected(true);
               if (import.meta.env && import.meta.env.DEV) {
                 console.debug('EthersContext init: set signer/account/chainId', { account: accounts[0], chainId: Number(net.chainId) });
+                  // console.debug('EthersContext init: set signer/account/chainId', { account: accounts[0], chainId: Number(net.chainId) });
               }
             } catch (e) {
               await connectWallet();
@@ -176,6 +177,7 @@ export function EthersProvider({ children }) {
     // הגנה מפני קריאות כפולות
     if (isConnecting) {
       console.log('Wallet connection already in progress...');
+        // console.log('Wallet connection already in progress...');
       return;
     }
 
@@ -202,7 +204,7 @@ export function EthersProvider({ children }) {
       setChainId(Number(network.chainId));
       setIsConnected(true);
       if (import.meta.env && import.meta.env.DEV) {
-        console.debug('EthersContext connectWallet: signer/account/chainId set', { account: accounts[0], chainId: Number(network.chainId) });
+          // console.debug('EthersContext connectWallet: signer/account/chainId set', { account: accounts[0], chainId: Number(network.chainId) });
       }
       
     } catch (error) {

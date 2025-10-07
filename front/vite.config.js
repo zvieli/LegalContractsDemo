@@ -1,23 +1,39 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Vite middleware to serve ABI/deployment files from src/utils/contracts
+function contractsMiddleware() {
+  return {
+    name: 'serve-contracts-json',
+    configureServer(server) {
+      server.middlewares.use('/utils/contracts', (req, res, next) => {
+        const fileName = req.url.replace(/^\/utils\/contracts\//, '');
+        const filePath = path.join(__dirname, 'src/utils/contracts', fileName);
+        if (fs.existsSync(filePath)) {
+          res.setHeader('Content-Type', 'application/json');
+          fs.createReadStream(filePath).pipe(res);
+        } else {
+          next();
+        }
+      });
+    }
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), contractsMiddleware()],
   define: {
-    // some node libs expect `global` to exist
     global: 'window'
   },
   resolve: {
     alias: {
-      // ensure the browser buffer package is used
       buffer: 'buffer'
     }
   },
   optimizeDeps: {
-    // Keep common crypto/browser libs pre-bundled. Do NOT force `eth-crypto`
-    // into the prebundle; encryption helpers are admin-only and should not be
-    // included in the main client bundle unless intentionally enabled.
     include: ['buffer', 'bn.js', 'elliptic', 'secp256k1', 'eccrypto']
   },
   build: {
@@ -35,7 +51,6 @@ export default defineConfig({
     }
   },
   server: {
-    // Dev proxy to forward evidence endpoint requests to the backend running locally
     proxy: {
       '/submit-evidence': {
         target: 'http://127.0.0.1:5001',
@@ -47,6 +62,15 @@ export default defineConfig({
         changeOrigin: true,
         secure: false
       }
+    },
+    fs: {
+      allow: [
+        path.resolve(__dirname, 'src'),
+        path.resolve(__dirname, 'src/utils/contracts'),
+        path.resolve(__dirname, 'src/config'),
+        path.resolve(__dirname, 'config')
+      ]
     }
-  }
+  },
+  // Removed configureServer from config object; now handled by contractsMiddleware plugin
 })

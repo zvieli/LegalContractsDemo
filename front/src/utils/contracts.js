@@ -1,3 +1,4 @@
+console.log('contracts.js loaded');
 // NOTE: ABI JSON files are generated into `front/src/utils/contracts/` during some deploy flows.
 // To avoid hard build-time dependencies on generated artifacts (which may be missing in
 // clean checkouts), we intentionally avoid static imports here. Callers should prefer
@@ -103,6 +104,8 @@ function awaitTryImportABI(filename) {
 
 export const getContractAddress = async (chainId, contractName) => {
   try {
+    console.debug('[getContractAddress] chainId:', chainId, 'contractName:', contractName);
+    console.log('[getContractAddress] chainId:', chainId, 'contractName:', contractName);
     const isLocalHostEnv = typeof window !== 'undefined' && (
       window.location.hostname === 'localhost' ||
       window.location.hostname === '127.0.0.1' ||
@@ -117,35 +120,77 @@ export const getContractAddress = async (chainId, contractName) => {
     if (isLocalHostEnv && isLocalChain) {
       // Attempt to read cached local deployment metadata
       const localContracts = await getLocalDeploymentAddresses();
+  console.debug('[getContractAddress] localContracts:', localContracts);
+  console.log('[getContractAddress] localContracts:', localContracts);
       if (localContracts) {
         const addr = localContracts?.ContractFactory || localContracts?.factory || null;
+  console.debug('[getContractAddress] localContracts addr:', addr);
+  console.log('[getContractAddress] localContracts addr:', addr);
         if (addr && ethers.isAddress(addr)) return addr;
       }
       // Fallback: try reading deployment-summary.json directly
       try {
-        const resp = await fetch('/utils/contracts/deployment-summary.json');
+        let resp = await fetch('/utils/contracts/deployment-summary.json');
+  console.debug('[getContractAddress] fetch /utils/contracts/deployment-summary.json status:', resp && resp.status);
+  console.log('[getContractAddress] fetch /utils/contracts/deployment-summary.json status:', resp && resp.status);
+        if (!resp.ok && typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+          // Try src path for dev
+          resp = await fetch('/src/utils/contracts/deployment-summary.json');
+          console.debug('[getContractAddress] fetch /src/utils/contracts/deployment-summary.json status:', resp && resp.status);
+          console.log('[getContractAddress] fetch /src/utils/contracts/deployment-summary.json status:', resp && resp.status);
+        }
         if (resp && resp.ok) {
           const summary = await resp.json();
+          console.debug('[getContractAddress] summary:', summary);
+          console.log('[getContractAddress] summary:', summary);
           const addr = summary?.contracts?.ContractFactory || summary?.contracts?.factory || null;
+          console.debug('[getContractAddress] summary addr:', addr);
+          console.log('[getContractAddress] summary addr:', addr);
           if (addr && ethers.isAddress(addr)) return addr;
+        } else if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+          // As last resort, try dynamic import (works in dev)
+          try {
+            const mod = await import('./contracts/deployment-summary.json');
+            const summary = mod?.default ?? mod;
+            console.debug('[getContractAddress] dynamic import summary:', summary);
+            console.log('[getContractAddress] dynamic import summary:', summary);
+            const addr = summary?.contracts?.ContractFactory || summary?.contracts?.factory || null;
+            console.debug('[getContractAddress] dynamic import addr:', addr);
+            console.log('[getContractAddress] dynamic import addr:', addr);
+            if (addr && ethers.isAddress(addr)) return addr;
+          } catch (impErr) {
+            console.debug('[getContractAddress] dynamic import error:', impErr);
+            console.log('[getContractAddress] dynamic import error:', impErr);
+          }
         }
-      } catch (e) {}
+      } catch (e) {
+  console.debug('[getContractAddress] fetch/import error:', e);
+  console.log('[getContractAddress] fetch/import error:', e);
+      }
     }
 
     // 2) Explicit localhost chainIds support via generated JSON
     if (isLocalChain) {
       const localContracts = await getLocalDeploymentAddresses();
+  console.debug('[getContractAddress] explicit localChain localContracts:', localContracts);
+  console.log('[getContractAddress] explicit localChain localContracts:', localContracts);
       const addr = localContracts?.ContractFactory || localContracts?.factory || null;
+  console.debug('[getContractAddress] explicit localChain addr:', addr);
+  console.log('[getContractAddress] explicit localChain addr:', addr);
       return addr && ethers.isAddress(addr) ? addr : null;
     }
 
-    // 3) Configured addresses for testnets/mainnet
-    const net = CONTRACT_ADDRESSES?.[Number(chainId)];
-    if (!net) return null;
+  // 3) Configured addresses for testnets/mainnet
+  const net = CONTRACT_ADDRESSES?.[Number(chainId)];
+  console.debug('[getContractAddress] net:', net);
+  console.log('[getContractAddress] net:', net);
+  if (!net) return null;
 
-    const key = contractName === 'ContractFactory' ? 'factory' : contractName;
-    const addr = net?.[key] || null;
-    return addr && ethers.isAddress(addr) ? addr : null;
+  const key = contractName === 'ContractFactory' ? 'factory' : contractName;
+  const addr = net?.[key] || null;
+  console.debug('[getContractAddress] net addr:', addr);
+  console.log('[getContractAddress] net addr:', addr);
+  return addr && ethers.isAddress(addr) ? addr : null;
   } catch (error) {
     console.error('Error loading contract addresses:', error);
     return null;
@@ -183,13 +228,7 @@ export const createContractInstanceAsync = async (contractName, address, signerO
     throw new Error(`createContractInstanceAsync: invalid contract address provided for ${contractName}: ${String(address)}`);
   }
   
-  // Force localhost provider for development
-  let finalProvider = signerOrProvider;
-  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-    const localProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-    // Always use local provider for localhost development
-    finalProvider = localProvider;
-  }
-  
-  return new ethers.Contract(address, abi, finalProvider);
+  // Always use the passed signer for contract creation, even on localhost
+  // Only use local provider for explicit read-only calls (not here)
+  return new ethers.Contract(address, abi, signerOrProvider);
 };

@@ -6,7 +6,7 @@ import './CreateRent.css';
 import '../../styles/notAllowed.css';
 
 function CreateRent() {
-  const { account, signer, isConnected, chainId } = useEthers();
+  const { account, signer, isConnected, chainId, connectWallet } = useEthers();
   const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
   const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
   const [loading, setLoading] = useState(false);
@@ -101,9 +101,18 @@ function CreateRent() {
   const handleCreateContract = async (e) => {
     e.preventDefault();
 
-    if (!isConnected || !account || !signer) {
-      alert('Please connect your wallet first');
-      return;
+
+    // Ensure signer is a valid signer, not just a provider
+    if (!isConnected || !account || !signer || typeof signer.getAddress !== 'function') {
+      alert('Please connect your wallet first.');
+      if (typeof connectWallet === 'function') {
+        await connectWallet();
+      }
+      // Try to re-fetch signer after connection
+      if (!signer || typeof signer.getAddress !== 'function') {
+        alert('Wallet signer not available. Please reload the page or reconnect your wallet.');
+        return;
+      }
     }
 
     // Validation

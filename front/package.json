@@ -4,8 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+  "prebuild": "node src/utils/generateAbisIndex.js",
+  "dev": "vite",
+  "build": "vite build",
     "lint": "eslint .",
     "test": "vitest --config ./vitest.config.js",
     "check:testing-deps": "node ./scripts/check-testing-deps.js",
