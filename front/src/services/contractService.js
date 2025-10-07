@@ -877,10 +877,9 @@ export class ContractService {
   async getContractsByParticipant(userAddress, pageSize = 50, maxScan = 300) {
     try {
       const factory = await this.getFactoryContract();
-      const total = Number(await factory.getAllContractsCount());
-      const toScan = Math.min(total, maxScan);
       const discovered = new Set();
-      const addresses = await factory.getAllContractsPaged(0, toScan);
+      // Use getAllContracts (returns address[])
+      const addresses = await factory.getAllContracts();
       for (const addr of addresses) {
         try {
           const code = await this.signer.provider.getCode(addr);
@@ -900,16 +899,16 @@ export class ContractService {
           } catch (_) {}
           if (matched) continue;
           // Try NDA
-            try {
-              const nda = await this.getNDAContract(addr);
-              const [partyA, partyB] = await Promise.all([
-                nda.partyA(),
-                nda.partyB()
-              ]);
-              if (partyA?.toLowerCase() === userAddress.toLowerCase() || partyB?.toLowerCase() === userAddress.toLowerCase()) {
-                discovered.add(addr);
-              }
-            } catch (_) {}
+          try {
+            const nda = await this.getNDAContract(addr);
+            const [partyA, partyB] = await Promise.all([
+              nda.partyA(),
+              nda.partyB()
+            ]);
+            if (partyA?.toLowerCase() === userAddress.toLowerCase() || partyB?.toLowerCase() === userAddress.toLowerCase()) {
+              discovered.add(addr);
+            }
+          } catch (_) {}
         } catch (_) { /* ignore */ }
       }
       return Array.from(discovered);

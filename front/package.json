@@ -10,8 +10,8 @@
     "test": "vitest --config ./vitest.config.js",
     "check:testing-deps": "node ./scripts/check-testing-deps.js",
     "preview": "vite preview",
-    "e2e": "playwright test --project=chromium",
-    "e2e:headed": "playwright test --project=chromium --headed",
+    "e2e": "playwright test --project=chromium-web3-simulation",
+    "e2e:headed": "playwright test --project=chromium-web3-simulation --headed",
     "e2e:local": "npm --prefix ./e2e run e2e"
   },
   "dependencies": {

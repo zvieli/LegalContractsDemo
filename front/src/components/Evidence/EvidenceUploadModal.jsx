@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { canonicalize, computeCidDigest, computeContentDigest } from '../../utils/evidenceCanonical.js';
+import { computeEvidenceLeaf, verifyMerkleProof } from '../../utils/merkleHelper.js';
+import { BatchHelper } from '../../utils/batchHelper.js';
 import { buildEncryptedEnvelope, signEvidenceEIP712, hashRecipients } from '../../utils/evidence.js';
 import { listRecipients } from '../../utils/recipientKeys.js';
 import { addJson } from '../../utils/heliaClient.js';
@@ -58,7 +60,15 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
           setEncryptionFallback(true);
         }
       }
-      setPreview({ base, contentDigest, envelope, targetRecipients: targetRecipients || [] });
+      // Compute Merkle leaf for this evidence
+      const leaf = computeEvidenceLeaf({
+        caseId,
+        contentDigest,
+        cidHash: null, // If CID is available, pass its hash here
+        uploader: addr,
+        timestamp: BigInt(Math.floor(Date.now()/1000))
+      });
+      setPreview({ base, contentDigest, envelope, targetRecipients: targetRecipients || [], leaf });
     } catch (e) {
       setError(e.message || String(e));
     }
@@ -99,11 +109,27 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       toStore.uploader = preview.base.uploader;
       toStore.chainId = preview.base.chainId;
       toStore.verifyingContract = preview.base.verifyingContract;
-      
+
+      // Upload to Helia/IPFS
       const cid = await addJson(toStore);
       const cidDigest = computeCidDigest(cid);
       const recipientsHash = hashRecipients(preview.targetRecipients || []);
-      
+
+      // Compute Merkle leaf with cidHash
+      const cidHash = computeCidDigest(cid);
+      const leaf = computeEvidenceLeaf({
+        caseId,
+        contentDigest: preview.contentDigest,
+        cidHash,
+        uploader: preview.base.uploader,
+        timestamp: BigInt(Math.floor(Date.now() / 1000))
+      });
+
+      // Batch integration: collect all leafs for this case (for demo, single leaf)
+      // In real usage, collect all leafs for caseId from state/storage
+      const batch = BatchHelper.buildBatch([{ leaf }]);
+      // batch.root, batch.leaves, batch.proofs
+
       // Try new secure method first
       let tx;
       if (typeof contract.submitEvidenceWithSignature === 'function') {
@@ -120,7 +146,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
           verifyingContract: contract.target
         };
         const finalSignature = await signEvidenceEIP712(evidenceData, contractInfo, signer);
-        
+
         tx = await contract.submitEvidenceWithSignature(
           caseId, cid, preview.contentDigest, recipientsHash, finalSignature
         );
@@ -129,9 +155,10 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
         setError('Warning: Using deprecated submission method without signature verification');
         return;
       }
-      
+
       await tx.wait();
-      onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash });
+      // Pass batch data to backend/UI as needed
+      onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash, leaf, batch });
       onClose && onClose();
     } catch (e) {
       setError(e.message || String(e));
@@ -175,6 +202,26 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
             <h5>Preview</h5>
             <pre style={{maxHeight:200,overflow:'auto'}}>{JSON.stringify(preview, null, 2)}</pre>
             {signature && <div style={{wordBreak:'break-all'}}><strong>Signature:</strong> {signature}</div>}
+            {preview.leaf && (
+              <div style={{marginTop:8, fontSize:12}}>
+                <strong>Merkle Leaf:</strong> <code>{preview.leaf}</code>
+              </div>
+            )}
+            {/* Example: Merkle proof verification (replace with real root/proof/index) */}
+            {preview.leaf && (
+              <div style={{marginTop:8, fontSize:12}}>
+                <strong>Proof Verification Example:</strong>
+                <button style={{marginLeft:8}} onClick={() => {
+                  // Dummy example: replace with real root/proof/index from batch
+                  const dummyRoot = preview.leaf; // for demo only
+                  const dummyProof = [];
+                  const dummyIndex = 0;
+                  const valid = verifyMerkleProof(preview.leaf, dummyProof, dummyRoot, dummyIndex);
+                  alert(valid ? 'Proof valid!' : 'Proof invalid!');
+                }}>Verify Proof</button>
+                <span style={{marginLeft:8, color:'#888'}}>הדגמה בלבד – יש להעביר root/proof אמיתיים מה-batch</span>
+              </div>
+            )}
           </div>
         )}
       </div>

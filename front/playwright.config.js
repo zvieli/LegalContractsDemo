@@ -3,6 +3,7 @@ import { defineConfig } from '@playwright/test';
 // Ensure test runs are deterministic: prefer noble secp256k1 fallback and enable TESTING diagnostics
 process.env.SUPPORT_NOBLE_SECP = process.env.SUPPORT_NOBLE_SECP || '1';
 process.env.TESTING = process.env.TESTING || '1';
+process.env.VITE_E2E_TESTING = 'true'; // Enable E2E mode
 
 export default defineConfig({
   testDir: './tests/e2e',

@@ -3,13 +3,15 @@
 // clean checkouts), we intentionally avoid static imports here. Callers should prefer
 // runtime helpers (getLocalDeploymentAddresses / getContractAddress) and the functions
 // below will throw clear errors if ABI data is unavailable.
+import { ethers } from 'ethers';
+import { CONTRACT_ADDRESSES } from '../../config/chains';
+
 let ContractFactoryABI = null;
 let TemplateRentContractABI = null;
 let NDATemplateABI = null;
 let ArbitratorABI = null;
 let ArbitrationServiceABI = null;
-import { CONTRACT_ADDRESSES } from '../../config/chains';
-import * as ethers from 'ethers';
+let ArbitrationContractV2ABI = null;
 
 let _localDeployCache = null;
 import { loadAbis } from './loadAbis';
@@ -58,6 +60,7 @@ export const getContractABI = (contractName) => {
       if (!NDATemplateABI && abis.NDATemplate) NDATemplateABI = abis.NDATemplate;
       if (!ArbitratorABI && abis.Arbitrator) ArbitratorABI = abis.Arbitrator;
       if (!ArbitrationServiceABI && abis.ArbitrationService) ArbitrationServiceABI = abis.ArbitrationService;
+      if (!ArbitrationContractV2ABI && abis.ArbitrationContractV2) ArbitrationContractV2ABI = abis.ArbitrationContractV2;
     }
   } catch (_) {}
 
@@ -77,6 +80,9 @@ export const getContractABI = (contractName) => {
     case 'ArbitrationService':
       if (ArbitrationServiceABI && ArbitrationServiceABI.abi) return ArbitrationServiceABI.abi;
       throw new Error('ArbitrationService ABI not available. Ensure frontend ABIs are generated in front/src/utils/contracts/.');
+    case 'ArbitrationContractV2':
+      if (ArbitrationContractV2ABI && ArbitrationContractV2ABI.abi) return ArbitrationContractV2ABI.abi;
+      throw new Error('ArbitrationContractV2 ABI not available. Ensure frontend ABIs are generated in front/src/utils/contracts/.');
     default:
       throw new Error(`Unknown contract: ${contractName}`);
   }
@@ -102,29 +108,35 @@ export const getContractAddress = async (chainId, contractName) => {
       window.location.hostname === '127.0.0.1' ||
       window.location.hostname === '::1'
     );
-  const isLocalChain = Number(chainId) === 31337 || Number(chainId) === 1337 || Number(chainId) === 5777;
+    const isLocalChain = Number(chainId) === 31337 || Number(chainId) === 1337 || Number(chainId) === 5777;
 
-  // 1) Prefer localhost address when running locally AND targeting a local chain
-  if (isLocalHostEnv && isLocalChain) {
+    // Normalize contract name for lookup
+    const contractKey = (contractName && contractName.toLowerCase() === 'factory') ? 'ContractFactory' : contractName;
+
+    // 1) Prefer localhost address when running locally AND targeting a local chain
+    if (isLocalHostEnv && isLocalChain) {
       // Attempt to read cached local deployment metadata
       const localContracts = await getLocalDeploymentAddresses();
       if (localContracts) {
-        if (contractName.toLowerCase() === 'factory' || contractName === 'ContractFactory') {
-          const addr = localContracts?.ContractFactory || null;
+        const addr = localContracts?.ContractFactory || localContracts?.factory || null;
+        if (addr && ethers.isAddress(addr)) return addr;
+      }
+      // Fallback: try reading deployment-summary.json directly
+      try {
+        const resp = await fetch('/utils/contracts/deployment-summary.json');
+        if (resp && resp.ok) {
+          const summary = await resp.json();
+          const addr = summary?.contracts?.ContractFactory || summary?.contracts?.factory || null;
           if (addr && ethers.isAddress(addr)) return addr;
         }
-      }
-      // fall through to configured addresses if not found
+      } catch (e) {}
     }
 
-  // 2) Explicit localhost chainIds support via generated JSON
-  if (isLocalChain) {
+    // 2) Explicit localhost chainIds support via generated JSON
+    if (isLocalChain) {
       const localContracts = await getLocalDeploymentAddresses();
-      if (contractName.toLowerCase() === 'factory') {
-        const addr = localContracts?.ContractFactory || null;
-        return addr && ethers.isAddress(addr) ? addr : null;
-      }
-      return null;
+      const addr = localContracts?.ContractFactory || localContracts?.factory || null;
+      return addr && ethers.isAddress(addr) ? addr : null;
     }
 
     // 3) Configured addresses for testnets/mainnet
@@ -170,5 +182,14 @@ export const createContractInstanceAsync = async (contractName, address, signerO
   if (!address || typeof address !== 'string' || !ethers.isAddress(address)) {
     throw new Error(`createContractInstanceAsync: invalid contract address provided for ${contractName}: ${String(address)}`);
   }
-  return new ethers.Contract(address, abi, signerOrProvider);
+  
+  // Force localhost provider for development
+  let finalProvider = signerOrProvider;
+  if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    const localProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+    // Always use local provider for localhost development
+    finalProvider = localProvider;
+  }
+  
+  return new ethers.Contract(address, abi, finalProvider);
 };

@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import * as ethers from 'ethers';
+import { IN_E2E } from '../utils/env';
 
 const EthersContext = createContext();
 
@@ -14,29 +15,77 @@ export function EthersProvider({ children }) {
 
   useEffect(() => {
     const initProvider = async () => {
+      // In E2E mode, force connection with mock data
+      if (IN_E2E) {
+        console.log('🧪 E2E Mode detected - forcing wallet connection');
+        try {
+          // Set up mock provider and signer for E2E testing
+          const mockProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+          setProvider(mockProvider);
+          // Use first Hardhat account
+          const mockAccount = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+          setAccount(mockAccount);
+          setChainId(31337);
+          setIsConnected(true);
+          console.log('✅ E2E Mock wallet connected:', mockAccount);
+        } catch (error) {
+          console.error('❌ E2E wallet setup failed:', error);
+        }
+        setLoading(false);
+        return;
+      }
+
       if (typeof window !== 'undefined' && window.ethereum) {
         try {
           const web3Provider = new ethers.BrowserProvider(window.ethereum);
-          setProvider(web3Provider);
-
-          const accounts = await window.ethereum.request({ 
-            method: 'eth_accounts' 
-          });
+          // Always check chainId and force localhost for 31337
+          let net;
+          try {
+            net = await web3Provider.getNetwork();
+          } catch (err) {
+            net = { chainId: null };
+          }
           
+          // Check if we're on localhost and force local provider
+          const isLocalEnv = window.location.hostname === 'localhost' || 
+                            window.location.hostname === '127.0.0.1' || 
+                            window.location.hostname === '::1';
+          
+          if (isLocalEnv || Number(net.chainId) === 31337) {
+            // Force local Hardhat node for dev
+            const localProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+            setProvider(localProvider);
+            // Override chainId to 31337 for localhost
+            net = { chainId: 31337 };
+            console.debug('EthersContext: Forcing localhost provider and chainId 31337');
+            
+            // Override MetaMask provider to prevent mainnet queries
+            if (window.ethereum && window.ethereum.request) {
+              const originalRequest = window.ethereum.request;
+              window.ethereum.request = async (args) => {
+                if (args.method === 'eth_getLogs' || args.method === 'eth_getBlockByNumber' || args.method === 'eth_call') {
+                  // Redirect eth queries to local provider
+                  return localProvider.send(args.method, args.params || []);
+                }
+                return originalRequest.call(window.ethereum, args);
+              };
+            }
+          } else {
+            setProvider(web3Provider);
+          }
+
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' });
           if (accounts.length > 0) {
-            // If the user is already connected in the wallet, set up signer/account without prompting
             try {
               const web3Signer = await web3Provider.getSigner(accounts[0]);
               setSigner(web3Signer);
               setAccount(accounts[0]);
-              const net = await web3Provider.getNetwork();
-              setChainId(Number(net.chainId));
+              setChainId(Number(net.chainId)); // This should now be 31337 for localhost
               setIsConnected(true);
               if (import.meta.env && import.meta.env.DEV) {
                 console.debug('EthersContext init: set signer/account/chainId', { account: accounts[0], chainId: Number(net.chainId) });
               }
             } catch (e) {
-              // fallback to connectWallet if signer cannot be acquired
               await connectWallet();
             }
           }

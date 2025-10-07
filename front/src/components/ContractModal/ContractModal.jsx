@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
@@ -18,6 +18,7 @@ import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
 import { IN_E2E } from '../../utils/env';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
+  const contractInstanceRef = useRef(null);
   const { signer, chainId, account, provider } = useEthers();
   const [contractDetails, setContractDetails] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -231,12 +232,16 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
       // Try load as Rent first, then NDA using the resolved targetAddress
       let details;
+      let contractInstance = null;
       try {
         details = await contractService.getRentContractDetails(targetAddress, { silent: true });
+        contractInstance = await contractService.getRentContract(targetAddress);
       } catch (_) {
         details = await contractService.getNDAContractDetails(targetAddress, { silent: true });
+        contractInstance = await contractService.getNDAContract(targetAddress);
       }
       setContractDetails(details);
+      contractInstanceRef.current = contractInstance;
   // detect per-contract appeal in localStorage (try multiple key variants) or sessionStorage fallback
       try {
   const key1 = `incomingDispute:${targetAddress}`;
@@ -363,6 +368,14 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       // Load history/policy based on type
         if (details?.type === 'Rental') {
         const rentContract = await contractService.getRentContract(targetAddress);
+        // Get latest block number for limiting event queries
+        let latestBlock = 0;
+        try {
+          latestBlock = await (signer?.provider || provider).getBlockNumber();
+        } catch (_) {
+          latestBlock = 0;
+        }
+        const fromBlock = latestBlock > 10000 ? latestBlock - 10000 : 0;
         // required ETH for current period
         try {
           const req = await rentContract.getRentInEth();
@@ -372,9 +385,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           setRequiredEthWei(null);
           setRequiredEth(null);
         }
-  const paymentEvents = await rentContract.queryFilter(rentContract.filters.RentPaid());
+  const paymentEvents = await rentContract.queryFilter(rentContract.filters.RentPaid(), fromBlock, 'latest');
   // include security deposit events (debtor deposits for case) so deposits show in payment history
-  const depositEvents = await rentContract.queryFilter(rentContract.filters.SecurityDepositPaid?.());
+  const depositEvents = await rentContract.queryFilter(rentContract.filters.SecurityDepositPaid?.(), fromBlock, 'latest');
         const transactions = await Promise.all(paymentEvents.map(async (event) => {
           const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
           return {
@@ -398,7 +411,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
         // Also include dispute/appeal events (so reporter bond / appeal TXs show in history)
         try {
-          const disputeEvents = await rentContract.queryFilter(rentContract.filters.DisputeReported?.());
+          const disputeEvents = await rentContract.queryFilter(rentContract.filters.DisputeReported?.(), fromBlock, 'latest');
           const disputeTxs = await Promise.all(disputeEvents.map(async (ev) => {
             const blk = await (signer?.provider || provider).getBlock(ev.blockNumber);
             const cid = Number(ev.args?.caseId ?? ev.args?.[0] ?? 0);
@@ -1655,6 +1668,26 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                                   // refresh contract data
                                   await loadContractData();
                                 } catch (err) { alert(`Deposit failed: ${err?.message || err}`); } finally { setActionLoading(false); }
+                          <div className="tx-history">
+                            <h4>Payment History</h4>
+                            {transactionHistory.length === 0 ? (
+                              <div className="tx-list-empty">No transactions found for this contract.<br />
+                                {loading ? <span>Loading on-chain data...</span> : null}
+                              </div>
+                            ) : (
+                              <div className="tx-list">
+                                {transactionHistory.map((tx, idx) => (
+                                  <div key={tx.hash || idx} className="tx-item">
+                                    <div className="tx-date">{tx.date}</div>
+                                    <div className="tx-amount">{tx.amount} ETH</div>
+                                    <div className="tx-payer">{tx.payer ? `By: ${tx.payer.slice(0,8)}...` : ''}</div>
+                                    {tx.note && <div className="tx-note">{tx.note}</div>}
+                                    <div className="tx-hash">{tx.hash ? `${tx.hash.slice(0,10)}...${tx.hash.slice(-8)}` : ''}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                               });
                               setConfirmOpen(true);
                             } catch (e) { console.error('Failed to prepare deposit', e); alert('Failed to prepare deposit'); }

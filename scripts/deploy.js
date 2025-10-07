@@ -286,15 +286,15 @@ async function main() {
             bytecode: chosenBytecode,
           };
 
-          // Save to both directories for compatibility
-          const publicDest = path.join(frontendPublicContractsDir, `${contractName}ABI.json`);
-          const srcDest = path.join(frontendContractsDir, `${contractName}.json`);
-          
-          fs.writeFileSync(publicDest, JSON.stringify(abiData, null, 2));
-          fs.writeFileSync(srcDest, JSON.stringify(abiData, null, 2));
-          
-          console.log(`✅ Copied ${contractName} ABI`);
-          copiedCount++;
+                  // Save to both directories for compatibility
+                  const publicDest = path.join(frontendPublicContractsDir, `${contractName}.json`);
+                  const srcDest = path.join(frontendContractsDir, `${contractName}.json`);
+
+                  fs.writeFileSync(publicDest, JSON.stringify(abiData, null, 2));
+                  fs.writeFileSync(srcDest, JSON.stringify(abiData, null, 2));
+
+                  console.log(`✅ Copied ${contractName} ABI`);
+                  copiedCount++;
         } catch (error) {
           console.error(`❌ Error copying artifact ${full}:`, error.message);
           skippedCount++;

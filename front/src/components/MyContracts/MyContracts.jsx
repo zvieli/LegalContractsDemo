@@ -68,87 +68,97 @@ export default function MyContracts() {
             list = [];
           }
         } else {
-          // When running E2E, the test harness may have created many contracts and
-          // the default page size (50) can miss recently-created items that live
-          // past the first page. Prefer the full getter in E2E (if available) so
-          // Playwright can find the created contract items reliably. Fall back to
-          // a large paged request if the full getter isn't present or fails.
-          const runtimeHasPlaywrightHelper = (typeof window !== 'undefined' && !!window.playwright_open_dispute);
-          const e2e = IN_E2E || runtimeHasPlaywrightHelper;
-          if (e2e) {
-              try {
-                // Use a direct JsonRpcProvider to query the node for the full list.
-                // This avoids injected-provider limitations in the browser during E2E.
-                console.debug('MYCONTRACTS: E2E mode detected, querying local RPC for full creator list');
-                const factoryAddr = factory.target || factory.address || null;
-                console.debug('MYCONTRACTS: factoryAddr resolved to', factoryAddr);
-                if (factoryAddr) {
-                  const rpcUrl = 'http://127.0.0.1:8545';
-                  const rpc = new ethers.JsonRpcProvider(rpcUrl);
-                  // Give the provider a quick readiness check so subsequent calls
-                  // like getContractsByCreator don't immediately fail due to a
-                  // not-yet-initialized connection in some environments.
-                  try {
-                    await rpc.getBlockNumber();
-                    console.debug('MYCONTRACTS: created local JsonRpcProvider with endpoint', rpcUrl, 'provider ready');
-                  } catch (provErr) {
-                    console.debug('MYCONTRACTS: created local JsonRpcProvider with endpoint', rpcUrl, 'but provider not ready', String(provErr));
-                  }
-                  const localFactory = await createContractInstanceAsync('ContractFactory', factoryAddr, rpc);
-                  try {
-                    console.debug('MYCONTRACTS: calling localFactory.getContractsByCreator via local RPC');
-                    const fullRaw = await localFactory.getContractsByCreator(addr).catch((err) => {
-                      console.debug('MYCONTRACTS: localFactory.getContractsByCreator threw', String(err));
-                      return null;
-                    });
-                    console.debug('MYCONTRACTS: localFactory.getContractsByCreator raw type', Object.prototype.toString.call(fullRaw), 'lengthProp', fullRaw && fullRaw.length);
-                    // Convert array-like / Proxy results into a real Array for robust checks
-                    let full = null;
-                    if (Array.isArray(fullRaw)) {
-                      full = fullRaw;
-                    } else if (fullRaw && typeof fullRaw.length === 'number') {
-                      try {
-                        const tmp = [];
-                        for (let i = 0; i < fullRaw.length; i++) tmp.push(fullRaw[i]);
-                        full = tmp;
-                        console.debug('MYCONTRACTS: converted array-like result to real Array length', full.length);
-                      } catch (convErr) {
-                        console.debug('MYCONTRACTS: failed to convert array-like result', String(convErr));
-                        full = null;
+          // Regular user: get contracts created by address AND contracts where user participates
+          try {
+            // 1) Contracts I created
+            const created = await svc.getUserContracts(addr);
+            // 2) Contracts where I participate (as landlord/tenant/party)
+            const participating = await svc.getContractsByParticipant(addr);
+            // Union & dedupe
+            const userContracts = Array.from(new Set([...(created || []), ...(participating || [])]));
+            list = userContracts;
+            fetchSource = 'created-and-participating';
+            console.debug('MYCONTRACTS: fetched contracts - created:', created?.length || 0, 'participating:', participating?.length || 0, 'total unique:', list.length);
+          } catch (e) {
+            console.debug('MYCONTRACTS: error fetching contracts by participant, falling back to creator-only', String(e));
+            // Fallback to old E2E behavior for compatibility
+            const runtimeHasPlaywrightHelper = (typeof window !== 'undefined' && !!window.playwright_open_dispute);
+            const e2e = IN_E2E || runtimeHasPlaywrightHelper;
+            if (e2e) {
+                try {
+                  // Use a direct JsonRpcProvider to query the node for the full list.
+                  // This avoids injected-provider limitations in the browser during E2E.
+                  console.debug('MYCONTRACTS: E2E mode detected, querying local RPC for full creator list');
+                  const factoryAddr = factory.target || factory.address || null;
+                  console.debug('MYCONTRACTS: factoryAddr resolved to', factoryAddr);
+                  if (factoryAddr) {
+                    const rpcUrl = 'http://127.0.0.1:8545';
+                    const rpc = new ethers.JsonRpcProvider(rpcUrl);
+                    // Give the provider a quick readiness check so subsequent calls
+                    // like getContractsByCreator don't immediately fail due to a
+                    // not-yet-initialized connection in some environments.
+                    try {
+                      await rpc.getBlockNumber();
+                      console.debug('MYCONTRACTS: created local JsonRpcProvider with endpoint', rpcUrl, 'provider ready');
+                    } catch (provErr) {
+                      console.debug('MYCONTRACTS: created local JsonRpcProvider with endpoint', rpcUrl, 'but provider not ready', String(provErr));
+                    }
+                    const localFactory = await createContractInstanceAsync('ContractFactory', factoryAddr, rpc);
+                    try {
+                      console.debug('MYCONTRACTS: calling localFactory.getContractsByCreator via local RPC');
+                      const fullRaw = await localFactory.getContractsByCreator(addr).catch((err) => {
+                        console.debug('MYCONTRACTS: localFactory.getContractsByCreator threw', String(err));
+                        return null;
+                      });
+                      console.debug('MYCONTRACTS: localFactory.getContractsByCreator raw type', Object.prototype.toString.call(fullRaw), 'lengthProp', fullRaw && fullRaw.length);
+                      // Convert array-like / Proxy results into a real Array for robust checks
+                      let full = null;
+                      if (Array.isArray(fullRaw)) {
+                        full = fullRaw;
+                      } else if (fullRaw && typeof fullRaw.length === 'number') {
+                        try {
+                          const tmp = [];
+                          for (let i = 0; i < fullRaw.length; i++) tmp.push(fullRaw[i]);
+                          full = tmp;
+                          console.debug('MYCONTRACTS: converted array-like result to real Array length', full.length);
+                        } catch (convErr) {
+                          console.debug('MYCONTRACTS: failed to convert array-like result', String(convErr));
+                          full = null;
+                        }
                       }
-                    }
-                    if (Array.isArray(full) && full.length > 0) {
-                      list = full;
-                      fetchSource = 'local-rpc-full';
-                      console.debug('MYCONTRACTS: local RPC returned full list length', full.length, 'first/last', full[0], full[full.length-1]);
-                    } else {
-                      // fallback to paged read against the page factory instance
-                      console.debug('MYCONTRACTS: local RPC returned empty or non-array; falling back to paged read');
-                      console.debug('MYCONTRACTS: page-factory provider info', factory ? (factory.provider ? factory.provider : 'no-provider') : 'no-factory');
+                      if (Array.isArray(full) && full.length > 0) {
+                        list = full;
+                        fetchSource = 'local-rpc-full';
+                        console.debug('MYCONTRACTS: local RPC returned full list length', full.length, 'first/last', full[0], full[full.length-1]);
+                      } else {
+                        // fallback to paged read against the page factory instance
+                        console.debug('MYCONTRACTS: local RPC returned empty or non-array; falling back to paged read');
+                        console.debug('MYCONTRACTS: page-factory provider info', factory ? (factory.provider ? factory.provider : 'no-provider') : 'no-factory');
+                        list = await factory.getContractsByCreatorPaged(addr, 0, 1000);
+                        fetchSource = 'fallback-paged';
+                        try { console.debug('MYCONTRACTS: fallback paged read returned type', Object.prototype.toString.call(list), 'length', Array.isArray(list) ? list.length : 'n/a'); } catch (e) {}
+                      }
+                    } catch (innerErr) {
+                      console.debug('MYCONTRACTS: error calling localFactory.getContractsByCreator', String(innerErr));
+                      console.debug('MYCONTRACTS: falling back to paged read against page factory');
                       list = await factory.getContractsByCreatorPaged(addr, 0, 1000);
-                      fetchSource = 'fallback-paged';
-                      try { console.debug('MYCONTRACTS: fallback paged read returned type', Object.prototype.toString.call(list), 'length', Array.isArray(list) ? list.length : 'n/a'); } catch (e) {}
+                      fetchSource = 'fallback-paged-exception';
                     }
-                  } catch (innerErr) {
-                    console.debug('MYCONTRACTS: error calling localFactory.getContractsByCreator', String(innerErr));
-                    console.debug('MYCONTRACTS: falling back to paged read against page factory');
+                  } else {
+                    console.debug('MYCONTRACTS: no factoryAddr found; falling back to paged read');
                     list = await factory.getContractsByCreatorPaged(addr, 0, 1000);
-                    fetchSource = 'fallback-paged-exception';
+                    fetchSource = 'no-factory-paged';
                   }
-                } else {
-                  console.debug('MYCONTRACTS: no factoryAddr found; falling back to paged read');
-                  list = await factory.getContractsByCreatorPaged(addr, 0, 1000);
-                  fetchSource = 'no-factory-paged';
+                } catch (e) {
+                  console.debug('MYCONTRACTS: local RPC full-get failed, falling back to paged read', String(e));
+                  try { list = await factory.getContractsByCreatorPaged(addr, 0, 1000); fetchSource = 'fallback-paged-final'; } catch (e2) { console.debug('MYCONTRACTS: paged read also failed', String(e2)); list = []; }
                 }
-              } catch (e) {
-                console.debug('MYCONTRACTS: local RPC full-get failed, falling back to paged read', String(e));
-                try { list = await factory.getContractsByCreatorPaged(addr, 0, 1000); fetchSource = 'fallback-paged-final'; } catch (e2) { console.debug('MYCONTRACTS: paged read also failed', String(e2)); list = []; }
-              }
-          } else {
-            const pageSize = 50;
-            try { console.debug('MYCONTRACTS: fetching contractsByCreatorPaged pageSize', pageSize); } catch (e) {}
-            list = await factory.getContractsByCreatorPaged(addr, 0, pageSize);
-            fetchSource = 'paged-default';
+            } else {
+              const pageSize = 50;
+              try { console.debug('MYCONTRACTS: fetching contractsByCreatorPaged pageSize', pageSize); } catch (e) {}
+              list = await factory.getContractsByCreatorPaged(addr, 0, pageSize);
+              fetchSource = 'paged-default';
+            }
           }
         }
   if (!mounted) return;

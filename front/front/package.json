@@ -4,9 +4,11 @@
     "legal-contracts-frontend": "file:.."
   },
   "devDependencies": {
+    "@synthetixio/synpress": "^4.1.1",
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^14.6.1",
+    "dotenv": "^17.2.3",
     "jsdom": "^27.0.0",
     "vitest": "^3.2.4"
   }

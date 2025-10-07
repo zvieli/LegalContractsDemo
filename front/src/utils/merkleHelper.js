@@ -1,3 +1,24 @@
+/**
+ * verifyMerkleProof
+ * Verifies a Merkle proof for a leaf and root.
+ * @param {string} leaf - The leaf hash
+ * @param {Array<string>} proof - Array of sibling hashes
+ * @param {string} root - The expected Merkle root
+ * @param {number} index - Index of the leaf in the batch
+ * @returns {boolean}
+ */
+export function verifyMerkleProof(leaf, proof, root, index) {
+  let hash = leaf;
+  let idx = index;
+  for (let i = 0; i < proof.length; i++) {
+    const sibling = proof[i];
+    const ordered = idx % 2 === 0 ? (hash <= sibling ? [hash, sibling] : [sibling, hash])
+                                  : (sibling <= hash ? [sibling, hash] : [hash, sibling]);
+    hash = keccak256(solidityPacked(['bytes32','bytes32'], ordered));
+    idx = Math.floor(idx / 2);
+  }
+  return hash === root;
+}
 import { AbiCoder, getAddress, keccak256, solidityPacked } from 'ethers';
 
 // Re-create file (was missing) providing leaf + root helpers for Merkle evidence batching
