@@ -5,6 +5,9 @@ import('hardhat-contract-sizer').catch(() => {});
 import { task } from 'hardhat/config.js';
 import('dotenv').then(d => d.config()).catch(() => { console.warn('[warn] dotenv not installed, skipping .env load'); });
 
+// Import CCIP tasks
+import('./tasks/ccip/index.js').catch(() => { console.warn('[warn] CCIP tasks not available'); });
+
 export default {
   solidity: {
     version: "0.8.20",

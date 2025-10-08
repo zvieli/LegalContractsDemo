@@ -4,6 +4,20 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "../ccip/CCIPArbitrationTypes.sol";
+
+// Interface for CCIP Arbitration Sender
+interface ICCIPArbitrationSender {
+    function sendArbitrationRequest(
+        bytes32 disputeId,
+        address contractAddress,
+        uint256 caseId,
+        bytes32 evidenceHash,
+        string calldata evidenceURI,
+        uint256 requestedAmount,
+        uint8 payFeesIn // 0 = Native, 1 = LINK
+    ) external payable returns (bytes32 messageId);
+}
 // factory enforcement removed (size optimization) - use off-chain policy & deployer pattern
 contract NDATemplate is EIP712, ReentrancyGuard {
     using ECDSA for bytes32;
@@ -83,6 +97,19 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     mapping(address => uint256) public offenderBreachCount; // cumulative approved breaches per offender
     uint256 public revealWindowSeconds; // default 0 = no reveal deadline enforced
     uint256 public appealWindowSeconds; // default 0 = no appeal window enforced
+
+    // CCIP Integration
+    ICCIPArbitrationSender public ccipSender;
+    bool public ccipEnabled;
+    mapping(uint256 => bytes32) public ccipMessageIds; // caseId => CCIP message ID
+    
+    // Events for CCIP
+    event CCIPArbitrationRequested(
+        uint256 indexed caseId,
+        bytes32 indexed messageId,
+        bytes32 disputeId
+    );
+    event CCIPConfigUpdated(address indexed ccipSender, bool enabled);
 
     constructor(
         address _partyA,
@@ -170,6 +197,29 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         require(!signedBy[signer], "Already signed");
         signedBy[signer] = true;
         emit NDASigned(signer, block.timestamp);
+    }
+
+    // ============ CCIP Configuration ============
+
+    /**
+     * @notice Configure CCIP arbitration (only arbitration service)
+     * @param _ccipSender Address of CCIP arbitration sender
+     * @param _enabled Whether to enable CCIP arbitration
+     */
+    function configureCCIP(
+        address _ccipSender,
+        bool _enabled
+    ) external onlyArbitrationService {
+        ccipSender = ICCIPArbitrationSender(_ccipSender);
+        ccipEnabled = _enabled;
+        emit CCIPConfigUpdated(_ccipSender, _enabled);
+    }
+
+    /**
+     * @notice Check if CCIP arbitration is available
+     */
+    function isCCIPAvailable() external view returns (bool) {
+        return ccipEnabled && address(ccipSender) != address(0);
     }
 
     function isFullySigned() public view returns (bool) {
@@ -260,6 +310,11 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         }
 
         emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidenceHash);
+        
+        // Automatically trigger CCIP arbitration if enabled
+        if (ccipEnabled && address(ccipSender) != address(0)) {
+            _triggerCCIPArbitration(caseId, evidenceHash);
+        }
     }
 
     function getCasesCount() external view returns (uint256) {
@@ -283,6 +338,66 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     }
 
     // Voting removed for two-party NDAs. Disputes must be resolved by an arbitrator or external oracle.
+
+    // ============ CCIP Arbitration Functions ============
+
+    /**
+     * @notice Trigger CCIP arbitration for a case
+     * @param caseId The case ID to arbitrate
+     * @param evidenceHash Hash of the evidence
+     */
+    function _triggerCCIPArbitration(uint256 caseId, bytes32 evidenceHash) internal {
+        require(caseId < _cases.length, "Invalid case ID");
+        require(ccipEnabled && address(ccipSender) != address(0), "CCIP not available");
+        
+        BreachCase storage bc = _cases[caseId];
+        
+        // Generate unique dispute ID
+        bytes32 disputeId = keccak256(
+            abi.encodePacked(
+                address(this),
+                caseId,
+                block.timestamp,
+                bc.reporter,
+                bc.offender
+            )
+        );
+        
+        // Prepare evidence URI (could be IPFS CID or empty)
+        string memory evidenceURI = ""; // For now empty, could be enhanced
+        
+        try ccipSender.sendArbitrationRequest{value: 0}(
+            disputeId,
+            address(this),
+            caseId,
+            evidenceHash,
+            evidenceURI,
+            bc.requestedPenalty,
+            0 // Pay with Native tokens
+        ) returns (bytes32 messageId) {
+            ccipMessageIds[caseId] = messageId;
+            emit CCIPArbitrationRequested(caseId, messageId, disputeId);
+        } catch {
+            // If CCIP fails, continue without it
+            // The case can still be resolved manually
+        }
+    }
+
+    /**
+     * @notice Manually trigger CCIP arbitration for existing case (by arbitration service)
+     * @param caseId The case ID to arbitrate
+     */
+    function triggerCCIPArbitration(uint256 caseId) external payable onlyArbitrationService {
+        require(caseId < _cases.length, "Invalid case ID");
+        require(ccipEnabled && address(ccipSender) != address(0), "CCIP not available");
+        
+        BreachCase storage bc = _cases[caseId];
+        require(!bc.resolved, "Case already resolved");
+        
+        _triggerCCIPArbitration(caseId, bc.evidenceHash);
+    }
+
+    /// @notice Minimal service-only entrypoint for external arbitration service to resolve a breach.
 
     /// @notice Minimal service-only entrypoint for external arbitration service to resolve a breach.
     function serviceResolve(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary) external onlyActive nonReentrant {

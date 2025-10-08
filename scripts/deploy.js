@@ -124,6 +124,103 @@ async function main() {
   console.log("✅ Arbitrator deployed to:", arbitratorAddress);
   console.log("DEBUG: Arbitrator deployed.");
 
+  // === CCIP Oracle Arbitration Integration ===
+  console.log("DEBUG: Deploying CCIP Oracle Arbitration system...");
+  
+  // Mainnet CCIP addresses (available on fork)
+  const MAINNET_CCIP_ROUTER = "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D";
+  const MAINNET_LINK_TOKEN = "0x514910771AF9Ca656af840dff83E8264EcF986CA";
+  const FORK_CHAIN_SELECTOR = "31337"; // Our local fork chain ID
+  
+  // Verify CCIP Router exists on fork
+  const routerCode = await ethers.provider.getCode(MAINNET_CCIP_ROUTER);
+  if (routerCode === "0x") {
+    throw new Error("CCIP Router not found on fork. Are we connected to mainnet fork?");
+  }
+  console.log("✅ CCIP Router verified on mainnet fork");
+  
+  let ccipSenderAddress = null;
+  let ccipReceiverAddress = null;
+  
+  try {
+    console.log("📤 Deploying CCIPArbitrationSender...");
+    const CCIPArbitrationSender = await ethers.getContractFactory("CCIPArbitrationSender");
+    const ccipSender = await CCIPArbitrationSender.deploy(
+      MAINNET_CCIP_ROUTER,
+      MAINNET_LINK_TOKEN,
+      FORK_CHAIN_SELECTOR,
+      deployer.address // Use deployer as initial receiver for testing
+    );
+    await ccipSender.waitForDeployment();
+    ccipSenderAddress = await ccipSender.getAddress();
+    console.log("✅ CCIPArbitrationSender deployed to:", ccipSenderAddress);
+
+    console.log("📥 Deploying CCIPArbitrationReceiver...");
+    const CCIPArbitrationReceiver = await ethers.getContractFactory("CCIPArbitrationReceiver");
+    const ccipReceiver = await CCIPArbitrationReceiver.deploy(
+      MAINNET_CCIP_ROUTER,
+      arbitrationServiceAddress
+    );
+    await ccipReceiver.waitForDeployment();
+    ccipReceiverAddress = await ccipReceiver.getAddress();
+    console.log("✅ CCIPArbitrationReceiver deployed to:", ccipReceiverAddress);
+
+    // Configure CCIP authorizations
+    console.log("🔑 Setting up CCIP authorizations...");
+    
+    // Authorize receiver to call ArbitrationService
+    const authTx = await arbitrationService.authorizeCCIPReceiver(ccipReceiverAddress, true);
+    await authTx.wait();
+    console.log("✅ Authorized CCIP receiver in ArbitrationService");
+
+    // Configure sender with receiver
+    const configTx = await ccipSender.updateOracleConfig(FORK_CHAIN_SELECTOR, ccipReceiverAddress);
+    await configTx.wait();
+    console.log("✅ Configured Oracle in CCIP sender");
+
+    // Check LINK balance and mint if needed (fork allows this)
+    const linkToken = await ethers.getContractAt(
+      ["function balanceOf(address) view returns (uint256)", "function transfer(address,uint256) returns (bool)"],
+      MAINNET_LINK_TOKEN
+    );
+    const linkBalance = await linkToken.balanceOf(deployer.address);
+    console.log("🔗 LINK Balance:", ethers.formatEther(linkBalance), "LINK");
+    
+    // On mainnet fork, we can simulate having LINK by impersonating a whale
+    if (linkBalance < ethers.parseEther("10")) {
+      console.log("💰 Simulating LINK transfer from whale account...");
+      try {
+        // Impersonate a whale account that has LINK
+        const whaleAddress = "0x98C63b7B319dFBDF3d811530F2ab9DcE4983B9cD"; // Binance wallet with lots of LINK
+        await network.provider.request({
+          method: "hardhat_impersonateAccount",
+          params: [whaleAddress]
+        });
+        
+        const whale = await ethers.getSigner(whaleAddress);
+        const whaleBalance = await linkToken.balanceOf(whaleAddress);
+        
+        if (whaleBalance > ethers.parseEther("100")) {
+          await linkToken.connect(whale).transfer(deployer.address, ethers.parseEther("100"));
+          console.log("✅ Transferred 100 LINK from whale to deployer");
+        }
+        
+        await network.provider.request({
+          method: "hardhat_stopImpersonatingAccount", 
+          params: [whaleAddress]
+        });
+      } catch (e) {
+        console.log("⚠️ Could not simulate LINK transfer:", e.message);
+      }
+    }
+    
+    console.log("✅ CCIP Oracle Arbitration system deployed successfully!");
+
+  } catch (error) {
+    console.warn("⚠️ CCIP deployment failed (continuing without Oracle):", error.message);
+    console.log("💡 Contracts will work in traditional arbitration mode");
+  }
+
   // Deploy ArbitrationContractV2 with real Chainlink Functions Router address
   const chainlinkRouter = '0x65Dcc24F8ff9e51F10DCc7Ed1e4e2A61e6E14bd6';
   const ArbitrationContractV2 = await ethers.getContractFactory('ArbitrationContractV2');
@@ -245,6 +342,16 @@ async function main() {
       ArbitrationService: arbitrationServiceAddress,
       RecipientKeyRegistry: keyRegistryAddress,
       Arbitrator: arbitratorAddress
+    },
+    ccip: {
+      enabled: ccipSenderAddress && ccipReceiverAddress,
+      router: "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D",
+      linkToken: "0x514910771AF9Ca656af840dff83E8264EcF986CA",
+      chainSelector: "31337",
+      contracts: {
+        CCIPArbitrationSender: ccipSenderAddress,
+        CCIPArbitrationReceiver: ccipReceiverAddress
+      }
     }
   };
 
@@ -346,15 +453,55 @@ async function main() {
   console.log(`   ArbitrationService: ${arbitrationServiceAddress}`);
   console.log(`   RecipientKeyRegistry: ${keyRegistryAddress}`);
   console.log(`   Arbitrator: ${arbitratorAddress}`);
+  
+  if (ccipSenderAddress && ccipReceiverAddress) {
+    console.log("\n🔗 CCIP Oracle Arbitration:");
+    console.log(`   CCIPArbitrationSender: ${ccipSenderAddress}`);
+    console.log(`   CCIPArbitrationReceiver: ${ccipReceiverAddress}`);
+    
+    // Update server .env file automatically
+    try {
+      const serverEnvPath = path.resolve(__dirname, '..', 'server', '.env');
+      let serverEnv = fs.readFileSync(serverEnvPath, 'utf8');
+      
+      // Update CCIP addresses
+      serverEnv = serverEnv.replace(/CCIP_SENDER_ADDRESS=.*/g, `CCIP_SENDER_ADDRESS=${ccipSenderAddress}`);
+      serverEnv = serverEnv.replace(/CCIP_RECEIVER_ADDRESS=.*/g, `CCIP_RECEIVER_ADDRESS=${ccipReceiverAddress}`);
+      serverEnv = serverEnv.replace(/ARBITRATION_SERVICE_ADDRESS=.*/g, `ARBITRATION_SERVICE_ADDRESS=${arbitrationServiceAddress}`);
+      
+      fs.writeFileSync(serverEnvPath, serverEnv);
+      console.log("✅ Updated server/.env with new contract addresses");
+    } catch (e) {
+      console.warn("⚠️ Could not update server/.env:", e.message);
+    }
+    console.log(`   CCIP Router: 0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D`);
+    console.log(`   LINK Token: 0x514910771AF9Ca656af840dff83E8264EcF986CA`);
+  }
+  
   console.log("\n💡 Gas Efficiency (Merkle Evidence):");
   console.log(`   Traditional evidence: ~79,000 gas each`);
   console.log(`   Batch submission: ~140k gas for unlimited items`);
   console.log(`   Savings: Up to 96% for large batches`);
+  
+  if (ccipSenderAddress) {
+    console.log("\n🤖 Oracle Arbitration (NEW!):");
+    console.log(`   CCIP Oracle: Enabled with Mainnet CCIP Router`);
+    console.log(`   Automatic: Reports trigger Oracle arbitration`);
+    console.log(`   LLM Powered: Uses Ollama for evidence analysis`);
+    console.log(`   Zero Cost: Educational mode with CCIP Local Simulator`);
+  }
+  
   console.log("\n🔧 Usage Instructions:");
   console.log("   1. Use factory.createEnhancedRentContract() for gas-optimized evidence");
   console.log("   2. Use factory.createRentContract() for traditional contracts");
   console.log("   3. Batch evidence off-chain using MerkleEvidenceHelper");
   console.log("   4. Submit batches via MerkleEvidenceManager");
+  
+  if (ccipSenderAddress) {
+    console.log("   5. Configure CCIP in templates: contract.configureCCIP('" + ccipSenderAddress + "', true)");
+    console.log("   6. Start V7 backend: npm run start:v7 in server/");
+    console.log("   7. Report disputes to trigger automatic Oracle arbitration");
+  }
   console.log(`\n📁 Files saved to: ${frontendContractsDir}`);
 }
 

@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface IArbitratorFactory {
-    function createDisputeForCase(address _ndaContract, uint256 _ndaCaseId, bytes calldata _evidence) external returns (uint256);
-}
+// CCIP imports for Oracle decision receiving
+import "./ccip/CCIPArbitrationTypes.sol";
+
+// interface IArbitratorFactory {
+//     function createDisputeForCase(address _ndaContract, uint256 _ndaCaseId, bytes calldata _evidence) external returns (uint256);
+// }
 
 contract ArbitrationService {
     address public owner;
@@ -12,8 +15,16 @@ contract ArbitrationService {
     address public factory;
     // Mitigation 4.2: prevent replay / double application by tracking processed request hashes
     mapping(bytes32 => bool) public processedRequests;
+    
+    // CCIP Oracle Integration
+    mapping(address => bool) public authorizedCCIPReceivers; // Authorized CCIP receiver contracts
+    mapping(bytes32 => bool) public processedCCIPDecisions; // Track processed CCIP decisions
 
     event ResolutionApplied(address indexed target, uint256 indexed caseId, bool approve, uint256 appliedAmount, address indexed beneficiary, address caller);
+    
+    // CCIP events
+    event CCIPReceiverAuthorized(address indexed receiver, bool authorized);
+    event CCIPDecisionReceived(bytes32 indexed messageId, address indexed targetContract, uint256 indexed caseId, bool approved);
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner");
@@ -30,15 +41,13 @@ contract ArbitrationService {
         factory = _factory;
     }
 
-    /// @notice Create a dispute on an Arbitrator factory for a target contract/case.
-    /// @param arbitratorFactory address of the Arbitrator factory contract
-    /// @param targetContract address of the NDA / Rent contract
-    /// @param targetCaseId id of the dispute on the target contract
-    /// @param evidence arbitrary calldata with evidence (may be empty)
-    function createDisputeOnFactory(address arbitratorFactory, address targetContract, uint256 targetCaseId, bytes calldata evidence) external returns (uint256) {
-        require(arbitratorFactory != address(0), "bad factory");
-        require(targetContract != address(0), "bad target");
-        return IArbitratorFactory(arbitratorFactory).createDisputeForCase(targetContract, targetCaseId, evidence);
+    /// @notice Authorize a CCIP receiver contract to send arbitration decisions
+    /// @param _receiver Address of the CCIP receiver contract
+    /// @param _authorized Whether to authorize or deauthorize the receiver
+    function authorizeCCIPReceiver(address _receiver, bool _authorized) external onlyOwner {
+        require(_receiver != address(0), "Invalid receiver");
+        authorizedCCIPReceivers[_receiver] = _authorized;
+        emit CCIPReceiverAuthorized(_receiver, _authorized);
     }
 
     /// @notice Apply a resolution to a target contract. This will attempt common
@@ -84,6 +93,92 @@ contract ArbitrationService {
         // which some templates may expose for direct enforcement. In that case,
         // the targetContract is expected to interpret the first param as the guilty party;
         // since we don't know this here, skip this attempt.
+        revert("No compatible resolution entrypoint on target");
+    }
+
+    /// @notice Receive and apply arbitration decision from CCIP Oracle
+    /// @param messageId CCIP message ID for tracking
+    /// @param targetContract Address of the contract to apply decision to
+    /// @param caseId Case ID in the target contract
+    /// @param decision The arbitration decision received via CCIP
+    function receiveCCIPDecision(
+        bytes32 messageId, 
+        address targetContract,
+        uint256 caseId,
+        CCIPArbitrationTypes.ArbitrationDecision memory decision
+    ) external {
+        require(authorizedCCIPReceivers[msg.sender], "Unauthorized CCIP receiver");
+        require(!processedCCIPDecisions[messageId], "Decision already processed");
+        
+        // Mark as processed to prevent replay
+        processedCCIPDecisions[messageId] = true;
+        
+        // Emit event for transparency
+        emit CCIPDecisionReceived(messageId, targetContract, caseId, decision.approved);
+        
+        // Apply the resolution to the target contract
+        // Use the existing applyResolutionToTarget logic but bypass the caller check
+        bool approve = decision.approved;
+        uint256 appliedAmount = decision.appliedAmount;
+        address beneficiary = decision.beneficiary;
+        
+        require(targetContract != address(0), "Invalid target");
+        require(beneficiary != address(0), "Invalid beneficiary");
+        
+        // Create unique request hash for CCIP decisions (include messageId for uniqueness)
+        bytes32 reqHash = keccak256(abi.encodePacked(
+            targetContract, caseId, approve, appliedAmount, beneficiary, msg.sender, messageId
+        ));
+        require(!processedRequests[reqHash], "Request already processed");
+        processedRequests[reqHash] = true;
+        
+        // Emit resolution event
+        emit ResolutionApplied(targetContract, caseId, approve, appliedAmount, beneficiary, msg.sender);
+        
+        // Try to apply resolution using existing patterns
+        _applyResolution(targetContract, caseId, approve, appliedAmount, beneficiary, "", decision.rationale);
+    }
+    
+    /// @notice Internal function to apply resolution with classification and rationale
+    function _applyResolution(
+        address targetContract,
+        uint256 caseId,
+        bool approve,
+        uint256 appliedAmount,
+        address beneficiary,
+        string memory classification,
+        string memory rationale
+    ) internal {
+        // Try NDA-style serviceResolve(uint256,bool,uint256,address)
+        (bool ok, bytes memory returned) = targetContract.call(
+            abi.encodeWithSignature("serviceResolve(uint256,bool,uint256,address)", 
+                caseId, approve, appliedAmount, beneficiary)
+        );
+        if (ok) return;
+        
+        // If the target reverted with a reason, try the extended version with metadata
+        if (returned.length > 0) {
+            // Try Rent-style resolveDisputeFinal with classification and rationale
+            (ok, returned) = targetContract.call(
+                abi.encodeWithSignature("resolveDisputeFinal(uint256,bool,uint256,address,string,string)", 
+                    caseId, approve, appliedAmount, beneficiary, classification, rationale)
+            );
+            if (ok) return;
+            
+            // If still failing, bubble up the original error
+            assembly { revert(add(returned, 32), mload(returned)) }
+        }
+        
+        // Try Rent-style resolveDisputeFinal with classification and rationale
+        (ok, returned) = targetContract.call(
+            abi.encodeWithSignature("resolveDisputeFinal(uint256,bool,uint256,address,string,string)", 
+                caseId, approve, appliedAmount, beneficiary, classification, rationale)
+        );
+        if (ok) return;
+        if (returned.length > 0) {
+            assembly { revert(add(returned, 32), mload(returned)) }
+        }
+        
         revert("No compatible resolution entrypoint on target");
     }
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Pie } from 'react-chartjs-2';
-import 'chart.js/auto';
+// import { Pie } from 'react-chartjs-2';
+// import 'chart.js/auto';
 
 export default function BatchDashboard({ caseId }) {
   const [batchHistory, setBatchHistory] = useState([]);
@@ -56,7 +56,11 @@ export default function BatchDashboard({ caseId }) {
     <div style={{margin:'24px 0',padding:20,border:'1px solid #eee',borderRadius:10,background:'#fafcff'}}>
       <h3>Batch Status Dashboard</h3>
       <div style={{maxWidth:320,margin:'0 auto'}}>
-        <Pie data={pieData} />
+        {/* <Pie data={pieData} /> */}
+        <div style={{textAlign:'center', padding:'40px', border:'1px dashed #ccc', borderRadius:'8px'}}>
+          <p>Chart visualization temporarily disabled</p>
+          <p style={{fontSize:'12px', color:'#666'}}>Installing chart dependencies...</p>
+        </div>
       </div>
       <div style={{marginTop:18}}>
         <strong>Stats:</strong> {batchHistory.length} batches | {arbitrationStats.pending} pending | {arbitrationStats.onchain_submitted} on-chain | {arbitrationStats.arbitrated} arbitrated

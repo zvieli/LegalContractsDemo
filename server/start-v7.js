@@ -5,10 +5,15 @@
  * Complete initialization and startup for all V7 components
  */
 
+import dotenv from 'dotenv';
 import { spawn } from 'child_process';
 import { existsSync, mkdirSync } from 'fs';
 import path from 'path';
 import chalk from 'chalk';
+import { CCIPEventListener } from './ccip/ccipEventListener.js';
+
+// Load environment variables
+dotenv.config();
 
 console.log(chalk.cyan.bold('🚀 Starting V7 Backend System...'));
 
@@ -130,7 +135,7 @@ function startLLMArbitratorAPI() {
 function startV7Server() {
   console.log(chalk.green('🌐 Starting V7 Express Server...'));
   
-  const serverProcess = spawn('node', ['index.js'], {
+  const serverProcess = spawn('node', ['server/index.js'], {
     stdio: 'pipe',
     env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'development' }
   });
@@ -144,6 +149,37 @@ function startV7Server() {
   });
   
   return serverProcess;
+}
+
+/**
+ * Start CCIP Event Listener for Oracle integration
+ */
+function startCCIPEventListener() {
+  console.log(chalk.blue('🔗 Starting CCIP Event Listener...'));
+  
+  try {
+    const ccipListener = new CCIPEventListener({
+      rpcUrl: process.env.RPC_URL || 'http://127.0.0.1:8545',
+      chainId: parseInt(process.env.CHAIN_ID) || 31337,
+      pollingInterval: 5000,
+      enableLLM: true,
+      arbitrationServiceAddress: process.env.ARBITRATION_SERVICE_ADDRESS,
+      privateKey: process.env.PRIVATE_KEY
+    });
+    
+    // Initialize and start listening
+    ccipListener.initialize().then(() => {
+      ccipListener.startListening();
+      console.log(chalk.green('✅ CCIP Event Listener started successfully'));
+    }).catch(error => {
+      console.error(chalk.red('❌ Failed to start CCIP Event Listener:'), error);
+    });
+    
+    return ccipListener;
+  } catch (error) {
+    console.error(chalk.red('❌ Failed to initialize CCIP Event Listener:'), error);
+    return null;
+  }
 }
 
 /**
@@ -171,18 +207,29 @@ async function startV7System() {
     // Step 5: Start V7 Express server
     const serverProcess = startV7Server();
     
+    // Step 6: Start CCIP Event Listener for Oracle integration
+    const ccipListener = startCCIPEventListener();
+    
     console.log(chalk.cyan.bold('\n🎉 V7 Backend System Started Successfully!'));
     console.log(chalk.white('📍 Services:'));
     console.log(chalk.white(`   • V7 API Server: http://localhost:${process.env.SERVER_PORT || 3001}`));
     if (llmProcess) {
       console.log(chalk.white('   • LLM Arbitrator API: http://localhost:8000'));
     }
-  console.log(chalk.white('   • Health Check: http://localhost:3001/api/v7/arbitration/health'));
+    if (ccipListener) {
+      console.log(chalk.white('   • CCIP Oracle Listener: Active'));
+    }
+  console.log(chalk.white(`   • Health Check: http://localhost:${process.env.SERVER_PORT || 3001}/api/v7/arbitration/health`));
     console.log(chalk.gray('\nPress Ctrl+C to stop all services'));
     
     // Handle graceful shutdown
     process.on('SIGINT', () => {
       console.log(chalk.yellow('\n🛑 Shutting down V7 Backend System...'));
+      
+      if (ccipListener) {
+        ccipListener.stopListening();
+        console.log(chalk.gray('✅ CCIP Event Listener stopped'));
+      }
       
       if (llmProcess) {
         llmProcess.kill('SIGTERM');

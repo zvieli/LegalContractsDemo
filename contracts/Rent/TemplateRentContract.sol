@@ -8,6 +8,10 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 // factory enforcement removed (size optimization) - relying on factory pattern off-chain
 
+// CCIP imports for Oracle arbitration integration
+import "../ccip/CCIPArbitrationTypes.sol";
+import "../ccip/CCIPArbitrationSender.sol"; // Import the interface from the actual contract
+
 /// @title TemplateRentContract with EIP712 dual-party signature (similar to NDATemplate)
 /// @notice Adds structured data signing so BOTH landlord & tenant can sign immutable core terms.
 contract TemplateRentContract is EIP712, ReentrancyGuard {
@@ -18,6 +22,11 @@ contract TemplateRentContract is EIP712, ReentrancyGuard {
     bool public rentPaid;
     uint256 public totalPaid;
     bool public active;
+
+    // CCIP Oracle Integration for automated arbitration
+    CCIPArbitrationSender public ccipSender;
+    bool public ccipEnabled;
+    mapping(uint256 => bytes32) public ccipMessageIds; // disputeId => CCIP messageId
 
 AggregatorV3Interface public immutable priceFeed;
     uint256 public dueDate;
@@ -116,6 +125,10 @@ AggregatorV3Interface public immutable priceFeed;
     event DisputeAppliedCapped(uint256 indexed caseId, uint256 requestedAmount, uint256 available, uint256 applied);
     event DisputeClosed(uint256 indexed caseId, uint256 timestamp);
     event DebtRecorded(address indexed debtor, uint256 amount);
+    
+    // CCIP Oracle arbitration events
+    event CCIPArbitrationRequested(uint256 indexed caseId, bytes32 indexed messageId, address indexed requester);
+    event CCIPConfigUpdated(address indexed sender, bool enabled);
     // ERC20 support removed: ERC20DebtCollected event intentionally omitted
     event DisputeRationale(uint256 indexed caseId, string classification, string rationale);
     event PaymentWithdrawn(address indexed to, uint256 amount);
@@ -426,6 +439,27 @@ function getRentInEth() public view returns (uint256) {
             return rentSigned;
         }
 
+    // ============ CCIP Oracle Configuration ============
+    /**
+     * @notice Configure CCIP arbitration sender (only callable by landlord or tenant)
+     * @param _ccipSender Address of the CCIP arbitration sender contract
+     * @param _enabled Whether to enable automatic CCIP arbitration
+     */
+    function configureCCIP(address payable _ccipSender, bool _enabled) external {
+        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+        ccipSender = CCIPArbitrationSender(_ccipSender);
+        ccipEnabled = _enabled;
+        emit CCIPConfigUpdated(_ccipSender, _enabled);
+    }
+
+    /**
+     * @notice Check if CCIP arbitration is available and enabled
+     * @return True if CCIP is configured and enabled
+     */
+    function isCCIPAvailable() external view returns (bool) {
+        return ccipEnabled && address(ccipSender) != address(0);
+    }
+
     // ============ Cancellation Policy Management ============
     function setCancellationPolicy(uint256 _noticePeriod, uint16 _feeBps, bool _requireMutual)
         external
@@ -619,6 +653,11 @@ function getRentInEth() public view returns (uint256) {
     emit DisputeReportedWithUri(caseId, dc.evidenceUri);
     // Notify debtor off-chain via event so UI can prompt debtor to deposit requested amount
     emit DisputeFiled(caseId, debtor, requestedAmount);
+
+    // Automatically trigger CCIP arbitration if enabled
+    if (ccipEnabled && address(ccipSender) != address(0)) {
+        _triggerCCIPArbitration(caseId);
+    }
     }
 
     // Deprecated: CID-based reporting functions removed. Use reportDispute with a bytes32 digest.
@@ -753,6 +792,67 @@ function getRentInEth() public view returns (uint256) {
         emit DisputeResolved(caseId, approve, applied, beneficiary);
         emit DisputeClosed(caseId, block.timestamp);
         emit DisputeRationale(caseId, classification, rationale);
+    }
+
+    // ============ CCIP Oracle Arbitration Functions ============
+    
+    /**
+     * @notice Internal function to trigger CCIP arbitration for a dispute
+     * @param caseId The dispute case ID to arbitrate
+     */
+    function _triggerCCIPArbitration(uint256 caseId) internal {
+        if (!ccipEnabled || address(ccipSender) == address(0)) {
+            return; // Silently skip if CCIP not available
+        }
+        
+        if (caseId >= _disputes.length) {
+            return; // Invalid case ID
+        }
+        
+        DisputeCase storage dc = _disputes[caseId];
+        if (dc.resolved || dc.closed) {
+            return; // Already resolved or closed
+        }
+        
+        // Generate unique dispute ID
+        bytes32 disputeId = keccak256(abi.encodePacked(address(this), caseId, block.timestamp));
+        
+        // Create arbitration request
+        CCIPArbitrationTypes.ArbitrationRequest memory request = CCIPArbitrationTypes.ArbitrationRequest({
+            disputeId: disputeId,
+            contractAddress: address(this),
+            caseId: caseId,
+            requester: dc.initiator,
+            evidenceHash: keccak256(abi.encodePacked(dc.evidenceUri)),
+            evidenceURI: dc.evidenceUri,
+            requestedAmount: dc.requestedAmount,
+            timestamp: block.timestamp
+        });
+        
+        try ccipSender.sendArbitrationRequest{value: 0}(
+            disputeId,
+            address(this),
+            caseId,
+            keccak256(abi.encodePacked(dc.evidenceUri)),
+            dc.evidenceUri,
+            dc.requestedAmount,
+            CCIPArbitrationSender.PayFeesIn.LINK
+        ) returns (bytes32 messageId) {
+            ccipMessageIds[caseId] = messageId;
+            emit CCIPArbitrationRequested(caseId, messageId, dc.initiator);
+        } catch {
+            // Silent failure - CCIP arbitration is optional
+            // Regular arbitration flow can still proceed
+        }
+    }
+    
+    /**
+     * @notice Manually trigger CCIP arbitration for a specific case (callable by parties)
+     * @param caseId The dispute case ID to arbitrate
+     */
+    function triggerCCIPArbitration(uint256 caseId) external {
+        if (!(msg.sender == landlord || msg.sender == tenant)) revert NotParty();
+        _triggerCCIPArbitration(caseId);
     }
 
     }

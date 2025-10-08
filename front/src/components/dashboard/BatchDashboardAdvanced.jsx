@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Pie, Bar } from 'react-chartjs-2';
-import 'chart.js/auto';
+// import { Pie, Bar } from 'react-chartjs-2';
+// import 'chart.js/auto';
 
 export default function BatchDashboardAdvanced({ caseId }) {
   const [batchHistory, setBatchHistory] = useState([]);
@@ -58,8 +58,28 @@ export default function BatchDashboardAdvanced({ caseId }) {
     <div style={{margin:'24px 0',padding:20,border:'1px solid #eee',borderRadius:10,background:'#fafcff'}}>
       <h3>Batch Status Dashboard (Advanced)</h3>
       <div style={{display:'flex',gap:32,flexWrap:'wrap',justifyContent:'center'}}>
-        <div style={{maxWidth:320}}><Pie data={pieData} /></div>
-        <div style={{maxWidth:420}}><Bar data={barData} /></div>
+        <div style={{maxWidth:320}}>
+          <h4>Status Distribution</h4>
+          <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+            {Object.entries(categoryStats).map(([key, value]) => (
+              <div key={key} style={{display: 'flex', justifyContent: 'space-between'}}>
+                <span>{key}:</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{maxWidth:420}}>
+          <h4>Arbitration Stats</h4>
+          <div style={{display: 'flex', flexDirection: 'column', gap: 8}}>
+            {Object.entries(arbitrationStats).map(([key, value]) => (
+              <div key={key} style={{display: 'flex', justifyContent: 'space-between'}}>
+                <span>{key}:</span>
+                <strong>{value}</strong>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
       <div style={{marginTop:18,display:'flex',gap:16,flexWrap:'wrap'}}>
         <label>Status:
