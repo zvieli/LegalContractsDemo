@@ -907,11 +907,17 @@ Based on the evidence and contract terms, who should win this dispute and what c
     const llmData = {
       contract_text: contractInfo,
       evidence_text: evidenceText,
-      dispute_question: 'Based on the contract terms and evidence, what is the fair resolution? Should the tenant (PARTY_A) or landlord (PARTY_B) win?',
+      dispute_question: arbitrationRequest.disputeDescription || 'Based on the contract terms and evidence, what is the fair resolution? Should the tenant (PARTY_A) or landlord (PARTY_B) win?',
       requested_amount: parseFloat(arbitrationRequest.requestedAmount) || 0
     };
 
     console.log('🤖 Data prepared for LLM:', JSON.stringify(llmData, null, 2));
+    
+    // 🔍 DEBUG: Check what we're actually sending to LLM
+    console.log('🔍 DEBUG - Evidence text being sent to LLM:');
+    console.log(llmData.evidence_text);
+    console.log('🔍 DEBUG - Contract text being sent to LLM:');
+    console.log(llmData.contract_text);
 
     // Process with Ollama
     const result = await processV7ArbitrationWithOllama(llmData);
@@ -943,11 +949,15 @@ Based on the evidence and contract terms, who should win this dispute and what c
       simulated: safeResult.simulation || false,
       disputeId: arbitrationRequest.disputeId || 'llm-dispute-' + Date.now(),
       timestamp: new Date().toISOString(),
+      validation_passed: safeResult.validation_passed,
+      processing_method: safeResult.processing_method,
       // AI Explainability metadata
       explainability: {
         reasoning_depth: safeResult.detailed_reasoning ? 'detailed' : 'basic',
         confidence_provided: !!safeResult.confidence_breakdown,
-        decision_factors_count: safeResult.detailed_reasoning?.decision_factors?.length || 0
+        decision_factors_count: safeResult.detailed_reasoning?.decision_factors?.length || 0,
+        processing_method: safeResult.processing_method,
+        validation_passed: safeResult.validation_passed
       }
     });
 

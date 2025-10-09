@@ -1,5 +1,5 @@
 ﻿async function createSmartChunks(text, maxChunkSize = 2000) {
-  const chunkingPrompt = `You are receiving a long text that may contain legal agreements, contracts, or legal evidence. 
+  const chunkingPrompt = `You are receiving a long text that may contain business agreements, contracts, or business evidence. 
 You need to split this text into chunks where each chunk:
 - Does not exceed ${maxChunkSize} characters
 - Maintains logical flow and context - do not break in the middle of a paragraph or sentence
@@ -64,6 +64,72 @@ ${text}`;
   return chunks;
 }
 
+// 🧠 Smart validation system
+function validateResponse(responseText) {
+  try {
+    console.log("🔍 Validating LLM response format...");
+    
+    // Try to extract structured data from response
+    const verdictMatch = responseText.match(/VERDICT:\s*(PARTY_A_WINS|PARTY_B_WINS|DRAW)/i);
+    const reimbursementMatch = responseText.match(/REIMBURSEMENT:\s*(\d+(?:\.\d+)?)/i);
+    const confidenceMatch = responseText.match(/CONFIDENCE:\s*(\d+(?:\.\d+)?)/i);
+    const rationaleMatch = responseText.match(/RATIONALE:\s*([\s\S]*?)(?=\n\n|\n$|$)/i);
+    
+    const missing = [];
+    if (!verdictMatch) missing.push("VERDICT");
+    if (!rationaleMatch || rationaleMatch[1].trim().length < 10) missing.push("RATIONALE");
+    
+    if (missing.length > 0) {
+      console.warn("⚠️ Missing or incomplete fields:", missing);
+      return {
+        valid: false,
+        message: `Response missing required fields: ${missing.join(', ')}`,
+        missing,
+        hasContent: responseText.length > 50
+      };
+    }
+    
+    console.log("✅ Response validation passed");
+    return { 
+      valid: true, 
+      verdict: verdictMatch[1].toUpperCase(),
+      reimbursement: reimbursementMatch ? parseFloat(reimbursementMatch[1]) : 0,
+      confidence: confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.7,
+      rationale: rationaleMatch[1].trim()
+    };
+    
+  } catch (err) {
+    console.error("❌ Validation error:", err.message);
+    return { valid: false, message: "Validation parsing failed", hasContent: false };
+  }
+}
+
+// 🚀 Dynamic chunking strategy
+const CHUNK_STRATEGIES = {
+  aggressive: { maxSize: 6000, timeout: 45000 },   // For fast processing
+  balanced: { maxSize: 4000, timeout: 60000 },     // Default
+  conservative: { maxSize: 2000, timeout: 90000 }   // For problematic content
+};
+
+let currentStrategy = 'balanced';
+let lastProcessingTime = 0;
+
+function selectChunkStrategy() {
+  // Adapt strategy based on previous performance
+  if (lastProcessingTime > 120000) { // > 2 minutes
+    currentStrategy = 'conservative';
+    console.log("📉 Switching to conservative chunking (slow last response)");
+  } else if (lastProcessingTime < 30000) { // < 30 seconds
+    currentStrategy = 'aggressive';
+    console.log("📈 Switching to aggressive chunking (fast last response)");
+  } else {
+    currentStrategy = 'balanced';
+    console.log("⚖️ Using balanced chunking strategy");
+  }
+  
+  return CHUNK_STRATEGIES[currentStrategy];
+}
+
 async function analyzeWithOllama(prompt, timeout = 180000, useSmallModel = false) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -126,22 +192,28 @@ export async function processV7ArbitrationWithOllama(data) {
     
     console.log(`📊 Total text length: ${totalLength} characters`);
     
-    if (totalLength > 3000) {
-      console.log("📝 Using context-aware chunked processing with real LLM...");
+    // 🚀 Dynamic chunking threshold based on performance
+    const strategy = selectChunkStrategy();
+    const chunkThreshold = strategy.maxSize;
+    
+    console.log(`🎯 Using ${currentStrategy} strategy (threshold: ${chunkThreshold})`);
+    
+    if (totalLength > chunkThreshold) {
+      console.log("📝 Using context-aware chunked processing with smart validation...");
       
       const fullText = (data.evidence_text || '') + '\n\n' + (data.contract_text || '');
       
-      // Try smart chunking first, with fallback to simple chunking
+      // Try smart chunking first, with dynamic chunk size
       let chunks;
       try {
-        console.log("🤖 Attempting smart LLM chunking...");
-        chunks = await createSmartChunks(fullText, 2000);
+        console.log(`🤖 Attempting smart chunking with ${strategy.maxSize/3} char chunks...`);
+        chunks = await createSmartChunks(fullText, Math.floor(strategy.maxSize / 3));
       } catch (chunkError) {
-        console.log("⚠️ Smart chunking failed, using simple chunking:", chunkError.message);
+        console.log("⚠️ Smart chunking failed, using adaptive simple chunking:", chunkError.message);
         chunks = [];
-        const chunkSize = 2000;
-        for (let i = 0; i < fullText.length; i += chunkSize) {
-          chunks.push(fullText.substring(i, i + chunkSize));
+        const adaptiveChunkSize = Math.floor(strategy.maxSize / 3);
+        for (let i = 0; i < fullText.length; i += adaptiveChunkSize) {
+          chunks.push(fullText.substring(i, i + adaptiveChunkSize));
         }
       }
       
@@ -153,28 +225,28 @@ export async function processV7ArbitrationWithOllama(data) {
       
       // Process each chunk with context from previous chunks
       for (let i = 0; i < chunks.length; i++) {
-        const contextPrompt = `You are analyzing legal evidence in multiple chunks. 
-This is chunk ${i + 1} of ${chunks.length}.
-Keep full context from previous chunks in mind.
+        const contextPrompt = `You are analyzing business contract evidence in multiple parts. 
+This is part ${i + 1} of ${chunks.length}.
+Keep full context from previous parts in mind.
 
 Previous summary (if available):
-${previousSummary || "This is the first chunk"}
+${previousSummary || "This is the first part"}
 
-DISPUTE QUESTION: ${data.dispute_question || 'Contract dispute requiring arbitration'}
+DISPUTE QUESTION: ${data.dispute_question || 'Contract dispute requiring analysis'}
 
-Current chunk text:
+Current part text:
 ${chunks[i]}
 
-Provide a concise legal analysis that continues coherently from previous context.
+Provide a concise business analysis that continues coherently from previous context.
 Focus on:
-1. Key legal points from this chunk
+1. Key business points from this part
 2. Evidence supporting Party A or Party B  
-3. Any contract violations identified
-4. Brief summary to maintain context for next chunk
+3. Any contract issues identified
+4. Brief summary to maintain context for next part
 
 Format:
 ANALYSIS: [Your analysis]
-CONTEXT_SUMMARY: [Brief summary for next chunk]`;
+CONTEXT_SUMMARY: [Brief summary for next part]`;
 
         try {
           console.log(`🔍 Processing chunk ${i + 1}/${chunks.length} with context...`);
@@ -207,20 +279,20 @@ CONTEXT_SUMMARY: [Brief summary for next chunk]`;
         }
       }
 
-      // Final synthesis with all chunk analyses
-      const synthesisPrompt = `You are an arbitrator AI. Combine the following context-aware analyses into one cohesive, legally reasoned decision:
+      // Final synthesis with all analyses
+      const synthesisPrompt = `You are analyzing a business contract disagreement. Combine the following analyses into one cohesive recommendation:
 
-DISPUTE QUESTION: ${data.dispute_question || 'Contract dispute requiring arbitration'}
+DISPUTE QUESTION: ${data.dispute_question || 'Contract dispute requiring analysis'}
 
-CHUNK ANALYSES:
-${chunkAnalyses.map(ca => `Chunk ${ca.chunk_id}: ${ca.analysis}`).join('\n\n---\n\n')}
+PART ANALYSES:
+${chunkAnalyses.map(ca => `Part ${ca.chunk_id}: ${ca.analysis}`).join('\n\n---\n\n')}
 
-Based on all analyzed chunks, provide your final arbitration decision:
+Based on all analyzed parts, provide your final business recommendation:
 
 VERDICT: [PARTY_A_WINS/PARTY_B_WINS/DRAW]
 REIMBURSEMENT: [Amount in DAI, 0 if none]
 CONFIDENCE: [0.0-1.0]
-RATIONALE: [Detailed explanation combining evidence from all chunks]
+RATIONALE: [Detailed explanation combining evidence from all parts]
 
 Format your response clearly with these exact headers.`;
 
@@ -252,43 +324,92 @@ Format your response clearly with these exact headers.`;
     } else {
       console.log("📄 Using simple LLM processing for short text...");
       
-      const simplePrompt = `You are a legal arbitration expert analyzing a contract dispute.
+      const simplePrompt = `You are analyzing a business contract disagreement to help resolve a dispute.
 
-DISPUTE QUESTION: ${data.dispute_question || 'Contract dispute requiring arbitration'}
+DISPUTE QUESTION: ${data.dispute_question || 'Contract dispute requiring analysis'}
 
 EVIDENCE/CONTRACT TEXT:
 ${data.evidence_text || ''}
 ${data.contract_text || ''}
 
-Provide your arbitration decision:
+Provide your business analysis and recommendation:
 
 VERDICT: [PARTY_A_WINS/PARTY_B_WINS/DRAW]
 REIMBURSEMENT: [Amount in DAI, 0 if none]
 CONFIDENCE: [0.0-1.0]
-RATIONALE: [Detailed explanation of your decision]
+RATIONALE: [Detailed explanation of your recommendation]
 
 Format your response clearly with these exact headers.`;
 
       console.log("🚀 Processing with fast small model...");
+      const startTime = Date.now();
       const result = await analyzeWithOllama(simplePrompt, 180000, true); // Use small model
+      lastProcessingTime = Date.now() - startTime;
       
-      // Parse the decision
-      const verdictMatch = result.response.match(/VERDICT:\s*(PARTY_A_WINS|PARTY_B_WINS|DRAW)/i);
-      const reimbursementMatch = result.response.match(/REIMBURSEMENT:\s*(\d+(?:\.\d+)?)/i);
-      const confidenceMatch = result.response.match(/CONFIDENCE:\s*(\d+(?:\.\d+)?)/i);
-      const rationaleMatch = result.response.match(/RATIONALE:\s*([\s\S]*?)(?=\n\n|\n$|$)/i);
+      // 🧠 Smart validation with retry logic
+      let responseText = result.response;
+      let validation = validateResponse(responseText);
+      
+      // If validation fails but we have some content, try to fix the format
+      if (!validation.valid && validation.hasContent) {
+        console.log("� Attempting response format correction...");
+        const retryPrompt = `Please reformat the following business analysis into the exact format requested:
+
+VERDICT: [PARTY_A_WINS/PARTY_B_WINS/DRAW]
+REIMBURSEMENT: [Amount in DAI, 0 if none]  
+CONFIDENCE: [0.0-1.0]
+RATIONALE: [Detailed explanation]
+
+Original analysis to reformat:
+${responseText}`;
+
+        const retryResult = await analyzeWithOllama(retryPrompt, 45000, true);
+        validation = validateResponse(retryResult.response);
+        
+        if (validation.valid) {
+          console.log("✅ Format correction successful!");
+          responseText = retryResult.response;
+        } else {
+          console.log("⚠️ Format correction failed, using fallback parsing");
+        }
+      }
+      
+      // Use validated data if available, otherwise fallback to regex parsing
+      let verdict, reimbursement, confidence, rationale;
+      
+      if (validation.valid) {
+        verdict = validation.verdict;
+        reimbursement = validation.reimbursement;
+        confidence = validation.confidence;
+        rationale = validation.rationale;
+      } else {
+        // Fallback parsing
+        const verdictMatch = responseText.match(/VERDICT:\s*(PARTY_A_WINS|PARTY_B_WINS|DRAW)/i);
+        const reimbursementMatch = responseText.match(/REIMBURSEMENT:\s*(\d+(?:\.\d+)?)/i);
+        const confidenceMatch = responseText.match(/CONFIDENCE:\s*(\d+(?:\.\d+)?)/i);
+        const rationaleMatch = responseText.match(/RATIONALE:\s*([\s\S]*?)(?=\n\n|\n$|$)/i);
+        
+        verdict = verdictMatch ? verdictMatch[1].toUpperCase() : "DRAW";
+        reimbursement = reimbursementMatch ? parseFloat(reimbursementMatch[1]) : 0;
+        confidence = confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.7;
+        rationale = rationaleMatch ? rationaleMatch[1].trim() : responseText;
+      }
+
+      console.log("🎯 Final verdict:", verdict);
+      console.log("🎯 Final rationale preview:", rationale.substring(0, 100) + "...");
 
       return {
-        final_verdict: verdictMatch ? verdictMatch[1].toUpperCase() : "DRAW",
-        reimbursement_amount_dai: reimbursementMatch ? parseFloat(reimbursementMatch[1]) : 0,
-        confidence: confidenceMatch ? parseFloat(confidenceMatch[1]) : 0.7,
-        rationale_summary: rationaleMatch ? rationaleMatch[1].trim() : result.response,
+        final_verdict: verdict,
+        reimbursement_amount_dai: reimbursement,
+        confidence: confidence,
+        rationale_summary: rationale,
         llm_used: true,
         simulation: false,
-        processing_method: "simple_llm",
-        processing_time_ms: result.processingTime,
+        processing_method: validation.valid ? "validated_llm" : "fallback_parsed",
+        processing_time_ms: lastProcessingTime,
         model: result.model,
-        total_text_length: totalLength
+        total_text_length: totalLength,
+        validation_passed: validation.valid
       };
     }
   } catch (error) {
@@ -398,7 +519,7 @@ function analyzeTextIntelligently(text, disputeQuestion) {
   const rationale = `Intelligent Analysis Results:
 • Evidence analysis completed using rule-based logic
 • Key findings: ${analysisDetails.slice(0, 3).join('; ')}
-• Decision factors: Contract terms, evidence quality, legal precedents
+• Decision factors: Contract terms, evidence quality, business practices
 • This analysis used smart pattern recognition instead of LLM due to performance optimization
 • Total analysis points considered: ${analysisDetails.length}`;
 
