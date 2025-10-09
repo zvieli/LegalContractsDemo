@@ -135,7 +135,7 @@ function startLLMArbitratorAPI() {
 function startV7Server() {
   console.log(chalk.green('🌐 Starting V7 Express Server...'));
   
-  const serverProcess = spawn('node', ['server/index.js'], {
+  const serverProcess = spawn('node', ['index.js'], {
     stdio: 'pipe',
     env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'development' }
   });

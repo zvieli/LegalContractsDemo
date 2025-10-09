@@ -78,9 +78,21 @@ export class LLMArbitrationSimulator {
       };
     }
 
-    // Rule 2: Water damage disputes
+    // Rule 2: Contract violations (pets, noise, damage)
+    if (contractLower.includes('breach') || evidenceLower.includes('violation') || 
+        evidenceLower.includes('no pets') || evidenceLower.includes('pets allowed') ||
+        evidenceLower.includes('damage to carpets') || evidenceLower.includes('property damage')) {
+      console.log('  → Rule 2: Contract violation detected');
+      return {
+        verdict: 'PARTY_B_WINS', // Landlord wins
+        amount: this.extractAmountFromText(contract + evidence + question) || 500,
+        rationale: 'Clear contract violation documented. Tenant violated terms regarding pets/property care. Landlord entitled to damages and compensation.'
+      };
+    }
+
+    // Rule 3: Water damage disputes
     if (evidenceLower.includes('water damage') || evidenceLower.includes('leak')) {
-      console.log('  → Rule 2: Water damage');
+      console.log('  → Rule 3: Water damage');
       return {
         verdict: 'PARTY_A_WINS', // Tenant wins
         amount: 200,
@@ -88,10 +100,10 @@ export class LLMArbitrationSimulator {
       };
     }
 
-    // Rule 3: NDA violations
+    // Rule 4: NDA violations
     if (contractLower.includes('nda') || contractLower.includes('confidential')) {
       if (evidenceLower.includes('breach') || evidenceLower.includes('violation')) {
-        console.log('  → Rule 3: NDA violation');
+        console.log('  → Rule 4: NDA violation');
         return {
           verdict: 'PARTY_B_WINS', // NDA enforcer wins
           amount: 500,
@@ -100,9 +112,9 @@ export class LLMArbitrationSimulator {
       }
     }
 
-    // Rule 4: Payment disputes - more specific logic
+    // Rule 5: Payment disputes - more specific logic
     if (questionLower.includes('payment') || questionLower.includes('rent') || contractLower.includes('rent')) {
-      console.log('  → Rule 4: Payment/Rent dispute detected');
+      console.log('  → Rule 5: Payment/Rent dispute detected');
       
       // Check for clear evidence of payment made
       if ((evidenceLower.includes('receipt') && !evidenceLower.includes('no receipt') && !evidenceLower.includes('no payment receipts')) || 

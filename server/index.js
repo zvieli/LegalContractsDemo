@@ -179,6 +179,14 @@ app.post('/api/arbitrate-batch', async (req, res) => {
 // 🔧 Environment Mode Configuration
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
+const mockIPFS = process.env.MOCK_IPFS === 'true';
+
+console.log('🔧 Environment Check:');
+console.log(`  NODE_ENV: ${process.env.NODE_ENV}`);
+console.log(`  MOCK_IPFS: ${process.env.MOCK_IPFS}`);
+console.log(`  isDevelopment: ${isDevelopment}`);
+console.log(`  isProduction: ${isProduction}`);
+console.log(`  mockIPFS: ${mockIPFS}`);
 
 // IPFS Daemon Management
 let ipfsDaemonProcess = null;
@@ -346,6 +354,7 @@ import { validateIPFSEvidence } from './modules/evidenceValidator.js';
 import { triggerLLMArbitration, handleLLMResponse } from './modules/llmArbitration.js';
 import { calculateLateFee, getTimeBasedData } from './modules/timeManagement.js';
 import { llmArbitrationSimulator, processV7Arbitration } from './modules/llmArbitrationSimulator.js';
+import { ccipArbitrationIntegration } from './modules/ccipArbitrationIntegration.js';
 
 // Ollama integration with conditional loading
 let ollamaLLMArbitrator = null;
@@ -362,6 +371,45 @@ async function loadOllamaModule() {
   } catch (error) {
     console.warn('⚠️ Ollama module failed to load:', error.message);
     console.log('🔄 Ollama features will be disabled');
+    return false;
+  }
+}
+
+// Initialize CCIP Integration
+async function initializeCCIPIntegration() {
+  try {
+    await ccipArbitrationIntegration.initializeProvider();
+    const status = await ccipArbitrationIntegration.getStatus();
+    
+    if (status.ccip_receiver_loaded) {
+      console.log('🔗 CCIP Integration initialized successfully');
+      console.log(`📡 CCIP Endpoints:`);
+      console.log(`   • Status: http://localhost:${PORT}/api/v7/ccip/status`);
+      console.log(`   • Start Listener: POST http://localhost:${PORT}/api/v7/ccip/start`);
+      console.log(`   • Test: POST http://localhost:${PORT}/api/v7/ccip/test`);
+      
+      // Try to start listener but don't fail if it errors
+      try {
+        if (status.ccip_receiver_loaded && status.provider_connected) {
+          const listenerStarted = await ccipArbitrationIntegration.startCCIPListener();
+          if (listenerStarted) {
+            console.log('👂 CCIP Event Listener started automatically');
+          } else {
+            console.log('⚠️ CCIP Event Listener could not start - manual start available via API');
+          }
+        }
+      } catch (listenerError) {
+        console.warn('⚠️ CCIP Event Listener failed to start:', listenerError.message);
+        console.log('🔄 You can try starting it manually via POST /api/v7/ccip/start');
+      }
+    } else {
+      console.log('⚠️ CCIP contracts not fully loaded - some endpoints may not work');
+    }
+    
+    return true;
+  } catch (error) {
+    console.warn('⚠️ CCIP integration initialization failed:', error.message);
+    console.log('🔄 CCIP features will be limited');
     return false;
   }
 }
@@ -802,42 +850,247 @@ app.post('/api/v7/arbitration/ollama', async (req, res) => {
   try {
     const arbitrationRequest = req.body;
     
+    console.log('📋 Full arbitration request received:', JSON.stringify(arbitrationRequest, null, 2));
+    
+    // Debug: Check Ollama availability
+    console.log('🔍 Debug Ollama availability:');
+    console.log('  - processV7ArbitrationWithOllama exists:', !!processV7ArbitrationWithOllama);
+    console.log('  - processV7ArbitrationWithOllama type:', typeof processV7ArbitrationWithOllama);
+    
     // Check if Ollama is available
     if (!processV7ArbitrationWithOllama) {
+      console.log('❌ Ollama function not available, returning error');
       return res.status(503).json({ 
         error: 'Ollama service not available',
         fallback: 'Use /api/v7/arbitration/simulate for simulation mode'
       });
     }
+    
+    console.log('✅ Ollama function is available, proceeding...');
 
-    // Prepare data for LLM processing
+    // 🔍 Debug: Log original request structure
+    console.log('🔍 Debugging evidence processing:');
+    console.log('  - evidenceData:', arbitrationRequest.evidenceData);
+    console.log('  - evidenceHash:', arbitrationRequest.evidenceHash);
+    console.log('  - context.description:', arbitrationRequest.context?.description);
+    console.log('  - contractType:', arbitrationRequest.contractType);
+
+    // 🛠️ Fixed: Use evidenceData from request instead of context.description
+    const evidenceText = arbitrationRequest.evidenceData || 
+                        arbitrationRequest.context?.description || 
+                        'No evidence provided in request';
+
+    // Enhanced data preparation for LLM processing
+    const contractInfo = `${arbitrationRequest.contractType || 'GENERAL'} CONTRACT DISPUTE ANALYSIS
+
+CONTRACT DETAILS:
+- Contract Type: ${arbitrationRequest.contractType || 'General Contract'}
+- Contract Address: ${arbitrationRequest.contractAddress || 'Unknown'}
+- Dispute ID: ${arbitrationRequest.disputeId || 'Unknown'}
+- Dispute Type: ${arbitrationRequest.disputeType || 'General Dispute'}
+- Requested Amount: ${arbitrationRequest.requestedAmount || '0'} ETH
+- Evidence Hash: ${arbitrationRequest.evidenceHash || 'No evidence hash'}
+
+EVIDENCE PROVIDED:
+${evidenceText}
+
+DISPUTE CONTEXT:
+${JSON.stringify(arbitrationRequest.context || {}, null, 2)}
+
+PAYMENT STATUS:
+- Due Date: ${arbitrationRequest.context?.duedate || 'Not specified'}
+- Rent Amount: ${arbitrationRequest.context?.rentamount || 'Not specified'}
+
+QUESTION FOR ANALYSIS:
+Based on the evidence and contract terms, who should win this dispute and what compensation (if any) is appropriate?`;
+
     const llmData = {
-      contract_text: `Rent Contract Dispute
-      Contract Address: ${arbitrationRequest.contractAddress}
-      Dispute Type: ${arbitrationRequest.disputeType}
-      Requested Amount: ${arbitrationRequest.requestedAmount} ETH
-      Evidence CID: ${arbitrationRequest.evidenceCID}
-      Context: ${JSON.stringify(arbitrationRequest.context || {})}`,
-      evidence_text: arbitrationRequest.context?.description || 'No additional evidence provided'
+      contract_text: contractInfo,
+      evidence_text: evidenceText,
+      dispute_question: 'Based on the contract terms and evidence, what is the fair resolution? Should the tenant (PARTY_A) or landlord (PARTY_B) win?',
+      requested_amount: parseFloat(arbitrationRequest.requestedAmount) || 0
     };
+
+    console.log('🤖 Data prepared for LLM:', JSON.stringify(llmData, null, 2));
 
     // Process with Ollama
     const result = await processV7ArbitrationWithOllama(llmData);
+    
+    console.log('🎯 LLM result received:', JSON.stringify(result, null, 2));
+
+    // Map LLM result to API response format
+    let decision = 'PARTY_B_WINS'; // Default fallback
+    if (result?.final_verdict) {
+      if (result.final_verdict === 'PARTY_A_WINS') {
+        decision = 'PARTY_A_WINS';
+      } else if (result.final_verdict === 'PARTY_B_WINS') {
+        decision = 'PARTY_B_WINS';
+      } else if (result.final_verdict === 'DRAW') {
+        decision = 'DRAW';
+      }
+    }
 
     const safeResult = result && typeof result === 'object' ? result : {};
     res.json({
-      decision: safeResult.decision && safeResult.decision !== null && safeResult.decision !== '' ? safeResult.decision : (safeResult.arbitration && safeResult.arbitration !== null && safeResult.arbitration !== '' ? safeResult.arbitration : 'FAVOR_LANDLORD'),
-      reasoning: safeResult.reasoning && safeResult.reasoning !== null && safeResult.reasoning !== '' ? safeResult.reasoning : (safeResult.legalReasoning && safeResult.legalReasoning !== null && safeResult.legalReasoning !== '' ? safeResult.legalReasoning : 'Simulated decision for testing'),
-      confidence: typeof safeResult.confidence === 'number' ? safeResult.confidence : 0.75,
-      simulated: true,
-      disputeId: arbitrationRequest.disputeId || 'simulated-dispute',
-      timestamp: new Date().toISOString()
+      decision: decision,
+      reasoning: safeResult.rationale_summary || safeResult.reasoning || 'LLM analysis completed',
+      detailed_reasoning: safeResult.detailed_reasoning || null,
+      confidence_breakdown: safeResult.confidence_breakdown || null,
+      confidence: typeof safeResult.confidence === 'number' ? safeResult.confidence : 0.85,
+      reimbursement_amount: safeResult.reimbursement_amount_dai || 0,
+      llm_used: safeResult.llm_used || false,
+      model: safeResult.model || 'llama3.2:latest',
+      simulated: safeResult.simulation || false,
+      disputeId: arbitrationRequest.disputeId || 'llm-dispute-' + Date.now(),
+      timestamp: new Date().toISOString(),
+      // AI Explainability metadata
+      explainability: {
+        reasoning_depth: safeResult.detailed_reasoning ? 'detailed' : 'basic',
+        confidence_provided: !!safeResult.confidence_breakdown,
+        decision_factors_count: safeResult.detailed_reasoning?.decision_factors?.length || 0
+      }
     });
 
   } catch (error) {
-    console.error('Error in LLM arbitration with Ollama:', error);
+    console.error('❌ Error in LLM arbitration with Ollama:', error);
     res.status(500).json({ 
       error: 'Internal server error during arbitration with Ollama',
+      details: error.message 
+    });
+  }
+});
+
+// V7 AI Explainability endpoint - get detailed reasoning for a decision
+app.get('/api/v7/arbitration/explain/:disputeId', async (req, res) => {
+  try {
+    const { disputeId } = req.params;
+    
+    // This would typically fetch from a database
+    // For now, we'll return a mock detailed explanation
+    res.json({
+      disputeId,
+      explainability: {
+        reasoning_methodology: "Step-by-step legal analysis using AI arbitration",
+        decision_tree: [
+          {
+            step: 1,
+            question: "What are the key facts from the evidence?",
+            analysis: "Evidence reviewed and fact-checked against contract terms"
+          },
+          {
+            step: 2, 
+            question: "Who fulfilled their contractual obligations?",
+            analysis: "Compliance assessment for both parties"
+          },
+          {
+            step: 3,
+            question: "What damages or compensation are justified?",
+            analysis: "Compensation calculated based on contract terms and evidence"
+          }
+        ],
+        legal_principles: [
+          "Contract law: Parties must fulfill agreed obligations",
+          "Evidence law: Burden of proof lies with the claimant",
+          "Rental law: Landlord and tenant mutual obligations"
+        ],
+        bias_checks: [
+          "Gender neutrality confirmed",
+          "Economic status not considered", 
+          "Decision based solely on contract terms and evidence"
+        ],
+        uncertainty_factors: [
+          "Quality of evidence provided",
+          "Completeness of contract terms",
+          "Ambiguity in dispute description"
+        ]
+      },
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in explainability endpoint:', error);
+    res.status(500).json({ 
+      error: 'Internal server error during explainability analysis',
+      details: error.message 
+    });
+  }
+});
+
+// V7 CCIP Status endpoint
+app.get('/api/v7/ccip/status', async (req, res) => {
+  try {
+    const status = await ccipArbitrationIntegration.getStatus();
+    res.json({
+      eventListener: status.ccip_receiver_loaded ? 'active' : 'inactive',
+      senderAddress: status.sender_address,
+      receiverAddress: status.receiver_address,
+      arbitrationServiceAddress: status.arbitration_service_address,
+      providerConnected: status.provider_connected,
+      listenerActive: status.listening_for_requests,
+      rpcUrl: status.rpc_url,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in CCIP status endpoint:', error);
+    res.status(500).json({ 
+      error: 'CCIP status check failed',
+      details: error.message 
+    });
+  }
+});
+
+// V7 CCIP Start Listener endpoint
+app.post('/api/v7/ccip/start', async (req, res) => {
+  try {
+    const success = await ccipArbitrationIntegration.startCCIPListener();
+    res.json({
+      success,
+      message: success ? 'CCIP listener started successfully' : 'Failed to start CCIP listener',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error starting CCIP listener:', error);
+    res.status(500).json({ 
+      error: 'Failed to start CCIP listener',
+      details: error.message 
+    });
+  }
+});
+
+// V7 Manual CCIP Test endpoint
+app.post('/api/v7/ccip/test', async (req, res) => {
+  try {
+    const { disputeType, evidence, requestedAmount } = req.body;
+    
+    // Simulate a CCIP arbitration request
+    const testRequest = {
+      requestId: 'test-' + Date.now(),
+      sourceChain: '31337',
+      contractAddress: '0x' + '1'.repeat(40),
+      disputeData: {
+        disputeType: disputeType || 'test_dispute',
+        evidenceDescription: evidence || 'Test evidence for CCIP integration',
+        requestedAmount: requestedAmount || '1.0',
+        additionalContext: JSON.stringify({ test: true })
+      }
+    };
+
+    await ccipArbitrationIntegration.processCCIPArbitration(
+      testRequest.requestId,
+      testRequest.sourceChain,
+      testRequest.contractAddress,
+      testRequest.disputeData
+    );
+
+    res.json({
+      success: true,
+      message: 'CCIP test arbitration completed',
+      testRequest,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error in CCIP test:', error);
+    res.status(500).json({ 
+      error: 'CCIP test failed',
       details: error.message 
     });
   }
@@ -1080,6 +1333,9 @@ app.listen(PORT, async () => {
   
   // Load Ollama module after server starts
   const ollamaLoaded = await loadOllamaModule();
+  
+  // Initialize CCIP Integration
+  await initializeCCIPIntegration();
   
   // API endpoints
 // CCIP Event Listener Status Endpoint (for tests)

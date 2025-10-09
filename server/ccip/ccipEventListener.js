@@ -4,7 +4,7 @@
  */
 
 import { ethers } from 'ethers';
-import { OllamaLLMArbitrator } from '../modules/ollamaLLMArbitrator.js';
+import { processV7ArbitrationWithOllama, ollamaLLMArbitrator } from '../modules/ollamaLLMArbitrator.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -45,7 +45,7 @@ export class CCIPEventListener {
       
       // Initialize LLM if enabled
       if (this.config.enableLLM) {
-        this.llmArbitrator = new OllamaLLMArbitrator();
+        this.llmArbitrator = ollamaLLMArbitrator;
       }
 
       // Load contract ABIs and setup contracts
@@ -267,7 +267,7 @@ export class CCIPEventListener {
       );
 
       // Process with LLM
-      const decision = await this.llmArbitrator.processArbitration(arbitrationData);
+      const decision = await processV7ArbitrationWithOllama(arbitrationData);
 
       console.log('✅ LLM Decision:', {
         disputeId: disputeId.slice(0, 10) + '...',
