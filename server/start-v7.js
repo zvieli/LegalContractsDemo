@@ -1,16 +1,48 @@
-#!/usr/bin/env node
-
 /**
- * V7 Backend System - Start Script
- * Complete initialization and startup for all V7 components
+ * Checks that all required environment variables are set, exits if any are missing.
  */
+function checkEnvironment() {
+  let missingVars = [];
+  requiredVars.forEach(varName => {
+    if (!process.env[varName]) {
+      missingVars.push(varName);
+    }
+  });
+  if (missingVars.length > 0) {
+    console.error(chalk.red(`❌ Missing required environment variables: ${missingVars.join(', ')}`));
+    process.exit(1);
+  }
+}
+// List of optional environment variables for V7 backend startup
+const optionalVars = [
+  'MOCK_IPFS',
+  'NODE_ENV',
+  'LOG_LEVEL',
+  // Add more as needed for your deployment
+];
+// List of required environment variables for V7 backend startup
+const requiredVars = [
+  'OLLAMA_HOST',
+  'PORT',
+  'CCIP_ENABLED',
+  'IPFS_HOST',
+  // Add more as needed for your deployment
+];
 
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import path from 'path';
+
+// Ensure dotenv loads .env from the server directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
 import { spawn } from 'child_process';
 import { existsSync, mkdirSync } from 'fs';
-import path from 'path';
 import chalk from 'chalk';
 import { CCIPEventListener } from './ccip/ccipEventListener.js';
+import { createHelia } from 'helia';
 
 // Load environment variables
 dotenv.config();
@@ -23,41 +55,13 @@ console.log(chalk.cyan.bold('🚀 Starting V7 Backend System...'));
 function ensureDirectories() {
   const requiredDirs = [
     'logs',
-    'temp',
-    'uploads',
-    '../evidence_storage'
+    'temp'
   ];
-  
-  requiredDirs.forEach(dir => {
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-      console.log(chalk.green(`✅ Created directory: ${dir}`));
-    }
-  });
-}
-
-/**
- * Check environment configuration
- */
-function checkEnvironment() {
-  const requiredVars = [
-    'NODE_ENV',
-    'SERVER_PORT'
-  ];
-  
-  const optionalVars = [
-    'LLM_ARBITRATOR_URL',
-    'IPFS_GATEWAY_URL',
-    'RPC_URL',
-    'MOCK_IPFS'
-  ];
-  
-  console.log(chalk.yellow('🔧 Environment Configuration:'));
-  
+  // Removed Python LLM Arbitrator API code
   // Check environment modes
-  const isDev = process.env.NODE_ENV === 'development' || process.env.MOCK_IPFS === 'true';
+  const isDev = (process.env.NODE_ENV === 'development') || (process.env.MOCK_IPFS === 'true');
   const isProd = process.env.NODE_ENV === 'production';
-  
+
   if (isDev) {
     console.log(chalk.cyan(`  🔧 Development Mode: ENABLED`));
     console.log(chalk.cyan(`     • Evidence: Mock evidence from JSON files`));
@@ -69,6 +73,14 @@ function checkEnvironment() {
     console.log(chalk.yellow(`     • ⚠️  Make sure IPFS daemon is running!`));
   } else {
     console.log(chalk.gray(`  ⚪ Legacy Mode: Default validation`));
+  // List of required environment variables for V7 backend startup
+  const requiredVars = [
+    'OLLAMA_HOST',
+    'PORT',
+    'CCIP_ENABLED',
+    'IPFS_HOST',
+    // Add more as needed for your deployment
+  ];
   }
   
   requiredVars.forEach(varName => {
@@ -102,32 +114,7 @@ function checkEnvironment() {
  * Start LLM Arbitrator API (Python FastAPI)
  * Note: This assumes you have the Python service set up
  */
-function startLLMArbitratorAPI() {
-  console.log(chalk.magenta('🧠 Starting LLM Arbitrator API...'));
-  
-  // Check if Python service exists
-  const pythonServicePath = '../arbitrator-api';
-  
-  if (existsSync(pythonServicePath)) {
-    const pythonProcess = spawn('python', ['-m', 'uvicorn', 'main:app', '--reload', '--port', '8000'], {
-      cwd: pythonServicePath,
-      stdio: 'pipe'
-    });
-    
-    pythonProcess.stdout.on('data', (data) => {
-      console.log(chalk.magenta(`[LLM API] ${data.toString().trim()}`));
-    });
-    
-    pythonProcess.stderr.on('data', (data) => {
-      console.log(chalk.red(`[LLM API Error] ${data.toString().trim()}`));
-    });
-    
-    return pythonProcess;
-  } else {
-    console.log(chalk.yellow('⚠️ Python LLM Arbitrator API not found. Using simulation mode.'));
-    return null;
-  }
-}
+// ...הוסר קוד Python LLM Arbitrator API...
 
 /**
  * Start main V7 server
@@ -135,7 +122,7 @@ function startLLMArbitratorAPI() {
 function startV7Server() {
   console.log(chalk.green('🌐 Starting V7 Express Server...'));
   
-  const serverProcess = spawn('node', ['index.js'], {
+  const serverProcess = spawn('node', [path.join(__dirname, 'index.js')], {
     stdio: 'pipe',
     env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'development' }
   });
@@ -195,50 +182,50 @@ async function startV7System() {
     // Step 2: Check environment
     checkEnvironment();
     
-    // Step 3: Start Python LLM API (optional)
-    const llmProcess = startLLMArbitratorAPI();
-    
-    // Step 4: Wait a moment for Python API to start
-    if (llmProcess) {
-      console.log(chalk.yellow('⏳ Waiting for LLM API to initialize...'));
-      await new Promise(resolve => setTimeout(resolve, 3000));
+    // Step 0: Start Helia IPFS node
+    let heliaNode;
+    try {
+      heliaNode = await createHelia();
+      console.log(chalk.blueBright('🟢 Helia IPFS node started. PeerId:'), heliaNode.libp2p.peerId.toString());
+    } catch (err) {
+      console.error(chalk.red('❌ Failed to start Helia IPFS node:'), err);
+      process.exit(1);
     }
-    
-    // Step 5: Start V7 Express server
+
+    // Step 1: Ensure directories
+    ensureDirectories();
+
+    // Step 2: Check environment
+    checkEnvironment();
+
+    // Step 3: Start V7 Express server
     const serverProcess = startV7Server();
-    
-    // Step 6: Start CCIP Event Listener for Oracle integration
+
+    // Step 4: Start CCIP Event Listener for Oracle integration
     const ccipListener = startCCIPEventListener();
-    
+
     console.log(chalk.cyan.bold('\n🎉 V7 Backend System Started Successfully!'));
     console.log(chalk.white('📍 Services:'));
     console.log(chalk.white(`   • V7 API Server: http://localhost:${process.env.SERVER_PORT || 3001}`));
-    if (llmProcess) {
-      console.log(chalk.white('   • LLM Arbitrator API: http://localhost:8000'));
-    }
     if (ccipListener) {
       console.log(chalk.white('   • CCIP Oracle Listener: Active'));
     }
-  console.log(chalk.white(`   • Health Check: http://localhost:${process.env.SERVER_PORT || 3001}/api/v7/arbitration/health`));
+    console.log(chalk.white('   • Helia IPFS Node: Active'));
+    console.log(chalk.white(`   • Health Check: http://localhost:${process.env.SERVER_PORT || 3001}/api/v7/arbitration/health`));
     console.log(chalk.gray('\nPress Ctrl+C to stop all services'));
     
     // Handle graceful shutdown
     process.on('SIGINT', () => {
       console.log(chalk.yellow('\n🛑 Shutting down V7 Backend System...'));
-      
+
       if (ccipListener) {
         ccipListener.stopListening();
         console.log(chalk.gray('✅ CCIP Event Listener stopped'));
       }
-      
-      if (llmProcess) {
-        llmProcess.kill('SIGTERM');
-        console.log(chalk.gray('✅ LLM Arbitrator API stopped'));
-      }
-      
+
       serverProcess.kill('SIGTERM');
       console.log(chalk.gray('✅ V7 Server stopped'));
-      
+
       console.log(chalk.cyan('👋 V7 Backend System shutdown complete'));
       process.exit(0);
     });

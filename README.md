@@ -48,6 +48,37 @@ What you get:
 - **API Endpoints (V7):**
 	- `POST /api/v7/arbitration/ollama` — Ollama LLM arbitration (primary)
 	- `POST /api/v7/arbitration/simulate` — Simulation mode arbitration (fallback)
+
+## Project Structure
+
+The project is organized for clarity and maintainability:
+
+```
+LegalContractsDemo/
+├── contracts/          # Smart contracts (Solidity)
+├── server/             # V7 Backend (Node.js + Ollama)
+│   ├── modules/        # LLM arbitration modules
+│   └── test/           # Backend tests
+├── front/              # Frontend (Vite + MetaMask)
+├── docs/               # Main documentation
+│   └── archive/        # Historical documentation
+├── scripts/            # Deployment and utility scripts
+├── logs/               # Log files and outputs
+├── test/               # Contract tests (Hardhat)
+├── WALLETS.txt         # Important wallet information
+└── README.md           # This file
+```
+
+### Key Files
+- **`.env`** - Environment configuration with optimized LLM settings
+- **`hardhat.config.js`** - Hardhat configuration
+- **`package.json`** - Project dependencies
+- **`WALLETS.txt`** - Wallet addresses and keys (IMPORTANT!)
+
+### Documentation
+- **Main docs**: `docs/` - Current specifications and guides
+- **Archive**: `docs/archive/` - Historical migration documentation
+- **Optimization**: `docs/LLM_OPTIMIZATION_GUIDE.md` - LLM performance tuning
 	- `GET /api/v7/arbitration/ollama/health` — Ollama service health check
 
 ### V7 Arbitration Flow

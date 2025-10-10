@@ -1,3 +1,5 @@
+
+// ...existing code...
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
@@ -16,6 +18,19 @@ const evidenceStore = {};
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+// Ollama LLM arbitration test endpoint (must be after app is initialized)
+app.post('/api/v7/arbitration/ollama-test', async (req, res) => {
+  try {
+    const { evidence_text, contract_text, dispute_id } = req.body;
+    if (!processV7ArbitrationWithOllama) {
+      return res.status(503).json({ error: 'Ollama LLM arbitrator not loaded' });
+    }
+    const result = await processV7ArbitrationWithOllama({ evidence_text, contract_text, dispute_id });
+    res.json({ success: true, result });
+  } catch (e) {
+    res.status(500).json({ error: e.message || String(e) });
+  }
+});
 const PORT = process.env.SERVER_PORT || process.env.PORT || 3001;
 
 app.get('/api/dispute-history/:caseId', (req, res) => {
