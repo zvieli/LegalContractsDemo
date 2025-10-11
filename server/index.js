@@ -916,11 +916,18 @@ app.get('/api/v7/admin/nonce', async (req, res) => {
   try {
     const addr = (req.query.address || '').toString().trim();
     if (!addr) return res.status(400).json({ error: 'missing address query param' });
-    const nonce = generateNonce();
-    const expires = Date.now() + (5 * 60 * 1000); // 5 minutes
-    adminNonces[addr.toLowerCase()] = { nonce, expires };
-    const message = `ArbiTrust Admin Login\nAddress: ${addr}\nNonce: ${nonce}`;
-    res.json({ address: addr, nonce, message, expires });
+  const nonce = generateNonce();
+  const expires = Date.now() + (5 * 60 * 1000); // 5 minutes
+  const message = `ArbiTrust Admin Login\nAddress: ${addr}\nNonce: ${nonce}`;
+  // Store the exact message string so server-side verification uses the same bytes the client signed
+  adminNonces[addr.toLowerCase()] = { nonce, expires, message };
+  console.warn('Admin nonce created:', { addr, key: addr.toLowerCase(), nonce, expires, message });
+    // Return debug info in development to help diagnose client/server mismatches
+    if (isDevelopment) {
+      res.json({ address: addr, nonce, message, expires, stored: adminNonces[addr.toLowerCase()] });
+    } else {
+      res.json({ address: addr, nonce, message, expires });
+    }
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -930,21 +937,85 @@ app.get('/api/v7/admin/nonce', async (req, res) => {
 app.post('/api/v7/admin/verify', async (req, res) => {
   try {
     const { address, signature } = req.body || {};
-    if (!address || !signature) return res.status(400).json({ error: 'missing address or signature in body' });
+    if (!address || !signature) {
+      console.warn('Admin verify failed: missing address or signature', { address, hasSignature: !!signature });
+      return res.status(400).json({ error: 'missing address or signature in body' });
+    }
     const key = address.toLowerCase();
     const record = adminNonces[key];
-    if (!record || !record.nonce) return res.status(400).json({ error: 'no nonce for address or nonce expired' });
-    if (Date.now() > record.expires) { delete adminNonces[key]; return res.status(400).json({ error: 'nonce expired' }); }
-
-    const message = `ArbiTrust Admin Login\nAddress: ${address}\nNonce: ${record.nonce}`;
-    let recovered = null;
-    try {
-      recovered = ethers.verifyMessage(message, signature);
-    } catch (err) {
-      return res.status(400).json({ error: 'invalid signature', details: err.message });
+    if (!record || !record.nonce) {
+      console.warn('Admin verify failed: no nonce for address or nonce already expired', { address, key, record });
+      return res.status(400).json({ error: 'no nonce for address or nonce expired' });
     }
-    if (!recovered || recovered.toLowerCase() !== address.toLowerCase()) {
-      return res.status(400).json({ error: 'signature does not match address', recovered });
+    if (Date.now() > record.expires) {
+      delete adminNonces[key];
+      console.warn('Admin verify failed: nonce expired', { address, key, nonceExpires: record.expires, now: Date.now() });
+      return res.status(400).json({ error: 'nonce expired' });
+    }
+
+    // Support EIP-712 typed-data verification when client sends eip712: true (accept boolean or string)
+    const isEip712 = req.body && (req.body.eip712 === true || String(req.body.eip712) === 'true');
+    // Debug: log incoming verify request keys in development to help diagnose mismatches
+    if (isDevelopment) {
+      try {
+        console.log('Admin verify request body keys:', Object.keys(req.body || {}).join(','));
+        console.log('Admin verify eip712 flag value (raw):', req.body ? req.body.eip712 : undefined);
+      } catch (e) {}
+    }
+    let recovered = null;
+    if (isEip712) {
+      // Expect domain, types, and message in the body
+      const domain = req.body.domain;
+      const types = req.body.types;
+      const typedMsg = req.body.message;
+      if (!typedMsg || String(typedMsg.nonce) !== String(record.nonce) || String(typedMsg.address).toLowerCase() !== String(address).toLowerCase()) {
+        console.warn('Admin verify failed: typed message missing or nonce/address mismatch', { address, expectedNonce: record.nonce, typedMsg });
+        return res.status(400).json({ error: 'typed_message_missing_or_mismatch', expectedNonce: record.nonce, typedMsg });
+      }
+      // Try the standard ethers helper first, then fallback to digest+recoverAddress
+      let digest = null;
+      try {
+        recovered = ethers.verifyTypedData(domain, types, typedMsg, signature);
+      } catch (err) {
+        console.warn('Admin verify: verifyTypedData failed, attempting fallback digest recovery', { address, err: err.message });
+        try {
+          // Compute EIP-712 digest and recover using recoverAddress
+          // ethers.TypedDataEncoder.hash(domain, types, value) returns the EIP-712 digest
+          digest = ethers.TypedDataEncoder.hash(domain, types, typedMsg);
+          const sigObj = ethers.Signature.from(signature);
+          recovered = ethers.recoverAddress(digest, sigObj);
+        } catch (err2) {
+          console.warn('Admin verify failed: invalid typed signature parse and fallback failed', { address, err: err2.message });
+          return res.status(400).json({ error: 'invalid_typed_signature', details: err2.message });
+        }
+      }
+      if (!recovered || recovered.toLowerCase() !== address.toLowerCase()) {
+        console.warn('Admin verify failed: typed signature does not match address', { expected: address.toLowerCase(), recovered, digestPreview: digest && String(digest).slice(0,40) });
+        return res.status(400).json({ error: 'typed_signature_does_not_match', recovered });
+      }
+    } else {
+      // Prefer using the originally-stored message to avoid client/server formatting or casing differences
+      // But allow the client to send the exact message it signed, provided it contains the expected nonce
+      const clientMessage = (req.body && req.body.message) ? String(req.body.message) : null;
+      let message = null;
+      if (clientMessage && record && record.nonce && clientMessage.includes(String(record.nonce))) {
+        message = clientMessage;
+        console.warn('Admin verify: using client-supplied message (contains expected nonce)');
+      } else if (record && record.message) {
+        message = record.message;
+      } else {
+        message = `ArbiTrust Admin Login\nAddress: ${address}\nNonce: ${record ? record.nonce : ''}`;
+      }
+      try {
+        recovered = ethers.verifyMessage(message, signature);
+      } catch (err) {
+        console.warn('Admin verify failed: invalid signature parse', { address, err: err.message, messagePreview: message && message.slice(0,80) });
+        return res.status(400).json({ error: 'invalid signature', details: err.message });
+      }
+      if (!recovered || recovered.toLowerCase() !== address.toLowerCase()) {
+        console.warn('Admin verify failed: signature does not match address', { expected: address.toLowerCase(), recovered, usedMessagePreview: message && message.slice(0,80), clientMessageProvided: !!clientMessage });
+        return res.status(400).json({ error: 'signature does not match address', recovered, usedMessage: message, clientMessageProvided: !!clientMessage });
+      }
     }
 
     // Now verify the address is the on-chain owner OR matches platform admin fallback
@@ -1014,6 +1085,50 @@ app.get('/api/v7/debug/list', async (req, res) => {
     res.json({ files });
   } catch (err) {
     console.error('Error listing debug files:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Dev-only admin debug: expose in-memory nonces and verified admins (only in development)
+app.get('/api/v7/debug/admin-state', async (req, res) => {
+  if (!isDevelopment) return res.status(403).json({ error: 'dev-only endpoint' });
+  try {
+    res.json({ adminNonces, verifiedAdmins });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Dev-only: recover signer address from arbitrary message+signature for debugging
+app.get('/api/v7/debug/recover', async (req, res) => {
+  if (!isDevelopment) return res.status(403).json({ error: 'dev-only endpoint' });
+  try {
+    const { message, signature } = req.query;
+    if (!message || !signature) return res.status(400).json({ error: 'message and signature query params required' });
+    try {
+      const recovered = ethers.verifyMessage(String(message), String(signature));
+      return res.json({ recovered, messagePreview: String(message).slice(0,120) });
+    } catch (err) {
+      return res.status(400).json({ error: 'failed to recover', details: err.message });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Dev-only: accept POST JSON body too for easier client-side checks
+app.post('/api/v7/debug/recover', async (req, res) => {
+  if (!isDevelopment) return res.status(403).json({ error: 'dev-only endpoint' });
+  try {
+    const { message, signature } = req.body || {};
+    if (!message || !signature) return res.status(400).json({ error: 'message and signature required in JSON body' });
+    try {
+      const recovered = ethers.verifyMessage(String(message), String(signature));
+      return res.json({ recovered, messagePreview: String(message).slice(0,120) });
+    } catch (err) {
+      return res.status(400).json({ error: 'failed to recover', details: err.message });
+    }
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

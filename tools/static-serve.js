@@ -1,8 +1,9 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const root = path.resolve(__dirname, '..', 'front', 'dist');
-const port = process.env.PORT || 5000;
+import http from 'http';
+import fs from 'fs';
+import path from 'path';
+
+const port = process.env.PORT ? parseInt(process.env.PORT) : 5000;
+const root = path.resolve(process.env.SERVE_DIR || process.cwd(), 'front', 'dist');
 
 function contentType(file) {
   if (file.endsWith('.html')) return 'text/html; charset=utf-8';
@@ -16,9 +17,8 @@ function contentType(file) {
 
 const server = http.createServer((req, res) => {
   try {
-    let urlPath = req.url.split('?')[0];
+    let urlPath = decodeURIComponent(req.url.split('?')[0]);
     if (urlPath === '/') urlPath = '/index.html';
-    // Serve SPA: fallback to index.html for unknown paths
     let filePath = path.join(root, urlPath);
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       filePath = path.join(root, 'index.html');
@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
     res.end(data);
   } catch (err) {
     res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Server error: ' + err.message);
+    res.end('Server error: ' + (err && err.message));
   }
 });
 
