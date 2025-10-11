@@ -1,87 +1,47 @@
-# Copilot Instructions for LegalContractsDemo
+# Repo-specific Copilot instructions for contributors
 
-## Project Overview
-- **ArbiTrust V7**: Smart contract templates (NDA, Rent) with AI-powered arbitration using Chainlink CCIP Oracle integration and Ollama LLM.
-- **V7 Release**: Unified Node.js backend (no Python required), direct Ollama integration, CCIP Oracle automation, simulation fallback, and Merkle evidence batching for gas savings.
+This repository implements ArbiTrust: Solidity templates (NDA, Rent) + a V7 Node.js backend (Ollama LLM arbitration) and a Vite React frontend. Use these concise pointers to be immediately productive.
 
-## Architecture & Key Components
-- **Smart Contracts** (`contracts/`):
-  - `ArbitrationService.sol`: Central dispatcher with CCIP receiver capabilities for Oracle decisions.
-  - `NDATemplate.sol`, `TemplateRentContract.sol`: Contract templates with CCIP arbitration integration.
-  - `contracts/ccip/`: CCIP Oracle infrastructure (Sender, Receiver, Types).
-- **Backend** (`server/`):
-  - `index.js`, `start-v7.js`: Unified backend with Ollama LLM and CCIP event handling.
-  - `modules/ollamaLLMArbitrator.js`, `modules/llmArbitrationSimulator.js`: Arbitration logic.
-  - `ccip/ccipEventListener.js`, `ccip/ccipResponseHandler.js`: CCIP Oracle integration.
-  - API endpoints: `/api/v7/arbitration/ollama`, `/api/v7/arbitration/simulate`.
-- **Frontend** (`front/`):
-  - Uses injected wallet (MetaMask) for on-chain ops, falls back to localhost JSON-RPC for dev.
-  - Evidence helpers: `src/services/contractService.js`, `src/utils/evidence.js`.
-  - Only submits evidence digests (keccak256); encryption to admin key is optional and handled client-side.
-- **Tools** (`tools/`):
-  - Admin decryption helpers in `tools/admin/` (never bundle in frontend).
+- Big picture
+  - Smart contracts are in `contracts/` and are intended to be created via `ContractFactory` (see `test/` and `scripts/deploy.js`). `ArbitrationService` is the owner-controlled dispatcher that applies resolutions to template contracts.
+  - V7 backend is in `server/` (primary files: `server/index.js`, `server/modules/ollamaLLMArbitrator.js`, `server/modules/llmArbitrationSimulator.js`). It receives dispute payloads, validates evidence, calls Ollama (or simulates), and returns a JSON decision consumed by `ArbitrationService` in tests and workflows.
+  - Frontend is in `front/` (Vite + React). ABIs and generated JSON are copied into `front/src/utils/contracts` by `scripts/deploy.js` and prebuild step `prebuild` in `front/package.json`.
 
-## CCIP Oracle Integration (V7 Feature)
-- **Automatic Arbitration**: Breach reports trigger CCIP Oracle requests automatically
-- **Cross-Chain Oracle**: Chainlink CCIP for decentralized arbitration decisions
-- **LLM Processing**: Ollama analyzes evidence and generates decisions
-- **Zero-Cost Educational**: Uses CCIP Local Simulator for cost-free learning
-- **Integration Points**:
-  - `configureCCIP()` in templates enables Oracle arbitration
-  - `CCIPEventListener` processes requests with LLM arbitrator
-  - `ArbitrationService.receiveCCIPDecision()` applies Oracle decisions
-  - Fallback to traditional arbitration if CCIP unavailable
+- Key developer workflows & commands (project root unless noted)
+  - Install deps: `npm install`
+  - Compile contracts and build artifacts: `npm run compile`
+  - Start a local Hardhat node: `npx hardhat node`
+  - Deploy to localhost and copy ABIs for frontend: `npx hardhat run scripts/deploy.js --network localhost`
+  - Run unit tests: `npm test` (runs Hardhat tests)
+  - Run server (V7) locally: `cd server && npm install && npm run start:v7` (also `server/.env.example` exists)
+  - Run frontend dev: `cd front && npm install && npm run dev` (prebuild copies ABIs automatically)
+  - E2E frontend tests: from `front/`: `npm test -- tests/e2e/template.rent.e2e.spec.ts` or `npm run e2e` uses Playwright projects.
 
-## Developer Workflows
-- **Build & Deploy**:
-  - Install dependencies: `npm install` (in root, `server/`, `front/` as needed).
-  - Deploy CCIP infrastructure: `npx hardhat run tasks/ccip/deploy-ccip-arbitration.js`.
-  - Deploy contracts: Use unified `scripts/deploy.js`.
-  - Start V7 backend with CCIP: `npm run start:v7` in `server/`.
-- **Testing**:
-  - Hardhat tests: `npx hardhat test` (contract tests).
-  - E2E tests: `npm run e2e` in `front/` (uses custom MetaMask helper, Windows compatible).
-  - CCIP Oracle testing: Report dispute → automatic Oracle arbitration → LLM decision.
-  - Playwright for frontend E2E.
-- **Evidence Workflow**:
-  - Prepare evidence with `prepareEvidencePayload` (frontend).
-  - For encrypted evidence, upload ciphertext off-chain and submit digest to contract.
-  - CCIP Oracle automatically processes evidence and makes decisions.
-  - Admins decrypt using CLI/tools in `tools/admin/`.
+- Project-specific patterns and gotchas
+  - ArbitrationService flow: templates do not store an `arbitrator` address; instead use `ArbitrationService` as the central caller. To apply a decision in tests/userspace, call `arbitrationService.applyResolutionToTarget(target, caseId, approved, amount, beneficiary)` (see `test/*` for examples).
+  - Evidence on-chain: only bytes32 digests are stored (keccak256). Frontend utilities compute both `cidDigest` and `contentDigest` in `front/src/utils/evidenceCanonical.js` (and related helpers in `front/src/utils/evidence.js`). Use canonicalization before hashing.
+  - Submit evidence fallback: frontend will try `submitEvidenceWithDigest` and fall back to `submitEvidence` when extended entrypoints are missing (see tests and `front/README.md`).
+  - ContractFactory is the canonical deployment mechanism. Prefer wiring via the factory and setting default arbitration service via `factory.setDefaultArbitrationService(arbitrationAddress, requiredDeposit)`.
+  - Low-level ABI calls: `ArbitrationService` attempts multiple resolution entrypoints with low-level `call`. If your target contract changes its API, update the service mappings (see `ArbitrationService.sol`).
 
-## Conventions & Patterns
-- **No admin keys in frontend**; only public keys for encryption.
-- **Evidence digests**: Always keccak256, use `ethers.ZeroHash` for empty evidence.
-- **CCIP Integration**: Hybrid approach - existing functionality + Oracle capabilities.
-- **Fallbacks**: Oracle arbitration falls back to traditional arbitration if CCIP unavailable.
-- **Environment variables**: Use `.env.example` as template for `.env` in all major components.
-- **MetaMask E2E**: Custom helper for Windows, environment-driven setup.
+- Integration points & external deps
+  - Ollama LLM local or hosted — health endpoint: `GET /api/v7/arbitration/ollama/health` (server defaults to `http://localhost:8000` in `.env`)
+  - IPFS/Helia evidence storage — `server/modules/evidenceValidator.js` and `front` utilities show how digests are computed/validated.
+  - Chainlink Functions (optional) — wiring exists in `scripts/` and docs; environment variables for CCIP/Chainlink are present in root `.env` config instructions.
 
-## Integration Points
-- **Chainlink CCIP**: Cross-chain Oracle infrastructure for automated arbitration.
-- **CCIP Local Simulator**: Educational zero-cost implementation.
-- **Ollama LLM**: Backend integrates directly for evidence analysis and decision making.
-- **IPFS/Helia**: Evidence storage and digest validation (see backend modules).
+- Examples to copy when editing code
+  - Apply resolution from scripts/tests: see `test/V7BackendCCIPFullFlow.test.js` lines around applyResolutionToTarget usage for correct param order and signer handling.
+  - Evidence digest usage: look at `test/ArbitrationService.e2e.test.js` for canonical digest computation and `rent` flow examples.
 
-## Key Files & Directories
-- `contracts/`: Solidity contracts including CCIP Oracle infrastructure
-- `contracts/ccip/`: CCIP arbitration contracts (Sender, Receiver, Types)
-- `server/`: Node.js backend with CCIP event handling
-- `server/ccip/`: CCIP Oracle integration modules
-- `front/`: Frontend with CCIP-aware evidence helpers
-- `tools/`: Admin/legacy tools
-- `scripts/`: Deployment and utility scripts
-- `tasks/ccip/`: CCIP deployment and management tasks
+- Files to read first (priority)
+  1. `README.md` (root) — architecture & quickstart
+  2. `server/README.md` — backend modules and API
+  3. `contracts/ArbitrationService.sol` — core wiring & low-level call behavior
+  4. `scripts/deploy.js` — unified deployment and ABI copying
+  5. `front/README.md` & `front/src/utils/evidence.js` — frontend evidence & build notes
+  6. `test/` — many example usage patterns for contract wiring, arbitration application and E2E scenarios
 
-## CCIP Oracle Workflow
-1. **Dispute Creation**: User reports breach/dispute in contract
-2. **Automatic Trigger**: Contract calls `_triggerCCIPArbitration()` if CCIP enabled
-3. **Oracle Request**: CCIP sends arbitration request to Oracle network
-4. **LLM Processing**: `CCIPEventListener` detects request, processes with Ollama LLM
-5. **Decision Generation**: LLM analyzes evidence and generates verdict
-6. **Decision Application**: Oracle sends decision to `ArbitrationService.receiveCCIPDecision()`
-7. **Contract Resolution**: ArbitrationService applies decision to original contract
+- Tone & style
+  - Follow the repository's clear, example-driven style: prefer copying adjacent tests/snippets for behavior, keep ABIs and JSON artifacts in sync with `scripts/deploy.js`, and keep admin-only helpers in `tools/admin/` (do not import them into `front/`).
 
----
-
-**If any section is unclear or missing important project-specific details, please specify so I can refine these instructions.**
+If anything here is unclear or you'd like me to expand on specific areas (e.g., exact `ArbitrationService` ABI shapes, `server` endpoints examples, or frontend evidence canonicalization), tell me which section to iterate on.

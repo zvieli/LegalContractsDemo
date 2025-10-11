@@ -2,7 +2,7 @@
 start-all.ps1
 node_modules
 .env
-
+front/.env
 # Hardhat files
 /cache
 /artifacts
@@ -26,7 +26,7 @@ tools/admin/*.key
 tools/admin/*.pem
 tools/admin/*.secret
 tools/admin/*.env
-
+server/.env
 front/public/utils/contracts/
 
 # Local admin key (do not commit)
