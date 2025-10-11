@@ -133,7 +133,6 @@ function Home() {
                           borderRadius: '50%',
                           width: '40px',
                           height: '40px',
-                          display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           fontSize: '22px',

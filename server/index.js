@@ -801,7 +801,7 @@ app.get('/api/v7/debug/evidence/:cid', async (req, res) => {
 });
 
 // 🏭 Production Mode: IPFS daemon management endpoint
-app.post('/api/v7/debug/ipfs/restart', async (req, res) => {
+app.post('/api/v7/debug/ipfs/restart', requireAdmin, async (req, res) => {
   if (!isProduction) {
     return res.status(403).json({ 
       error: 'IPFS daemon management only available in production mode',
@@ -857,6 +857,180 @@ app.get('/api/v7/debug/development-info', async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin authorization helper endpoint
+app.get('/api/v7/admin/authorized', async (req, res) => {
+  try {
+    const addr = (req.query.address || req.headers['x-admin-address'] || '').toString().trim();
+    if (!addr) return res.json({ authorized: false, reason: 'no-address-provided' });
+
+    // Load ArbitrationService address from deployment-summary (if available)
+    let arbitrationAddr = null;
+    try {
+      const deploymentPath = path.resolve(__dirname, '../front/src/utils/contracts/deployment-summary.json');
+      const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
+      arbitrationAddr = deployment.contracts && deployment.contracts.ArbitrationService ? deployment.contracts.ArbitrationService : null;
+    } catch (e) {
+      // ignore
+    }
+
+    // If no deployment or address, fall back to configured platform admin env var
+  const platformAdmin = process.env.PLATFORM_ADMIN_ADDRESS || process.env.VITE_PLATFORM_ADMIN || null;
+  console.log('DEBUG admin verify: platformAdmin env =', platformAdmin, 'incoming address =', addr);
+    if (!arbitrationAddr) {
+      if (!platformAdmin) return res.json({ authorized: false, reason: 'no-arbitration-or-platform-admin-configured' });
+      const ok = String(addr).toLowerCase() === String(platformAdmin).toLowerCase();
+      return res.json({ authorized: ok, reason: ok ? 'match_platform_admin' : 'not_authorized' });
+    }
+
+    // Query on-chain owner of ArbitrationService
+    try {
+      const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || 'http://127.0.0.1:8545');
+      const arbAbi = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'contracts', 'ArbitrationService.abi.json'), 'utf8'));
+      const arb = new ethers.Contract(arbitrationAddr, arbAbi, provider);
+      const owner = await arb.owner();
+      const authorized = String(owner).toLowerCase() === String(addr).toLowerCase();
+      return res.json({ authorized, owner, checkedAddress: addr });
+    } catch (err) {
+      console.warn('Admin authorized check failed:', err.message);
+      return res.json({ authorized: false, reason: 'onchain-check-failed', error: err.message });
+    }
+  } catch (err) {
+    res.status(500).json({ authorized: false, error: err.message });
+  }
+});
+
+// ----- Nonce-based admin auth -------------------------------------------------
+// In-memory stores (simple, non-persistent)
+const adminNonces = {}; // address -> { nonce, expires }
+const verifiedAdmins = {}; // address -> { expires }
+
+function generateNonce() {
+  return 'arb-' + Math.floor(Math.random() * 1e12).toString(36) + '-' + Date.now();
+}
+
+// Request a nonce to sign: GET /api/v7/admin/nonce?address=0x...
+app.get('/api/v7/admin/nonce', async (req, res) => {
+  try {
+    const addr = (req.query.address || '').toString().trim();
+    if (!addr) return res.status(400).json({ error: 'missing address query param' });
+    const nonce = generateNonce();
+    const expires = Date.now() + (5 * 60 * 1000); // 5 minutes
+    adminNonces[addr.toLowerCase()] = { nonce, expires };
+    const message = `ArbiTrust Admin Login\nAddress: ${addr}\nNonce: ${nonce}`;
+    res.json({ address: addr, nonce, message, expires });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Verify signed nonce: POST /api/v7/admin/verify { address, signature }
+app.post('/api/v7/admin/verify', async (req, res) => {
+  try {
+    const { address, signature } = req.body || {};
+    if (!address || !signature) return res.status(400).json({ error: 'missing address or signature in body' });
+    const key = address.toLowerCase();
+    const record = adminNonces[key];
+    if (!record || !record.nonce) return res.status(400).json({ error: 'no nonce for address or nonce expired' });
+    if (Date.now() > record.expires) { delete adminNonces[key]; return res.status(400).json({ error: 'nonce expired' }); }
+
+    const message = `ArbiTrust Admin Login\nAddress: ${address}\nNonce: ${record.nonce}`;
+    let recovered = null;
+    try {
+      recovered = ethers.verifyMessage(message, signature);
+    } catch (err) {
+      return res.status(400).json({ error: 'invalid signature', details: err.message });
+    }
+    if (!recovered || recovered.toLowerCase() !== address.toLowerCase()) {
+      return res.status(400).json({ error: 'signature does not match address', recovered });
+    }
+
+    // Now verify the address is the on-chain owner OR matches platform admin fallback
+    // Load arbitration address if available
+    let arbitrationAddr = null;
+    try { const deploymentPath = path.resolve(__dirname, '../front/src/utils/contracts/deployment-summary.json'); const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8')); arbitrationAddr = deployment.contracts && deployment.contracts.ArbitrationService ? deployment.contracts.ArbitrationService : null; } catch(e) {}
+    const platformAdmin = process.env.PLATFORM_ADMIN_ADDRESS || process.env.VITE_PLATFORM_ADMIN || null;
+    // demo short-circuit removed to enforce real on-chain / env checks
+    let isOwner = false;
+    // If platform admin env explicitly matches, accept immediately (useful for demos/local)
+    if (platformAdmin && String(platformAdmin).toLowerCase() === String(address).toLowerCase()) {
+      isOwner = true;
+    } else if (!arbitrationAddr) {
+      // No arbitration contract configured and platform admin didn't match
+      // leave isOwner false
+    } else {
+      try {
+        const provider = new ethers.JsonRpcProvider(process.env.RPC_URL || 'http://127.0.0.1:8545');
+        const arbAbi = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'contracts', 'ArbitrationService.abi.json'), 'utf8'));
+        const arb = new ethers.Contract(arbitrationAddr, arbAbi, provider);
+        const owner = await arb.owner();
+        if (String(owner).toLowerCase() === String(address).toLowerCase()) isOwner = true;
+      } catch (err) {
+        console.warn('onchain owner check failed during verify:', err.message);
+      }
+    }
+
+    // demo fallback removed - rely on PLATFORM_ADMIN_ADDRESS or on-chain owner check
+
+    if (!isOwner) return res.status(403).json({ verified: false, reason: 'address-not-owner' });
+
+    // Mark as verified for a short duration
+    const verifiedForMs = 15 * 60 * 1000; // 15 minutes
+    verifiedAdmins[key] = { expires: Date.now() + verifiedForMs };
+    // cleanup nonce
+    delete adminNonces[key];
+    res.json({ verified: true, expires: verifiedAdmins[key].expires });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update requireAdmin to check verifiedAdmins first
+async function requireAdmin(req, res, next) {
+  try {
+    const caller = (req.headers['x-admin-address'] || req.headers.authorization || '').toString().replace(/^Bearer\s*/i, '').trim();
+    if (!caller) return res.status(403).json({ error: 'admin address required in x-admin-address header or Authorization Bearer' });
+    const key = caller.toLowerCase();
+    const rec = verifiedAdmins[key];
+    if (!rec || Date.now() > rec.expires) return res.status(403).json({ error: 'not_verified_or_verification_expired' });
+    req.admin = { address: caller };
+    next();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+
+// List debug output files (from server/test/debug-output)
+app.get('/api/v7/debug/list', async (req, res) => {
+  try {
+    const debugDir = path.resolve(__dirname, 'test', 'debug-output');
+    if (!fs.existsSync(debugDir)) {
+      return res.json({ files: [] });
+    }
+    const files = fs.readdirSync(debugDir).filter(f => f.endsWith('.json'));
+    res.json({ files });
+  } catch (err) {
+    console.error('Error listing debug files:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Download a specific debug file
+app.get('/api/v7/debug/download', async (req, res) => {
+  try {
+    const { file } = req.query;
+    if (!file) return res.status(400).json({ error: 'Missing file query parameter' });
+    const debugDir = path.resolve(__dirname, 'test', 'debug-output');
+    const safePath = path.normalize(path.join(debugDir, file));
+    if (!safePath.startsWith(debugDir)) return res.status(400).json({ error: 'Invalid file path' });
+    if (!fs.existsSync(safePath)) return res.status(404).json({ error: 'File not found' });
+    res.sendFile(safePath);
+  } catch (err) {
+    console.error('Error downloading debug file:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1063,8 +1237,8 @@ app.get('/api/v7/ccip/status', async (req, res) => {
   }
 });
 
-// V7 CCIP Start Listener endpoint
-app.post('/api/v7/ccip/start', async (req, res) => {
+// V7 CCIP Start Listener endpoint (protected)
+app.post('/api/v7/ccip/start', requireAdmin, async (req, res) => {
   try {
     const success = await ccipArbitrationIntegration.startCCIPListener();
     res.json({
@@ -1081,8 +1255,8 @@ app.post('/api/v7/ccip/start', async (req, res) => {
   }
 });
 
-// V7 Manual CCIP Test endpoint
-app.post('/api/v7/ccip/test', async (req, res) => {
+// V7 Manual CCIP Test endpoint (protected)
+app.post('/api/v7/ccip/test', requireAdmin, async (req, res) => {
   try {
     const { disputeType, evidence, requestedAmount } = req.body;
     
@@ -1121,8 +1295,8 @@ app.post('/api/v7/ccip/test', async (req, res) => {
   }
 });
 
-// V7 LLM Arbitration Simulation API
-app.post('/api/v7/arbitration/simulate', async (req, res) => {
+// V7 LLM Arbitration Simulation API (protected)
+app.post('/api/v7/arbitration/simulate', requireAdmin, async (req, res) => {
   try {
     const arbitrationRequest = req.body;
 

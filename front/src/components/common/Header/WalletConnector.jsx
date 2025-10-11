@@ -21,7 +21,18 @@ function WalletConnector() {
       console.log('Connection already in progress...');
       return;
     }
-    await connectWallet();
+    try {
+      await connectWallet();
+    } catch (err) {
+      console.error('Connect wallet failed:', err);
+      if (err && err.code === 'NO_WALLET') {
+        alert('MetaMask not found. Please install MetaMask or use the Local RPC option.');
+      } else if (err && err.code === -32002) {
+        alert('MetaMask is already processing a request. Please check your MetaMask window.');
+      } else {
+        alert('Failed to connect wallet: ' + (err && err.message ? err.message : String(err)));
+      }
+    }
   };
 
   if (loading) {

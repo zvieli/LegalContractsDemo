@@ -48,6 +48,14 @@ function Header() {
     { label: 'About', path: '/about', icon: 'fas fa-info-circle' }
   ].filter(Boolean);
 
+  // Add Admin link in development for convenience when a platform admin is configured
+  try {
+    const showAdminNav = (import.meta.env && String(import.meta.env.MODE || '').toLowerCase() !== 'production') && !!import.meta.env?.VITE_PLATFORM_ADMIN;
+    if (showAdminNav) {
+      navItems.push({ label: 'Admin', path: '/admin', icon: 'fas fa-cogs' });
+    }
+  } catch (_) {}
+
   return (
     <header className="header">
       <div className="container">

@@ -35,7 +35,7 @@ export function EthersProvider({ children }) {
         return;
       }
 
-      if (typeof window !== 'undefined' && window.ethereum) {
+  if (typeof window !== 'undefined' && window.ethereum) {
         try {
           const web3Provider = new ethers.BrowserProvider(window.ethereum);
           // Always check chainId and force localhost for 31337
@@ -99,10 +99,14 @@ export function EthersProvider({ children }) {
 
     initProvider();
 
-    // האזנה לשינויים בארנק
-    if (typeof window !== 'undefined' && window.ethereum) {
-      window.ethereum.on('accountsChanged', handleAccountsChanged);
-      window.ethereum.on('chainChanged', handleChainChanged);
+    // Only register listeners if ethereum exists
+    if (typeof window !== 'undefined' && window.ethereum && typeof window.ethereum.on === 'function') {
+      try {
+        window.ethereum.on('accountsChanged', handleAccountsChanged);
+        window.ethereum.on('chainChanged', handleChainChanged);
+      } catch (e) {
+        console.warn('Failed to attach wallet listeners:', e && e.message);
+      }
     }
 
     return () => {
@@ -182,8 +186,10 @@ export function EthersProvider({ children }) {
     }
 
     if (typeof window === 'undefined' || !window.ethereum) {
-      alert('Please install MetaMask!');
-      return;
+      // Throw a clear, catchable error instead of alerting to allow callers to handle UI
+      const err = new Error('MetaMask extension not found');
+      err.code = 'NO_WALLET';
+      throw err;
     }
 
     try {
@@ -209,12 +215,8 @@ export function EthersProvider({ children }) {
       
     } catch (error) {
       console.error('Error connecting wallet:', error);
-      // הצגת הודעת שגיאה מתאימה יותר
-      if (error.code === -32002) {
-        alert('MetaMask is already processing your request. Please check your MetaMask window.');
-      } else {
-        alert('Error connecting wallet: ' + error.message);
-      }
+      // throw the error to allow UI to show friendly messages
+      throw error;
     } finally {
       setLoading(false);
       setIsConnecting(false); // מסיים תהליך חיבור

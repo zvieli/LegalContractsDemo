@@ -1,0 +1,43 @@
+{
+  "dispute_id": "server/test/evidence9.json",
+  "pipeline_result": {
+    "decision": "NO_PENALTY",
+    "arbitration": "NO_PENALTY",
+    "reasoning": "1. The contract stipulated delivery of 5 modules by 01/09/2025, but Module 3 was delayed by 3 days.\n2. Modules 4 and 5 had minor bugs fixed immediately after reporting, which may be considered a procedural breach in internal documentation.\n3. Despite the delays, all modules met the required specifications as confirmed by the client in writing.\n\nHowever, there is no material financial loss, and the client accepted the final deliverables. The contractor fulfilled obligations, but procedural breaches were noted in internal documentation.",
+    "confidence": 0.92,
+    "source": "NLP_STRONG_OVERRIDE",
+    "raw": "VERDICT: Partial Breach of Contract\n\nRATIONALE:\n\n1. The contract stipulated delivery of 5 modules by 01/09/2025, but Module 3 was delayed by 3 days.\n2. Modules 4 and 5 had minor bugs fixed immediately after reporting, which may be considered a procedural breach in internal documentation.\n3. Despite the delays, all modules met the required specifications as confirmed by the client in writing.\n\nHowever, there is no material financial loss, and the client accepted the final deliverables. The contractor fulfilled obligations, but procedural breaches were noted in internal documentation.\n\nCONFIDENCE: Medium\n\nThe verdict is not clear-cut because:\n\n* Module 3's delay was minor (only 3 days), which may be considered a one-time exception.\n* Modules 4 and 5 had bugs fixed promptly, indicating that the contractor took corrective action when issues arose.\n* The client accepted the final deliverables without material financial loss.\n\nREIMBURSEMENT: Minimal\n\nGiven the circumstances, it is unlikely that the contractor will be entitled to significant reimbursement. The minor delays were not material, and the contractor fulfilled their obligations despite some procedural breaches. A small amount of compensation for the minor delay or procedural breaches may be considered reasonable, but this would depend on the specific terms of the contract and the negotiations between the parties."
+  },
+  "llm_raw": {
+    "raw_truncated": "VERDICT: Partial Breach of Contract\n\nRATIONALE:\n\n1. The contract stipulated delivery of 5 modules by 01/09/2025, but Module 3 was delayed by 3 days.\n2. Modules 4 and 5 had minor bugs fixed immediately after reporting, indicating a prompt response to issues.\n3. Despite the delays, all modules met the required specifications as confirmed in writing by the client.\n\nHowever, procedural breaches were noted in internal documentation, which may have contributed to the delays.\n\nCONFIDENCE: Moderate (6/10)\n\nThe contractor fulfilled most of their obligations, but there were minor delays and procedural breaches. The client's initial threat to withhold payment was later rescinded, indicating that the issues were not severe enough to warrant significant financial penalties.\n\nREIMBURSEMENT:\n\nGiven the partial breach of contract, the contractor may be entitled to some reimbursement for expenses incurred during the project. However, the extent of the reimbursement will depend on the specific terms of the contract and the severity of the breaches.\n\nA reasonable estimate for reimbursement could be 50-75% of the total contract value, considering the minor delays and procedural breaches. The remaining",
+    "raw_full_saved": false
+  },
+  "validated": {
+    "valid": true,
+    "verdict": "PARTY_A_WINS",
+    "reimbursement": 0,
+    "confidence": 0.6,
+    "rationale": "1. The contract stipulated delivery of 5 modules by 01/09/2025, but Module 3 was delayed by 3 days.\n2. Modules 4 and 5 had minor bugs fixed immediately after reporting, indicating a prompt response to issues.\n3. Despite the delays, all modules met the required specifications as confirmed in writing by the client.\n\nHowever, procedural breaches were noted in internal documentation, which may have contributed to the delays."
+  },
+  "nlp": {
+    "verdict": "NO_PENALTY",
+    "confidence": 0.92,
+    "rationale": "1. The contract stipulated delivery of 5 modules by 01/09/2025, but Module 3 was delayed by 3 days.\n2. Modules 4 and 5 had minor bugs fixed immediately after reporting, indicating a prompt response to issues.\n3. Despite the delays, all modules met the required specifications as confirmed in writing by the client.\n\nHowever, procedural breaches were noted in internal documentation, which may have contributed to the delays.",
+    "reimbursement": 0,
+    "source": "NLP_EVIDENCE_ACCEPTANCE_OVER_COMPLETION",
+    "foundKeywords": [
+      "fulfilled obligations",
+      "delivered on time",
+      "accepted the final deliverables",
+      "client accepted",
+      "no material financial loss",
+      "confirmed in writing"
+    ],
+    "mappedFoundKeywords": [
+      "accepted the final deliverables",
+      "client accepted",
+      "no material financial loss",
+      "confirmed in writing"
+    ]
+  }
+}

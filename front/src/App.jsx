@@ -14,6 +14,7 @@ import CreateNDA from './pages/CreateNDA/CreateNDA';
 import ArbitrationV7 from './pages/Arbitration/ArbitrationV7';
 import About from './pages/About/About';
 import AppealPage from './pages/Appeal/AppealPage';
+import Admin from './pages/Admin/Admin';
 import './App.css';
 
 function App() {
@@ -56,6 +57,8 @@ function App() {
         return <CreateNDA />;
       case '/arbitration':
         return <ArbitrationV7 />;
+      case '/admin':
+        return <Admin />;
       case '/about':
         return <About />;
       case '/':

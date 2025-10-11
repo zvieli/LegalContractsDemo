@@ -13,6 +13,7 @@ import './ResolveModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import { computeDigestForCiphertext, prepareEvidencePayload } from '../../utils/evidence';
 import useEvidenceFlow from '../../hooks/useEvidenceFlow';
+import { isAdminDecryptEnabled } from '../../utils/env';
 
 function EvidencePanel({ initialEvidenceRef }) {
   // EvidencePanel now treats the passed value as a generic evidence reference
@@ -147,7 +148,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
   const { uploadAndSubmit } = useEvidenceFlow({ submitToContract, apiBaseUrl: apiBase });
 
   // Enable admin decrypt only when explicitly allowed via environment (demo/dev only)
-  const ENABLE_ADMIN_DECRYPT = (import.meta.env && String(import.meta.env.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true') || (typeof window !== 'undefined' && window.__ENV__ && String(window.__ENV__.VITE_ENABLE_ADMIN_DECRYPT || '').toLowerCase() === 'true');
+  const ENABLE_ADMIN_DECRYPT = isAdminDecryptEnabled();
 
   // Utility: download plaintext as a file (demo convenience)
   const handleDownloadPlaintext = () => {

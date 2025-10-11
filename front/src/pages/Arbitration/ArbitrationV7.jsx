@@ -4,6 +4,8 @@ import * as ethers from 'ethers';
 import { createContractInstanceAsync, getLocalDeploymentAddresses, getContractAddress } from '../../utils/contracts';
 import './Arbitration.css';
 import ContractModal from '../../components/ContractModal/ContractModal';
+import ArbitrationExplain from '../../components/Arbitration/ArbitrationExplain';
+import ArbitrationHealth from '../../components/Arbitration/ArbitrationHealth';
 import { ContractService } from '../../services/contractService';
 
 function ArbitrationV7() {
@@ -13,10 +15,14 @@ function ArbitrationV7() {
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalReadOnly, setModalReadOnly] = useState(true);
+  const [ollamaHealth, setOllamaHealth] = useState(null);
+  const [simulateExplain, setSimulateExplain] = useState(null);
 
   useEffect(() => {
     // ...load arbitration requests logic here...
   }, [account, chainId]);
+
+  // Polling health is handled by ArbitrationHealth component (below) which calls setOllamaHealth via onChange
 
   return (
     <div className="arbitration-page" data-testid="arbitration-v7-page">
@@ -50,7 +56,25 @@ function ArbitrationV7() {
                   <button data-testid={`arbitration-v7-viewbtn-${req.id}`} onClick={() => {
                     setSelectedRequest(req);
                     setIsModalOpen(true);
+                    setSimulateExplain(null);
                   }}>View</button>
+                  <button data-testid={`arbitration-v7-explainbtn-${req.id}`} style={{marginLeft:8}} onClick={async () => {
+                    setSelectedRequest(req);
+                    setIsModalOpen(true);
+                    setSimulateExplain(null);
+                    // If Ollama unhealthy, offer simulate and inject result
+                    if (!ollamaHealth || !ollamaHealth.ok) {
+                      try {
+                        const r = await fetch('/api/v7/arbitration/simulate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ disputeId: req.requestId || req.id }) });
+                        if (r.ok) {
+                          const jr = await r.json();
+                          setSimulateExplain(jr);
+                        }
+                      } catch (e) {
+                        // ignore – ArbitrationExplain will show error
+                      }
+                    }
+                  }}>Explain</button>
                 </td>
                 <td data-testid={`arbitration-v7-verdict-${req.id}`}>{req.aiDecision ? req.aiDecision.verdict : '-'}</td>
                 <td data-testid={`arbitration-v7-rationale-${req.id}`}>{req.aiDecision ? req.aiDecision.rationale : '-'}</td>
@@ -73,6 +97,13 @@ function ArbitrationV7() {
             <div><strong>Reimbursement:</strong> {selectedRequest.aiDecision ? selectedRequest.aiDecision.reimbursement : '-'}</div>
             <div><strong>Evidence Hash:</strong> {selectedRequest.aiDecision ? selectedRequest.aiDecision.evidenceHash : selectedRequest.evidenceDigest}</div>
             <div><strong>Enforcement Status:</strong> {selectedRequest.enforcementStatus}</div>
+            <div style={{marginTop:12}}>
+              <h4>Explain (Merged rationale)</h4>
+              <div style={{marginBottom:8}}>
+                <ArbitrationHealth onChange={(h) => setOllamaHealth(h)} />
+              </div>
+              <ArbitrationExplain disputeId={selectedRequest.requestId || selectedRequest.caseId || selectedRequest.id || ''} overrideExplain={simulateExplain} />
+            </div>
           </div>
         </ContractModal>
       )}
