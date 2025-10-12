@@ -243,7 +243,10 @@ async function startV7System() {
     // Step 2: Check environment
     checkEnvironment();
     
-    // Step 0: Start Helia IPFS node only in development / mock mode.
+  // Ensure START_INPROC_HELIA defaults to true when not explicitly set
+  if (typeof process.env.START_INPROC_HELIA === 'undefined') process.env.START_INPROC_HELIA = 'true';
+
+  // Step 0: Start Helia IPFS node only in development / mock mode.
     // In production we attempt to start an external IPFS daemon (IPFS_HOST) automatically.
     let heliaNode = null;
     let externalIpfsProcess = null;
@@ -259,8 +262,8 @@ async function startV7System() {
       }
     } else {
       // Production: attempt to spawn the external `ipfs daemon` process and wait for it to respond.
-      const ipfsHost = process.env.IPFS_HOST || 'http://127.0.0.1:5001';
-      console.log(chalk.green('🌐 Production IPFS mode: attempting to start external IPFS daemon at'), ipfsHost);
+        const ipfsHost = process.env.IPFS_HOST || 'http://127.0.0.1:5001';
+        console.log(chalk.green('🌐 Production IPFS mode: attempting to start external IPFS daemon at'), ipfsHost);
 
       // Allow disabling auto-start via env var if needed
       const ipfsAutoStart = process.env.IPFS_AUTO_START !== 'false';
@@ -271,6 +274,8 @@ async function startV7System() {
         const found = await isIpfsResponsive(ipfsApiUrl);
         if (found) {
           console.log(chalk.green('ℹ️  Found existing IPFS daemon responding at ' + ipfsHost + ' — skipping spawn'));
+          // Ensure HELIA_LOCAL_API is set for child processes
+          process.env.HELIA_LOCAL_API = process.env.HELIA_LOCAL_API || ipfsHost;
         } else {
           throw new Error('No responsive IPFS API detected');
         }
@@ -284,7 +289,12 @@ async function startV7System() {
 
         console.log(chalk.cyan('▶️ No IPFS API detected, spawning `ipfs daemon` (requires `ipfs` in PATH)...'));
         try {
-          externalIpfsProcess = spawn('ipfs', ['daemon'], { stdio: ['ignore', 'pipe', 'pipe'] });
+          // Use a temporary IPFS_PATH in the server directory to avoid interfering with user's IPFS
+          const tmpPath = path.resolve(__dirname, 'temp-ipfs');
+          if (!existsSync(tmpPath)) mkdirSync(tmpPath, { recursive: true });
+
+          const envForIpfs = { ...process.env, IPFS_PATH: tmpPath };
+          externalIpfsProcess = spawn('ipfs', ['daemon'], { stdio: ['ignore', 'pipe', 'pipe'], env: envForIpfs });
 
           let spawnStderr = '';
           externalIpfsProcess.stdout.on('data', (chunk) => {
@@ -319,7 +329,7 @@ async function startV7System() {
                   if (externalIpfsProcess) {
                     try { externalIpfsProcess.kill(); } catch (e) {}
                   }
-                  externalIpfsProcess = spawn('ipfs', ['daemon'], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, IPFS_PATH: tmpPath } });
+                  externalIpfsProcess = spawn('ipfs', ['daemon'], { stdio: ['ignore', 'pipe', 'pipe'], env: envForIpfs });
                   externalIpfsProcess.stdout.on('data', (chunk) => console.log(chalk.gray(`[ipfs tmp] ${chunk.toString().trim()}`)));
                   externalIpfsProcess.stderr.on('data', (chunk) => console.log(chalk.yellow(`[ipfs tmp err] ${chunk.toString().trim()}`)));
                 }
@@ -344,6 +354,8 @@ async function startV7System() {
                 if (ok) {
                   clearInterval(interval);
                   console.log(chalk.green('✅ IPFS daemon is responsive at ' + ipfsHost));
+                  // Ensure HELIA_LOCAL_API is set for the process and any spawned children
+                  process.env.HELIA_LOCAL_API = process.env.HELIA_LOCAL_API || ipfsHost;
                   resolve();
                 }
               } catch (err) {
@@ -354,11 +366,26 @@ async function startV7System() {
                 }
               }
             }, 1000);
-          }).catch((err) => {
+          }).catch(async (err) => {
             // If polling failed, exit with error
             console.error(chalk.red('❌ Aborting startup due to IPFS unavailability.'));
             if (externalIpfsProcess) externalIpfsProcess.kill();
-            process.exit(1);
+            // If configured to allow in-process Helia, try that before exiting
+            if (process.env.START_INPROC_HELIA === 'true') {
+              console.log(chalk.cyan('▶️ START_INPROC_HELIA=true — attempting to start in-process Helia node instead of external ipfs daemon'));
+              try {
+                const heliaLocal = await import('./modules/heliaLocal.js');
+                // ensure module initializes
+                await heliaLocal.addEvidenceToLocalHelia('{}', 'init.json');
+                process.env.HELIA_LOCAL_API = 'inproc://local';
+                console.log(chalk.green('✅ In-process Helia started and HELIA_LOCAL_API set to inproc://local'));
+              } catch (inprocErr) {
+                console.error(chalk.red('❌ Failed to start in-process Helia:'), inprocErr);
+                process.exit(1);
+              }
+            } else {
+              process.exit(1);
+            }
           });
 
         } catch (err) {

@@ -1,0 +1,168 @@
+{
+  "generated": "2025-10-12T00:00:00.000Z",
+  "notes": "Canonical API contract for frontend developers. Use this file for client wiring, tests, or Swagger import later.",
+  "api": [
+    {
+      "path": "/api/v7/arbitration/health",
+      "method": "GET",
+      "description": "Overall health/status of the V7 arbitration/LLM stack",
+      "request": null,
+      "response_example": {
+        "status": "healthy",
+        "version": "v7",
+        "healthy": true,
+        "stats": { "mode": "production", "responseTime": 2000 },
+        "timestamp": "2025-10-12T00:00:00.000Z"
+      },
+      "auth": false
+    },
+    {
+      "path": "/api/v7/arbitration/ollama/health",
+      "method": "GET",
+      "description": "Ollama-specific health endpoint",
+      "request": null,
+      "response_example": { "ollama": "available", "model": "llama3.2", "healthy": true, "status": "healthy", "timestamp": "2025-10-12T00:00:00.000Z" },
+      "auth": false
+    },
+    {
+      "path": "/api/v7/arbitration/ollama",
+      "method": "POST",
+      "description": "Send arbitration request to Ollama LLM. May return 503 if Ollama module not loaded.",
+      "request_example": {
+        "evidenceData": "string or large text",
+        "contractAddress": "0x...",
+        "contractType": "TemplateRentContract",
+        "disputeId": "optional-id",
+        "requestedAmount": "1.5"
+      },
+      "response_example": {
+        "decision": "PARTY_A_WINS",
+        "reasoning": "Short summary",
+        "detailed_reasoning": null,
+        "confidence": 0.85,
+        "reimbursement_amount": 0,
+        "disputeId": "llm-dispute-...",
+        "timestamp": "2025-10-12T00:00:00.000Z"
+      },
+      "auth": false,
+      "notes": "If Ollama not available use /api/v7/arbitration/simulate (protected in dev)"
+    },
+    {
+      "path": "/api/v7/arbitration/simulate",
+      "method": "POST",
+      "description": "Simulated arbitration (LLM simulator). In many environments this endpoint is protected (admin) during dev.",
+      "request_example": { "contractAddress": "0x...", "disputeType": "UNPAID_RENT", "requestedAmount": "1.0", "disputeId": "optional" },
+      "response_example": { "decision": "FAVOR_LANDLORD", "reasoning": "Simulated decision", "confidence": 0.75, "simulated": true, "disputeId": "...", "timestamp": "2025-10-12T00:00:00.000Z" },
+      "auth": true
+    },
+    {
+      "path": "/api/evidence/upload",
+      "method": "POST",
+      "description": "Upload evidence object or encrypted ciphertext (base64). Dev/test endpoint returns a mock CID and stores evidence in-memory.",
+      "request_example": {
+        "ciphertext": "<base64 string>"
+      },
+      "alternate_request_example": {
+        "type": "rent_dispute",
+        "description": "Tenant did not pay rent",
+        "metadata": { "contractAddress": "0x...", "disputeType": "UNPAID_RENT", "amount": "1.5 ETH" }
+      },
+      "response_example": { "cid": "QmMockEvidence...", "evidence": { "type": "rent_dispute", "description": "..." }, "stored": true, "size": 1234 },
+      "auth": false,
+      "notes": "Frontend should compute cidDigest/contentDigest prior to on-chain submission; backend accepts ciphertext or JSON object for dev flows."
+    },
+    {
+      "path": "/api/evidence/validate/:cid",
+      "method": "GET",
+      "description": "Validate evidence CID accessibility/validity (dev/test returns valid)",
+      "response_example": { "valid": true, "accessible": true, "cid": "Qm..." },
+      "auth": false
+    },
+    {
+      "path": "/api/evidence/retrieve/:cid",
+      "method": "GET",
+      "description": "Retrieve evidence object by CID (dev returns stored or mock evidence)",
+      "response_example": { "type": "rent_dispute", "description": "...", "metadata": { "contractAddress": "0x..." } },
+      "auth": false
+    },
+    {
+      "path": "/api/dispute-history/:caseId",
+      "method": "GET",
+      "description": "Get dispute history for caseId",
+  "response_example": [ { "caseId": "1", "decision": "PARTY_B_WINS", "createdAt": 1633024800000 } ],
+      "auth": false
+    },
+    {
+      "path": "/api/batch",
+      "method": "POST",
+      "description": "Create a batch for a caseId",
+  "request_example": { "caseId": 1, "evidenceItems": [ { "contentDigest": "0xabc...", "cidHash": "0xdef...", "uploader": "0x...", "timestamp": 1633024800 } ] },
+  "response_example": { "batchId": "batch-12345", "status": "created" },
+      "auth": false
+    },
+    {
+      "path": "/api/batch/:caseId",
+      "method": "GET",
+      "description": "Get all batches for a caseId",
+      "response_example": [ { "batchId": "...", "status": "arbitrated" } ],
+      "auth": false
+    },
+    {
+      "path": "/api/v7/ccip/status",
+      "method": "GET",
+      "description": "Get CCIP listener status and deployed addresses (reads front/src/utils/contracts/deployment-summary.json)",
+      "response_example": { "eventListener": "active", "senderAddress": "0x...", "receiverAddress": "0x...", "arbitrationService": "0x..." },
+      "auth": false
+    },
+    {
+      "path": "/api/v7/ccip/start",
+      "method": "POST",
+      "description": "(Protected) Start the CCIP event listener",
+      "request_example": null,
+      "response_example": { "success": true, "message": "CCIP listener started successfully", "timestamp": "..." },
+      "auth": true
+    },
+    {
+      "path": "/api/v7/ccip/test",
+      "method": "POST",
+      "description": "(Protected) Run a manual CCIP test arbitration",
+      "request_example": { "disputeType": "test_dispute", "evidence": "Test evidence", "requestedAmount": "1.0" },
+      "response_example": { "success": true, "message": "CCIP test arbitration completed", "testRequest": {} },
+      "auth": true
+    },
+    {
+      "path": "/api/v7/arbitration/explain/:disputeId",
+      "method": "GET",
+      "description": "Get detailed LLM explainability for a dispute",
+      "response_example": { "disputeId": "..", "explainability": { "reasoning_methodology": "..." }, "timestamp": "..." },
+      "auth": false
+    }
+  ],
+  "contracts": {
+    "abisIndex": {
+      "AggregatorV3Interface": "/utils/contracts/AggregatorV3Interface.json",
+      "ArbitrationContractV2": "/utils/contracts/ArbitrationContractV2.json",
+      "ArbitrationService": "/utils/contracts/ArbitrationService.json",
+      "Arbitrator": "/utils/contracts/Arbitrator.json",
+      "CCIPArbitrationReceiver": "/utils/contracts/CCIPArbitrationReceiver.json",
+      "CCIPArbitrationSender": "/utils/contracts/CCIPArbitrationSender.json",
+      "CCIPArbitrationTypes": "/utils/contracts/CCIPArbitrationTypes.json",
+      "ContractFactory": "/utils/contracts/ContractFactory.json",
+      "deployment-summary": "/utils/contracts/deployment-summary.json",
+      "EnhancedRentContract": "/utils/contracts/EnhancedRentContract.json",
+      "IArbitrationService": "/utils/contracts/IArbitrationService.json",
+      "ICCIPArbitrationSender": "/utils/contracts/ICCIPArbitrationSender.json",
+      "ICCIPRouter": "/utils/contracts/ICCIPRouter.json",
+      "IFactoryAuth": "/utils/contracts/IFactoryAuth.json",
+      "MerkleEvidenceManager": "/utils/contracts/MerkleEvidenceManager.json",
+      "NDATemplate": "/utils/contracts/NDATemplate.json",
+      "RecipientKeyRegistry": "/utils/contracts/RecipientKeyRegistry.json",
+      "Reverter": "/utils/contracts/Reverter.json",
+      "TemplateRentContract": "/utils/contracts/TemplateRentContract.json",
+      "_EnhancedRentDeployer": "/utils/contracts/_EnhancedRentDeployer.json",
+      "_NDADeployer": "/utils/contracts/_NDADeployer.json",
+      "_RentDeployer": "/utils/contracts/_RentDeployer.json"
+    },
+    "notes": "Front-end loads ABIs at runtime via /utils/contracts/* and uses abisIndex.json mapping. Ensure scripts/deploy.js is run after contracts compilation to refresh these files."
+  }
+}

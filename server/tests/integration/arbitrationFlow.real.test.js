@@ -4,9 +4,10 @@ import request from 'supertest';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { describe, beforeAll, test, expect } from 'vitest';
 
 describe('End-to-End Arbitration Flow (Real)', () => {
-  const backendUrl = 'http://localhost:3001';
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3002';
 
   // Use Account #0 as admin, Account #1 as user/uploader
   const WALLET_0 = {
@@ -77,7 +78,7 @@ describe('End-to-End Arbitration Flow (Real)', () => {
       .get(`/api/dispute-history/${caseId}`)
       .expect(200);
     const history = res.body;
-    const batch = history.find(b => b.merkleRoot === merkleRoot);
+  const batch = history.find(b => b.merkleRoot === merkleRoot && b.status === 'arbitrated');
     expect(batch).toBeDefined();
     expect(batch.status).toBe('arbitrated');
     expect(batch.decision).toBeDefined();

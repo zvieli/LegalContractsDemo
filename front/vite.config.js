@@ -65,6 +65,7 @@ export default defineConfig({
     },
     fs: {
       allow: [
+        path.resolve(__dirname),
         path.resolve(__dirname, 'src'),
         path.resolve(__dirname, 'src/utils/contracts'),
         path.resolve(__dirname, 'src/config'),

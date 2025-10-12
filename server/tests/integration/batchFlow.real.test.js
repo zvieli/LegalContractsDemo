@@ -5,9 +5,10 @@ import fs from 'fs';
 import path from 'path';
 import { ethers } from 'ethers';
 import { fileURLToPath } from 'url';
+import { describe, beforeAll, test, expect } from 'vitest';
 
 describe('End-to-End Merkle Batch Flow (Real)', () => {
-  const backendUrl = 'http://localhost:3001';
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3002';
   const hardhatRpc = 'http://127.0.0.1:8545';
   let caseId = `case-${Date.now()}`;
   let evidenceItems = [];

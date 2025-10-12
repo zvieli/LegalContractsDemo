@@ -148,6 +148,19 @@ LLM_ARBITRATOR_TIMEOUT=30000
 IPFS_GATEWAY_URL=https://ipfs.io/ipfs/
 IPFS_TIMEOUT=10000
 
+# Dev / IPFS control
+# If true, the server will accept a dev-only endpoint to remove evidence created during tests.
+# WARNING: set ALLOW_DEV_CLEANUP=true only in isolated dev environments.
+ALLOW_DEV_CLEANUP=false
+
+# When false, the start script will not automatically spawn an external `ipfs daemon`.
+# If true (default), start-v7 will attempt to auto-start an external ipfs daemon when none is found.
+IPFS_AUTO_START=true
+
+# If true, start-v7 will try to start an in-process Helia node when no external IPFS/Helia API is reachable.
+# This is now the default behavior for local dev (START_INPROC_HELIA=true).
+START_INPROC_HELIA=true
+
 # Blockchain
 RPC_URL=http://localhost:8545
 PRIVATE_KEY=your_private_key_here

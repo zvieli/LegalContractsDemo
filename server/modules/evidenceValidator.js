@@ -2,35 +2,9 @@
 
 
 import { ethers } from 'ethers';
+import heliaStore from './heliaStore.js';
 
-// Mock IPFS validation for development (replace with real Helia integration)
-let heliaInstance = null;
-
-
-
-async function initializeHelia() {
-  if (heliaInstance) return heliaInstance;
-  
-  try {
-    // In production, initialize real Helia
-    // const { createHelia } = await import('helia');
-    // const { unixfs } = await import('@helia/unixfs');
-    // heliaInstance = await createHelia();
-    
-    // For development, use mock
-    heliaInstance = {
-      mock: true,
-      initialized: true,
-      timestamp: Date.now()
-    };
-    
-    console.log('📁 Helia instance initialized (mock mode)');
-    return heliaInstance;
-  } catch (error) {
-    console.error('Failed to initialize Helia:', error);
-    throw new Error('IPFS validation service unavailable');
-  }
-}
+// No in-process Helia here; use the Helia HTTP API through heliaStore.
 
 
 
@@ -57,19 +31,15 @@ export async function validateIPFSEvidence(cid) {
       return false;
     }
     
-    // Initialize Helia if needed
-    await initializeHelia();
-    
-    // Mock validation for development
-    if (heliaInstance.mock) {
-      return await mockIPFSValidation(cid);
+    // Use heliaStore to attempt to cat the CID and consider it valid if retrievable
+    try {
+      const content = await heliaStore.getEvidenceFromHelia(cid);
+      if (content && content.length > 0) return true;
+      return false;
+    } catch (err) {
+      console.log('Helia fetch failed for CID', cid, err.message || err);
+      return false;
     }
-    
-    // Real Helia validation (uncomment for production)
-    
-
-    
-    return true;
     
   } catch (error) {
     console.error('Error validating IPFS evidence:', error);
@@ -174,5 +144,4 @@ export function generateEvidenceDigest(cid) {
   }
 }
 
-// Initialize the module
-initializeHelia().catch(console.error);
+// Module no longer performs in-process initialization; validation uses heliaStore on-demand.

@@ -3,10 +3,12 @@ start-all.ps1
 node_modules
 .env
 front/.env
+.temp
+server/temp-ipfs/
 # Hardhat files
 /cache
 /artifacts
-
+server\.comment-backups
 # TypeChain files
 /typechain
 /typechain-types
@@ -37,3 +39,8 @@ admin.pub
 /tools/legacy
 front/tests/e2e/metamask-extension
 .comment-backups
+
+# Backend data/test artifacts (ignore evidence and dispute history)
+server/data/dispute_history.json
+server/data/evidence_batches.json
+server/data/CLEANUP_LOG.txt
