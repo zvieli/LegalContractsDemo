@@ -1,6 +1,5 @@
-/**
- * Ultra-Simple Text Splitter - No Memory Issues
- */
+
+
 
 export class UltraSimpleTextSplitter {
   constructor(config = {}) {

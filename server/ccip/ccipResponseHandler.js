@@ -1,7 +1,5 @@
-/**
- * CCIP Response Handler
- * Handles sending arbitration decisions back via CCIP
- */
+
+
 
 import { ethers } from 'ethers';
 import fs from 'fs';
@@ -25,9 +23,8 @@ export class CCIPResponseHandler {
     console.log('📤 CCIP Response Handler initialized');
   }
 
-  /**
-   * Initialize the response handler
-   */
+  
+
   async initialize() {
     try {
       // Setup provider and signer
@@ -52,9 +49,8 @@ export class CCIPResponseHandler {
     }
   }
 
-  /**
-   * Setup sender contract
-   */
+  
+
   async _setupSenderContract() {
     if (!this.config.senderAddress) {
       console.warn('⚠️ No sender address provided');
@@ -82,9 +78,8 @@ export class CCIPResponseHandler {
     }
   }
 
-  /**
-   * Load contract ABI
-   */
+  
+
   async _loadContractABI(contractName) {
     try {
       const artifactPath = path.join(
@@ -110,9 +105,8 @@ export class CCIPResponseHandler {
     }
   }
 
-  /**
-   * Send arbitration decision via CCIP
-   */
+  
+
   async sendArbitrationDecision(decisionData) {
     const {
       originalMessageId,
@@ -199,9 +193,8 @@ export class CCIPResponseHandler {
     }
   }
 
-  /**
-   * Calculate CCIP fees
-   */
+  
+
   async _calculateFees(targetChainSelector, payFeesIn) {
     if (!this.senderContract) {
       throw new Error('Sender contract not available');
@@ -225,9 +218,8 @@ export class CCIPResponseHandler {
     }
   }
 
-  /**
-   * Send CCIP message
-   */
+  
+
   async _sendCCIPMessage(chainSelector, receiver, message, fees, payFeesIn) {
     // This is a simplified version - actual implementation would use
     // the CCIPArbitrationSender contract methods
@@ -249,9 +241,8 @@ export class CCIPResponseHandler {
     return simulatedTx;
   }
 
-  /**
-   * Process LLM decision and send via CCIP
-   */
+  
+
   async processAndSendDecision(requestData, llmDecision) {
     const {
       messageId,
@@ -288,9 +279,8 @@ export class CCIPResponseHandler {
     }
   }
 
-  /**
-   * Convert LLM decision to CCIP format
-   */
+  
+
   _convertLLMDecisionToCCIP(llmDecision, requestData) {
     const approved = llmDecision.final_verdict === 'APPROVE' || 
                     llmDecision.final_verdict === 'PARTY_A';
@@ -308,9 +298,8 @@ export class CCIPResponseHandler {
     };
   }
 
-  /**
-   * Send fallback decision when LLM fails
-   */
+  
+
   async sendFallbackDecision(requestData, reason = 'LLM processing failed') {
     console.log('🔄 Sending fallback decision via CCIP...');
 
@@ -333,9 +322,8 @@ export class CCIPResponseHandler {
     });
   }
 
-  /**
-   * Get pending responses
-   */
+  
+
   getPendingResponses() {
     return Array.from(this.pendingResponses.entries()).map(([disputeId, data]) => ({
       disputeId,
@@ -343,16 +331,14 @@ export class CCIPResponseHandler {
     }));
   }
 
-  /**
-   * Clear pending response
-   */
+  
+
   clearPendingResponse(disputeId) {
     return this.pendingResponses.delete(disputeId);
   }
 
-  /**
-   * Get handler status
-   */
+  
+
   getStatus() {
     return {
       hasSender: !!this.senderContract,
@@ -367,9 +353,8 @@ export class CCIPResponseHandler {
     };
   }
 
-  /**
-   * Health check
-   */
+  
+
   async healthCheck() {
     try {
       if (!this.provider) return { healthy: false, error: 'No provider' };

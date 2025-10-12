@@ -1,7 +1,5 @@
-/**
- * CCIP Event Listener
- * Listens for CCIP arbitration events and processes them with V7 backend
- */
+
+
 
 import { ethers } from 'ethers';
 import { processV7ArbitrationWithOllama, ollamaLLMArbitrator } from '../modules/ollamaLLMArbitrator.js';
@@ -35,9 +33,8 @@ export class CCIPEventListener {
     });
   }
 
-  /**
-   * Initialize the event listener
-   */
+  
+
   async initialize() {
     try {
       // Setup provider
@@ -60,9 +57,8 @@ export class CCIPEventListener {
     }
   }
 
-  /**
-   * Setup contract instances
-   */
+  
+
   async _setupContracts() {
     try {
       // Load ABIs from artifacts
@@ -95,9 +91,8 @@ export class CCIPEventListener {
     }
   }
 
-  /**
-   * Load contract ABI from artifacts
-   */
+  
+
   async _loadContractABI(contractName) {
     try {
       // Try local artifacts first (copied ABIs)
@@ -125,9 +120,8 @@ export class CCIPEventListener {
     }
   }
 
-  /**
-   * Start listening for CCIP events
-   */
+  
+
   async startListening() {
     if (this.isListening) {
       console.log('🔄 CCIP Event Listener already running');
@@ -151,9 +145,8 @@ export class CCIPEventListener {
     console.log('✅ CCIP Event Listener started successfully');
   }
 
-  /**
-   * Stop listening for events
-   */
+  
+
   stopListening() {
     this.isListening = false;
     
@@ -164,9 +157,8 @@ export class CCIPEventListener {
     console.log('🛑 CCIP Event Listener stopped');
   }
 
-  /**
-   * Listen for arbitration request events
-   */
+  
+
   _listenForArbitrationRequests() {
     if (!this.receiverContract) return;
 
@@ -210,9 +202,8 @@ export class CCIPEventListener {
     });
   }
 
-  /**
-   * Listen for arbitration decision events
-   */
+  
+
   _listenForDecisionEvents() {
     if (!this.receiverContract) return;
 
@@ -245,9 +236,8 @@ export class CCIPEventListener {
     });
   }
 
-  /**
-   * Process arbitration request with LLM
-   */
+  
+
   async _processArbitrationRequest(requestData) {
     const { messageId, disputeId, contractAddress, caseId } = requestData;
 
@@ -286,9 +276,8 @@ export class CCIPEventListener {
     }
   }
 
-  /**
-   * Gather arbitration data for LLM processing
-   */
+  
+
   async _gatherArbitrationData(contractAddress, caseId, disputeId) {
     // This would integrate with existing evidence gathering
     // For now, return sample data
@@ -300,9 +289,8 @@ export class CCIPEventListener {
     };
   }
 
-  /**
-   * Send arbitration decision back via CCIP
-   */
+  
+
   async _sendArbitrationDecision(messageId, disputeId, decision, arbitrationData) {
     console.log('📤 Sending arbitration decision via ArbitrationService...');
     
@@ -356,9 +344,8 @@ export class CCIPEventListener {
     }
   }
 
-  /**
-   * Send fallback decision when LLM fails
-   */
+  
+
   async _sendFallbackDecision(messageId, disputeId) {
     console.log('🔄 Sending fallback decision...');
     
@@ -371,9 +358,8 @@ export class CCIPEventListener {
     await this._sendArbitrationDecision(messageId, disputeId, fallbackDecision, null);
   }
 
-  /**
-   * Get ArbitrationService contract instance
-   */
+  
+
   async _getArbitrationServiceContract() {
     if (!this.arbitrationServiceContract && this.config.arbitrationServiceAddress) {
       try {
@@ -403,9 +389,8 @@ export class CCIPEventListener {
     return this.arbitrationServiceContract;
   }
 
-  /**
-   * Log arbitration decision for monitoring
-   */
+  
+
   _logDecision(decision) {
     const logEntry = {
       timestamp: new Date().toISOString(),
@@ -417,9 +402,8 @@ export class CCIPEventListener {
     // Could save to file or database here
   }
 
-  /**
-   * Get listener status
-   */
+  
+
   getStatus() {
     return {
       isListening: this.isListening,
@@ -436,16 +420,14 @@ export class CCIPEventListener {
     };
   }
 
-  /**
-   * Get processed events count
-   */
+  
+
   getProcessedEventsCount() {
     return this.processedEvents.size;
   }
 
-  /**
-   * Clear processed events cache
-   */
+  
+
   clearProcessedEvents() {
     this.processedEvents.clear();
     console.log('🧹 Processed events cache cleared');

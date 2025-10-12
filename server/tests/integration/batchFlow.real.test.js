@@ -1,8 +1,5 @@
-/**
- * Integration Test: Merkle Batch Flow (Real Hardhat + Backend)
- * Validates evidence upload, batch creation, Merkle root, and on-chain submission
- * Environment: Hardhat node, backend running, no mocks
- */
+
+
 import request from 'supertest';
 import fs from 'fs';
 import path from 'path';

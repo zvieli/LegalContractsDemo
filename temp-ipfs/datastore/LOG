@@ -1,0 +1,8 @@
+=============== Oct 12, 2025 (IDT) ===============
+15:26:22.490127 log@legend F·NumFile S·FileSize N·Entry C·BadEntry B·BadBlock Ke·KeyError D·DroppedEntry L·Level Q·SeqNum T·TimeElapsed
+15:26:22.520673 db@open opening
+15:26:22.522215 version@stat F·[] S·0B[] Sc·[]
+15:26:22.526614 db@janitor F·2 G·0
+15:26:22.526614 db@open done T·5.9414ms
+15:26:22.551325 db@close closing
+15:26:22.551325 db@close done T·0s

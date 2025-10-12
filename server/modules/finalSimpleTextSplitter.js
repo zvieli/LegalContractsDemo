@@ -1,6 +1,5 @@
-/**
- * Final Ultra-Simple Text Splitter - NO INFINITE LOOPS
- */
+
+
 
 export class FinalSimpleTextSplitter {
   constructor(config = {}) {

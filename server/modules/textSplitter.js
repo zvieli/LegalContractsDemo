@@ -1,7 +1,5 @@
-/**
- * Smart Text Splitter for LLM Processing
- * Intelligently splits long texts into manageable chunks for Ollama processing
- */
+
+
 
 export class TextSplitter {
   constructor(config = {}) {
@@ -13,12 +11,8 @@ export class TextSplitter {
     };
   }
 
-  /**
-   * Split text into smart chunks preserving context
-   * @param {string} text - Text to split
-   * @param {string} type - Type of text (evidence, contract, etc.)
-   * @returns {Array} - Array of text chunks with metadata
-   */
+  
+
   splitText(text, type = 'general') {
     if (!text || text.length <= this.config.maxChunkSize) {
       return [{
@@ -86,9 +80,8 @@ export class TextSplitter {
     return chunks;
   }
 
-  /**
-   * Extract key terms and patterns for context preservation (simplified)
-   */
+  
+
   extractKeyTerms(text, type) {
     const terms = new Set();
     
@@ -125,9 +118,8 @@ export class TextSplitter {
     return Array.from(terms).slice(0, 30); // Strict limit
   }
 
-  /**
-   * Extract context before the current position
-   */
+  
+
   extractContextBefore(text, position, maxLength) {
     if (position === 0) return '';
     
@@ -143,9 +135,8 @@ export class TextSplitter {
     return context;
   }
 
-  /**
-   * Extract context after the current position
-   */
+  
+
   extractContextAfter(text, position, maxLength) {
     if (position >= text.length) return '';
     
@@ -161,9 +152,8 @@ export class TextSplitter {
     return context;
   }
 
-  /**
-   * Find the best break point (simplified for memory efficiency)
-   */
+  
+
   findBestBreakPoint(text, start, end) {
     const searchText = text.substring(start, end);
     
@@ -195,9 +185,8 @@ export class TextSplitter {
     return Math.min(end, text.length);
   }
 
-  /**
-   * Check if breaking at this point would split important legal/evidence context (simplified)
-   */
+  
+
   wouldBreakImportantContext(text, breakPoint, legalPatterns, evidencePatterns) {
     // Simplified check - just look for mid-sentence breaks
     const beforeContext = text.substring(Math.max(0, breakPoint - 50), breakPoint);
@@ -213,9 +202,8 @@ export class TextSplitter {
     return false;
   }
 
-  /**
-   * Create summary prompt for a chunk with enhanced context
-   */
+  
+
   createChunkPrompt(chunk, contractInfo, disputeQuestion) {
     // Build context information
     const contextInfo = chunk.contextBefore || chunk.contextAfter ? 
@@ -267,9 +255,8 @@ Respond in JSON format:
   }
 }
 
-/**
- * Evidence Synthesizer - combines chunk analyses into final decision
- */
+
+
 export class EvidenceSynthesizer {
   constructor(config = {}) {
     this.config = {
@@ -278,9 +265,8 @@ export class EvidenceSynthesizer {
     };
   }
 
-  /**
-   * Synthesize multiple chunk analyses into final decision
-   */
+  
+
   synthesizeAnalyses(chunkAnalyses, contractInfo, disputeQuestion) {
     console.log(`🔗 Synthesizing ${chunkAnalyses.length} chunk analyses with context preservation...`);
 
@@ -347,9 +333,8 @@ export class EvidenceSynthesizer {
     };
   }
 
-  /**
-   * Create enhanced synthesis prompt with context awareness (simplified)
-   */
+  
+
   createEnhancedSynthesisPrompt(allFacts, partyAPoints, partyBPoints, contextIssues, keyTerms, contractInfo, disputeQuestion, preliminaryVerdict) {
     // Limit the data to prevent memory issues
     const limitedFacts = allFacts.slice(0, 20);
@@ -390,9 +375,8 @@ Respond in JSON:
 }`;
   }
 
-  /**
-   * Determine final verdict from chunk votes
-   */
+  
+
   determineFinalVerdict(verdictCounts, chunkAnalyses) {
     const { PARTY_A_FAVOR, PARTY_B_FAVOR, NEUTRAL } = verdictCounts;
     
@@ -409,9 +393,8 @@ Respond in JSON:
     }
   }
 
-  /**
-   * Get average confidence for a specific verdict
-   */
+  
+
   getAverageConfidenceForVerdict(analyses, verdict) {
     const relevantAnalyses = analyses.filter(a => a.preliminary_verdict === verdict);
     if (relevantAnalyses.length === 0) return 0;
@@ -420,9 +403,8 @@ Respond in JSON:
     return totalConfidence / relevantAnalyses.length;
   }
 
-  /**
-   * Create synthesis prompt for final decision
-   */
+  
+
   createSynthesisPrompt(allFacts, partyAPoints, partyBPoints, contractInfo, disputeQuestion, preliminaryVerdict) {
     return `FINAL LEGAL ARBITRATION SYNTHESIS
 

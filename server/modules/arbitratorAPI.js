@@ -1,7 +1,5 @@
-/**
- * V7 Enhanced Arbitrator API Integration
- * Bridge between Node.js backend and Python FastAPI LLM service
- */
+
+
 
 import fetch from 'node-fetch';
 import { ethers } from 'ethers';
@@ -10,11 +8,8 @@ import { ethers } from 'ethers';
 const ARBITRATOR_API_URL = process.env.ARBITRATOR_API_URL || 'http://localhost:8000';
 const API_TIMEOUT = 30000; // 30 seconds
 
-/**
- * Call the Python FastAPI arbitrator service
- * @param {Object} arbitrationData - Data for LLM arbitration
- * @returns {Promise<Object>} - LLM arbitration result
- */
+
+
 export async function callArbitratorAPI(arbitrationData) {
   try {
     const { contractText, evidenceText, disputeQuestion } = arbitrationData;
@@ -73,11 +68,8 @@ export async function callArbitratorAPI(arbitrationData) {
   }
 }
 
-/**
- * Generate fallback result when LLM API is unavailable
- * @param {Object} arbitrationData - Original arbitration data
- * @returns {Object} - Fallback result
- */
+
+
 function generateFallbackResult(arbitrationData) {
   console.log('🔄 Generating fallback arbitration result');
   
@@ -120,10 +112,8 @@ function generateFallbackResult(arbitrationData) {
   };
 }
 
-/**
- * Check if LLM Arbitrator API is available
- * @returns {Promise<boolean>} - API availability
- */
+
+
 export async function checkArbitratorAPIHealth() {
   try {
     const response = await fetch(`${ARBITRATOR_API_URL}/health`, {
@@ -138,11 +128,8 @@ export async function checkArbitratorAPIHealth() {
   }
 }
 
-/**
- * Convert CID to evidence text for LLM processing
- * @param {string} evidenceCID - IPFS CID
- * @returns {Promise<string>} - Evidence text
- */
+
+
 export async function extractEvidenceFromCID(evidenceCID) {
   try {
     // In production, this would fetch from IPFS/Helia
@@ -182,12 +169,8 @@ This evidence is submitted in support of the dispute claim and contains relevant
   }
 }
 
-/**
- * Prepare contract text for LLM analysis
- * @param {string} contractAddress - Smart contract address
- * @param {Object} contractData - Additional contract data
- * @returns {Promise<string>} - Contract text for LLM
- */
+
+
 export async function prepareContractText(contractAddress, contractData = {}) {
   try {
     // In production, this might fetch contract creation data, IPFS metadata, etc.
@@ -236,11 +219,8 @@ This is a legally binding smart contract agreement.
   }
 }
 
-/**
- * Format dispute question for LLM analysis
- * @param {Object} disputeData - Dispute information
- * @returns {string} - Formatted question for LLM
- */
+
+
 export function formatDisputeQuestion(disputeData) {
   const { disputeType, requestedAmount, description } = disputeData;
   
@@ -269,11 +249,8 @@ export function formatDisputeQuestion(disputeData) {
   return question;
 }
 
-/**
- * Validate LLM result before processing
- * @param {Object} result - LLM result
- * @returns {Object} - Validation result
- */
+
+
 export function validateLLMResult(result) {
   const validVerdicts = ['PARTY_A_WINS', 'PARTY_B_WINS', 'DRAW'];
   const errors = [];

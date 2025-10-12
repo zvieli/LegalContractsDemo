@@ -1,6 +1,5 @@
-/**
- * Test specific case that failed in E2E test
- */
+
+
 
 import fetch from 'node-fetch';
 

@@ -1,7 +1,5 @@
-/**
- * V7 LLM Arbitration Module (Simulation Mode)
- * Provides simulated LLM arbitration for V7 backend integration
- */
+
+
 
 export class LLMArbitrationSimulator {
   constructor(config = {}) {
@@ -12,11 +10,8 @@ export class LLMArbitrationSimulator {
     };
   }
 
-  /**
-   * Simulate LLM arbitration decision
-   * @param {Object} arbitrationData - Arbitration request data
-   * @returns {Promise<Object>} - Arbitration result
-   */
+  
+
   async processArbitration(arbitrationData) {
     console.log('🤖 Processing LLM arbitration (simulation mode)...');
     
@@ -51,13 +46,8 @@ export class LLMArbitrationSimulator {
     }
   }
 
-  /**
-   * Analyze dispute using simple rule-based logic
-   * @param {string} contract - Contract text
-   * @param {string} evidence - Evidence text
-   * @param {string} question - Dispute question
-   * @returns {Object} - Analysis result
-   */
+  
+
   analyzeDispute(contract, evidence, question) {
     const contractLower = contract.toLowerCase();
     const evidenceLower = evidence.toLowerCase();
@@ -159,11 +149,8 @@ export class LLMArbitrationSimulator {
     };
   }
 
-  /**
-   * Extract monetary amounts from text
-   * @param {string} text - Text to analyze
-   * @returns {number} - Extracted amount or default
-   */
+  
+
   extractAmountFromText(text) {
     // Look for dollar amounts
     const dollarMatch = text.match(/\$(\d+(?:,\d{3})*(?:\.\d{2})?)/);
@@ -180,19 +167,15 @@ export class LLMArbitrationSimulator {
     return null;
   }
 
-  /**
-   * Health check for LLM service
-   * @returns {Promise<boolean>} - Service health status
-   */
+  
+
   async checkHealth() {
     // Simulation is always healthy
     return true;
   }
 
-  /**
-   * Get arbitration statistics
-   * @returns {Object} - Statistics
-   */
+  
+
   getStats() {
     return {
       mode: 'simulation',
@@ -206,11 +189,8 @@ export class LLMArbitrationSimulator {
 // Export default instance
 export const llmArbitrationSimulator = new LLMArbitrationSimulator();
 
-/**
- * V7 API-compatible arbitration function
- * @param {Object} requestData - Arbitration request
- * @returns {Promise<Object>} - Arbitration response
- */
+
+
 export async function processV7Arbitration(requestData) {
   const simulator = new LLMArbitrationSimulator();
   

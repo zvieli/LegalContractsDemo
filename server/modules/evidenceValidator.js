@@ -1,16 +1,13 @@
-/**
- * V7 Evidence Validator Module
- * Handles IPFS/Helia-based evidence validation
- */
+
+
 
 import { ethers } from 'ethers';
 
 // Mock IPFS validation for development (replace with real Helia integration)
 let heliaInstance = null;
 
-/**
- * Initialize Helia instance for IPFS operations
- */
+
+
 async function initializeHelia() {
   if (heliaInstance) return heliaInstance;
   
@@ -35,11 +32,8 @@ async function initializeHelia() {
   }
 }
 
-/**
- * Validate IPFS Evidence by CID
- * @param {string} cid - IPFS Content Identifier
- * @returns {Promise<boolean>} - True if evidence is valid and accessible
- */
+
+
 export async function validateIPFSEvidence(cid) {
   try {
     // Basic CID format validation
@@ -72,37 +66,8 @@ export async function validateIPFSEvidence(cid) {
     }
     
     // Real Helia validation (uncomment for production)
-    /*
-    try {
-      const fs = unixfs(heliaInstance);
-      const stat = await fs.stat(cid);
-      
-      // Check if content is accessible and has reasonable size
-      if (stat.fileSize > 10 * 1024 * 1024) { // 10MB limit
-        console.log('❌ Evidence file too large:', stat.fileSize);
-        return false;
-      }
-      
-      // Check if content is pinned or accessible
-      const decoder = new TextDecoder();
-      const content = await fs.cat(cid);
-      const chunks = [];
-      
-      for await (const chunk of content) {
-        chunks.push(chunk);
-        if (chunks.reduce((total, chunk) => total + chunk.length, 0) > 1024) {
-          break; // Read only first 1KB to verify accessibility
-        }
-      }
-      
-      console.log('✅ Evidence validated successfully:', cid);
-      return true;
-      
-    } catch (error) {
-      console.log('❌ Failed to access IPFS content:', error.message);
-      return false;
-    }
-    */
+    
+
     
     return true;
     
@@ -112,11 +77,8 @@ export async function validateIPFSEvidence(cid) {
   }
 }
 
-/**
- * Mock IPFS validation for development environment
- * @param {string} cid - IPFS Content Identifier
- * @returns {Promise<boolean>}
- */
+
+
 async function mockIPFSValidation(cid) {
   // Simulate network delay
   await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
@@ -151,11 +113,8 @@ async function mockIPFSValidation(cid) {
   return isValid;
 }
 
-/**
- * Get evidence metadata from IPFS
- * @param {string} cid - IPFS Content Identifier
- * @returns {Promise<Object>} - Evidence metadata
- */
+
+
 export async function getEvidenceMetadata(cid) {
   try {
     await initializeHelia();
@@ -174,19 +133,8 @@ export async function getEvidenceMetadata(cid) {
     }
     
     // Real implementation would fetch actual metadata
-    /*
-    const fs = unixfs(heliaInstance);
-    const stat = await fs.stat(cid);
     
-    return {
-      cid,
-      size: stat.fileSize,
-      type: stat.type,
-      pinned: await isPinned(cid),
-      accessible: true,
-      timestamp: Date.now()
-    };
-    */
+
     
     return null;
     
@@ -196,12 +144,8 @@ export async function getEvidenceMetadata(cid) {
   }
 }
 
-/**
- * Validate evidence content type
- * @param {string} cid - IPFS Content Identifier
- * @param {string[]} allowedTypes - Allowed MIME types
- * @returns {Promise<boolean>}
- */
+
+
 export async function validateEvidenceType(cid, allowedTypes = ['application/json', 'text/plain', 'image/jpeg', 'image/png']) {
   try {
     const metadata = await getEvidenceMetadata(cid);
@@ -218,11 +162,8 @@ export async function validateEvidenceType(cid, allowedTypes = ['application/jso
   }
 }
 
-/**
- * Generate evidence digest for blockchain storage
- * @param {string} cid - IPFS Content Identifier
- * @returns {string} - Keccak256 hash of the CID
- */
+
+
 export function generateEvidenceDigest(cid) {
   try {
     // Create a consistent hash of the CID for blockchain storage

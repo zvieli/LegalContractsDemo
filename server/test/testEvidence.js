@@ -1,6 +1,5 @@
-/**
- * Test Evidence Validation Module
- */
+
+
 
 import { validateIPFSEvidence, getEvidenceMetadata, generateEvidenceDigest } from '../modules/evidenceValidator.js';
 

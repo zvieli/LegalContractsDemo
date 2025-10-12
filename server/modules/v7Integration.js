@@ -1,7 +1,5 @@
-/**
- * V7 Integration Layer - Main integration module
- * Connects all V7 backend components
- */
+
+
 
 // NOTE: These modules are siblings in the same directory. The previous path './modules/...' was incorrect
 // and resulted in runtime import errors like server/modules/modules/evidenceValidator.js not found.
@@ -12,10 +10,8 @@ import { calculateLateFee, getTimeBasedData, calculateTotalPayment } from './tim
 import { callArbitratorAPI, checkArbitratorAPIHealth } from './arbitratorAPI.js';
 import { ethers } from 'ethers';
 
-/**
- * V7 Integrated Dispute Processing
- * Complete flow from evidence validation to LLM arbitration
- */
+
+
 export class V7DisputeProcessor {
   constructor(config = {}) {
     this.config = {
@@ -29,11 +25,8 @@ export class V7DisputeProcessor {
     this.arbitrationResults = new Map();
   }
 
-  /**
-   * Process complete dispute flow
-   * @param {Object} disputeData - Complete dispute information
-   * @returns {Promise<Object>} - Processing result
-   */
+  
+
   async processDispute(disputeData) {
     const processingId = this.generateProcessingId();
     
@@ -92,11 +85,8 @@ export class V7DisputeProcessor {
     }
   }
 
-  /**
-   * Validate evidence using V7 enhanced validation
-   * @param {string} evidenceCID - IPFS CID
-   * @returns {Promise<Object>} - Validation result
-   */
+  
+
   async validateEvidence(evidenceCID) {
     if (!this.config.enableEvidenceValidation) {
       return { isValid: true, method: 'disabled' };
@@ -122,11 +112,8 @@ export class V7DisputeProcessor {
     }
   }
 
-  /**
-   * Calculate time-based data and fees
-   * @param {Object} disputeData - Dispute data
-   * @returns {Promise<Object>} - Time-based calculations
-   */
+  
+
   async calculateTimeBasedData(disputeData) {
     if (!this.config.enableTimeManagement) {
       return { enabled: false };
@@ -165,12 +152,8 @@ export class V7DisputeProcessor {
     }
   }
 
-  /**
-   * Process LLM arbitration
-   * @param {Object} disputeData - Dispute data
-   * @param {Object} timeData - Time-based calculations
-   * @returns {Promise<Object>} - Arbitration result
-   */
+  
+
   async processArbitration(disputeData, timeData) {
     if (!this.config.enableLLM) {
       return { enabled: false, result: this.generateFallbackResult() };
@@ -220,10 +203,8 @@ export class V7DisputeProcessor {
     }
   }
 
-  /**
-   * Generate fallback arbitration result
-   * @returns {Object} - Fallback result
-   */
+  
+
   generateFallbackResult() {
     return {
       final_verdict: 'DRAW',
@@ -233,51 +214,37 @@ export class V7DisputeProcessor {
     };
   }
 
-  /**
-   * Generate unique processing ID
-   * @returns {string} - Processing ID
-   */
+  
+
   generateProcessingId() {
     return `v7_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  /**
-   * Get processing status
-   * @param {string} processingId - Processing ID
-   * @returns {Object|null} - Processing status
-   */
+  
+
   getProcessingStatus(processingId) {
     return this.activeDisputes.get(processingId) || null;
   }
 
-  /**
-   * Get all active disputes
-   * @returns {Array} - Active disputes
-   */
+  
+
   getActiveDisputes() {
     return Array.from(this.activeDisputes.values());
   }
 
-  /**
-   * Get arbitration results
-   * @returns {Array} - Arbitration results
-   */
+  
+
   getArbitrationResults() {
     return Array.from(this.arbitrationResults.values());
   }
 }
 
-/**
- * V7 Appeal Processor
- * Specialized processor for appeal flows
- */
+
+
 export class V7AppealProcessor extends V7DisputeProcessor {
   
-  /**
-   * Process appeal with enhanced validation
-   * @param {Object} appealData - Appeal data
-   * @returns {Promise<Object>} - Appeal processing result
-   */
+  
+
   async processAppeal(appealData) {
     console.log(`📞 Processing appeal for dispute ${appealData.disputeId}`);
     
@@ -293,16 +260,12 @@ export class V7AppealProcessor extends V7DisputeProcessor {
   }
 }
 
-/**
- * V7 System Health Monitor
- * Monitors system components and dependencies
- */
+
+
 export class V7HealthMonitor {
   
-  /**
-   * Check overall system health
-   * @returns {Promise<Object>} - Health status
-   */
+  
+
   async checkSystemHealth() {
     const checks = await Promise.allSettled([
       this.checkLLMAPI(),

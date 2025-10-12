@@ -1,7 +1,5 @@
-/**
- * Test V7 Integrated LLM Arbitration
- * Quick test to validate the new arbitration simulator integration
- */
+
+
 
 import fetch from 'node-fetch';
 

@@ -434,7 +434,8 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
   // reuse earlier computed nlpHasExplicitWaiver when available; if not, compute from nlpFoundKeywords
   // (the earlier nlpHasExplicitWaiver variable may be available in this scope)
   let _nlpHasExplicitWaiverFallback = nlpFoundKeywords.some(k => explicitWaiverPhrases.some(p => k.includes(p))) || explicitWaiverPhrases.some(p => nlpRationaleText.includes(p));
-  try { if (typeof nlpHasExplicitWaiver === 'boolean') { /* use earlier */ } } catch (e) { var nlpHasExplicitWaiver = _nlpHasExplicitWaiverFallback; }
+  try { if (typeof nlpHasExplicitWaiver === 'boolean') { 
+ } } catch (e) { var nlpHasExplicitWaiver = _nlpHasExplicitWaiverFallback; }
     if (nlpResult && nlpResult.verdict === 'NO_PENALTY' && (nlpResult.confidence || 0) >= 0.88 && nlpHasExplicitWaiver) {
       console.log('[MERGE] NLP explicit waiver with very high confidence -> prefer NLP NO_PENALTY over high-confidence LLM');
       return { verdict: 'NO_PENALTY', confidence: nlpResult.confidence, rationale: nlpResult.rationale, reimbursement: nlpResult.reimbursement || 0, source: 'NLP_EXPLICIT_WAIVER_OVERRIDE' };

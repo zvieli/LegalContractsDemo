@@ -1,7 +1,5 @@
-/**
- * V7 LLM Arbitration Module
- * Handles triggering LLM arbitration and processing responses
- */
+
+
 
 import { ethers } from 'ethers';
 import fetch from 'node-fetch';
@@ -15,11 +13,8 @@ const USE_INTEGRATED_SIMULATOR = process.env.USE_INTEGRATED_SIMULATOR !== 'false
 // Store active arbitration requests
 const activeRequests = new Map();
 
-/**
- * Trigger LLM Arbitration for dispute or appeal
- * @param {Object} disputeData - Dispute/appeal data
- * @returns {Promise<Object>} - Arbitration request details
- */
+
+
 export async function triggerLLMArbitration(disputeData) {
   try {
     const requestId = generateRequestId();
@@ -51,12 +46,8 @@ export async function triggerLLMArbitration(disputeData) {
   }
 }
 
-/**
- * Use integrated LLM arbitration simulator
- * @param {string} requestId - Request identifier
- * @param {Object} disputeData - Dispute data
- * @returns {Promise<Object>}
- */
+
+
 async function integratedLLMArbitration(requestId, disputeData) {
   console.log(`🤖 Using integrated LLM simulator for ${requestId}`);
   
@@ -91,12 +82,8 @@ async function integratedLLMArbitration(requestId, disputeData) {
   }
 }
 
-/**
- * Simulate LLM arbitration for development
- * @param {string} requestId - Request identifier
- * @param {Object} disputeData - Dispute data
- * @returns {Promise<Object>}
- */
+
+
 async function simulateLLMArbitration(requestId, disputeData) {
   console.log(`🧪 Simulating LLM arbitration for ${requestId}`);
   
@@ -123,12 +110,8 @@ async function simulateLLMArbitration(requestId, disputeData) {
   };
 }
 
-/**
- * Execute real LLM arbitration via Chainlink Functions
- * @param {string} requestId - Request identifier
- * @param {Object} disputeData - Dispute data
- * @returns {Promise<Object>}
- */
+
+
 async function executeLLMArbitration(requestId, disputeData) {
   try {
     // Prepare data for Chainlink Functions
@@ -154,14 +137,8 @@ async function executeLLMArbitration(requestId, disputeData) {
   }
 }
 
-/**
- * Handle LLM response and execute on-chain resolution
- * @param {string} requestId - Request identifier
- * @param {Object} result - LLM result
- * @param {string} contractAddress - Contract address
- * @param {number} disputeId - Dispute ID
- * @returns {Promise<Object>}
- */
+
+
 export async function handleLLMResponse(requestId, result, contractAddress, disputeId) {
   try {
     console.log(`🔄 Processing LLM response for request ${requestId}`);
@@ -214,11 +191,8 @@ export async function handleLLMResponse(requestId, result, contractAddress, disp
   }
 }
 
-/**
- * Generate mock LLM result for development
- * @param {Object} disputeData - Dispute data
- * @returns {Object}
- */
+
+
 function generateMockLLMResult(disputeData) {
   const scenarios = [
     {
@@ -246,11 +220,8 @@ function generateMockLLMResult(disputeData) {
   return scenarios[hash];
 }
 
-/**
- * Validate LLM result structure
- * @param {Object} result - LLM result
- * @returns {Object}
- */
+
+
 function validateLLMResult(result) {
   try {
     const requiredFields = ['final_verdict', 'reimbursement_amount_dai', 'rationale_summary'];
@@ -285,13 +256,8 @@ function validateLLMResult(result) {
   }
 }
 
-/**
- * Execute on-chain resolution
- * @param {string} contractAddress - Contract address
- * @param {number} disputeId - Dispute ID
- * @param {Object} result - LLM result
- * @returns {Promise<Object>}
- */
+
+
 async function executeOnChainResolution(contractAddress, disputeId, result) {
   try {
     // In development, simulate transaction
@@ -308,24 +274,8 @@ async function executeOnChainResolution(contractAddress, disputeId, result) {
     }
     
     // Real implementation would call the smart contract
-    /*
-    const provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-    const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
     
-    // Load contract ABI and create contract instance
-    const contractABI = loadContractABI();
-    const contract = new ethers.Contract(contractAddress, contractABI, wallet);
-    
-    // Execute resolution based on LLM result
-    const tx = await contract.resolveDispute(
-      disputeId,
-      result.final_verdict === 'PARTY_A_WINS',
-      ethers.parseEther(result.reimbursement_amount_dai.toString())
-    );
-    
-    await tx.wait();
-    return tx;
-    */
+
     
     return { simulation: true };
     
@@ -335,19 +285,14 @@ async function executeOnChainResolution(contractAddress, disputeId, result) {
   }
 }
 
-/**
- * Generate unique request ID
- * @returns {string}
- */
+
+
 function generateRequestId() {
   return `llm_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-/**
- * Get contract text for LLM analysis
- * @param {string} contractAddress - Contract address
- * @returns {Promise<string>}
- */
+
+
 async function getContractText(contractAddress) {
   // Mock implementation - in reality, this would fetch from IPFS or database
   return `
@@ -365,11 +310,8 @@ async function getContractText(contractAddress) {
   `;
 }
 
-/**
- * Get evidence text from IPFS CID
- * @param {string} evidenceCID - IPFS CID
- * @returns {Promise<string>}
- */
+
+
 async function getEvidenceFromCID(evidenceCID) {
   // Mock implementation - in reality, this would fetch from IPFS
   return `
@@ -387,11 +329,8 @@ async function getEvidenceFromCID(evidenceCID) {
   `;
 }
 
-/**
- * Formulate dispute question for LLM
- * @param {Object} disputeData - Dispute data
- * @returns {string}
- */
+
+
 function formulateDisputeQuestion(disputeData) {
   const questions = {
     0: 'Was there a breach of contract regarding property maintenance?',
@@ -404,30 +343,21 @@ function formulateDisputeQuestion(disputeData) {
          'Based on the provided evidence, what is the appropriate resolution for this dispute?';
 }
 
-/**
- * Call Chainlink Functions (placeholder)
- * @param {Object} payload - Payload for LLM
- * @param {string} requestId - Request ID
- * @returns {Promise<Object>}
- */
+
+
 async function callChainlinkFunctions(payload, requestId) {
   // This would be implemented with actual Chainlink Functions integration
   throw new Error('Chainlink Functions integration not implemented yet');
 }
 
-/**
- * Get active arbitration requests
- * @returns {Array}
- */
+
+
 export function getActiveRequests() {
   return Array.from(activeRequests.values());
 }
 
-/**
- * Get arbitration request by ID
- * @param {string} requestId - Request ID
- * @returns {Object|null}
- */
+
+
 export function getRequest(requestId) {
   return activeRequests.get(requestId) || null;
 }

@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 
-/**
- * V7 Backend Setup and Initialization Script
- */
+
+
 
 import fs from 'fs';
 import path from 'path';

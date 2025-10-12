@@ -6,12 +6,8 @@ export const ARBITRATOR_API_URL = process.env.ARBITRATOR_API_URL || 'http://loca
 // FAILURE_CODE per spec: MAX_UINT256 - 1 (Mitigation 4.5)
 export const FAILURE_CODE = (BigInt(2) ** BigInt(256)) - BigInt(2);
 
-/**
- * Main handler function for Chainlink Functions
- * Implements comprehensive error handling and financial precision
- * @param {Array} args - [contractText, evidenceText, disputeQuestion]
- * @returns {string} - Wei amount as decimal string or FAILURE_CODE
- */
+
+
 export async function handleRequest(args) {
   try {
     // Input validation

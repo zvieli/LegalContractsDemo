@@ -1,12 +1,11 @@
-/**
- * CCIP Arbitration Integration Module
- * Handles real Chainlink CCIP Oracle integration for arbitration decisions
- */
+
+
 
 import { ethers } from 'ethers';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getContractAddress } from '../utils/deploymentLoader.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -28,9 +27,8 @@ export class CCIPArbitrationIntegration {
     this.initializeProvider();
   }
 
-  /**
-   * Initialize blockchain provider and contracts
-   */
+  
+
   async initializeProvider() {
     try {
       this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
@@ -43,22 +41,17 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Load contract ABIs and create contract instances
-   */
+  
+
   async loadContracts() {
     try {
-      // Load deployment summary
-      const deploymentPath = path.resolve(__dirname, '../../front/src/utils/contracts/deployment-summary.json');
-      if (fs.existsSync(deploymentPath)) {
-        const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
-        this.config.ccipSenderAddress = deployment.ccip?.contracts?.CCIPArbitrationSender || this.config.ccipSenderAddress;
-        this.config.ccipReceiverAddress = deployment.ccip?.contracts?.CCIPArbitrationReceiver || this.config.ccipReceiverAddress;
-        this.config.arbitrationServiceAddress = deployment.contracts?.ArbitrationService || this.config.arbitrationServiceAddress;
-        
-        console.log('📋 Addresses loaded from deployment-summary.json:');
-        console.log(`  • ArbitrationService: ${this.config.arbitrationServiceAddress}`);
-      }
+      // Load addresses via deploymentLoader (deployment-summary.json or env fallback)
+      this.config.ccipSenderAddress = getContractAddress('CCIPArbitrationSender') || this.config.ccipSenderAddress;
+      this.config.ccipReceiverAddress = getContractAddress('CCIPArbitrationReceiver') || this.config.ccipReceiverAddress;
+      this.config.arbitrationServiceAddress = getContractAddress('ArbitrationService') || this.config.arbitrationServiceAddress;
+
+      console.log('📋 Addresses resolved:');
+      console.log(`  • ArbitrationService: ${this.config.arbitrationServiceAddress}`);
 
       // Load ABIs
       const ccipSenderABI = this.loadABI('contracts/ccip/CCIPArbitrationSender.sol/CCIPArbitrationSender.json');
@@ -100,16 +93,33 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Load contract ABI from artifacts
-   */
+  
+
   loadABI(contractPath) {
     try {
-      const artifactPath = path.resolve(__dirname, '../../artifacts', contractPath);
-      if (fs.existsSync(artifactPath)) {
-        const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
-        return artifact.abi;
+      // Try common artifact locations (Hardhat default and repo-specific folders)
+      const candidates = [
+        path.resolve(__dirname, '../../artifacts', contractPath),
+        path.resolve(__dirname, '../artifacts', contractPath),
+        path.resolve(__dirname, '../../artifacts', path.basename(contractPath)),
+        path.resolve(__dirname, '../artifacts', path.basename(contractPath)),
+        // Direct lookups for CCIP folder
+        path.resolve(__dirname, '../../artifacts/contracts/ccip', path.basename(contractPath)),
+        path.resolve(__dirname, '../artifacts/contracts/ccip', path.basename(contractPath))
+      ];
+
+      for (const artifactPath of candidates) {
+        if (fs.existsSync(artifactPath)) {
+          try {
+            const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
+            if (artifact && artifact.abi) return artifact.abi;
+          } catch (e) {
+            console.warn(`⚠️ Failed to parse artifact at ${artifactPath}: ${e.message}`);
+          }
+        }
       }
+
+      console.warn(`⚠️ ABI artifact not found for ${contractPath} (looked in ${candidates.join(', ')})`);
       return null;
     } catch (error) {
       console.warn(`⚠️ Failed to load ABI for ${contractPath}:`, error.message);
@@ -117,9 +127,8 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Listen for CCIP arbitration requests
-   */
+  
+
   async startCCIPListener() {
     if (!this.contracts.ccipReceiver) {
       console.warn('⚠️ CCIP Receiver contract not available');
@@ -178,9 +187,8 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Process CCIP arbitration request with LLM
-   */
+  
+
   async processCCIPArbitration(requestId, sourceChain, contractAddress, disputeData) {
     try {
       console.log(`🤖 Processing CCIP arbitration for request ${requestId}...`);
@@ -200,9 +208,8 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Parse dispute data from CCIP message
-   */
+  
+
   parseDisputeData(disputeData) {
     try {
       // Decode the dispute data (assuming it's ABI encoded)
@@ -228,9 +235,8 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Call LLM arbitration service
-   */
+  
+
   async callLLMArbitration(disputeData) {
     try {
       // Import LLM arbitrator
@@ -275,9 +281,8 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Send arbitration decision back via CCIP
-   */
+  
+
   async sendCCIPDecision(requestId, sourceChain, contractAddress, decision) {
     if (!this.contracts.ccipSender) {
       console.warn('⚠️ CCIP Sender contract not available');
@@ -316,9 +321,8 @@ export class CCIPArbitrationIntegration {
     }
   }
 
-  /**
-   * Get CCIP integration status
-   */
+  
+
   async getStatus() {
     const isListening = !!this.contracts.ccipReceiver;
     const canSend = !!this.contracts.ccipSender;

@@ -1,15 +1,8 @@
-/**
- * V7 Time Management Module
- * Handles late fee calculations and time-based contract data
- */
 
-/**
- * Calculate late fee based on overdue period
- * @param {number|string} dueDate - Due date timestamp (seconds or milliseconds)
- * @param {number|string} baseAmount - Base amount (ETH)
- * @param {number} lateFeeBps - Late fee in basis points (default 500 = 5%)
- * @returns {number} - Late fee amount in ETH
- */
+
+
+
+
 export function calculateLateFee(dueDate, baseAmount, lateFeeBps = 500) {
   try {
     // Normalize inputs
@@ -49,12 +42,8 @@ export function calculateLateFee(dueDate, baseAmount, lateFeeBps = 500) {
   }
 }
 
-/**
- * Get comprehensive time-based data for a contract
- * @param {number|string} dueDate - Due date timestamp
- * @param {number|string} contractEndDate - Contract end date (optional)
- * @returns {Object} - Time-based contract data
- */
+
+
 export function getTimeBasedData(dueDate, contractEndDate = null) {
   try {
     const dueDateMs = typeof dueDate === 'string' ? parseInt(dueDate) : dueDate;
@@ -112,11 +101,8 @@ export function getTimeBasedData(dueDate, contractEndDate = null) {
   }
 }
 
-/**
- * Get payment status based on time difference
- * @param {number} timeDifference - Time difference in milliseconds
- * @returns {string} - Payment status
- */
+
+
 function getPaymentStatus(timeDifference) {
   if (timeDifference < 0) {
     return 'OVERDUE';
@@ -129,12 +115,8 @@ function getPaymentStatus(timeDifference) {
   }
 }
 
-/**
- * Get urgency level for UI styling
- * @param {number} timeDifference - Time difference in milliseconds
- * @param {boolean} isOverdue - Whether payment is overdue
- * @returns {string} - Urgency level
- */
+
+
 function getUrgencyLevel(timeDifference, isOverdue) {
   if (isOverdue) {
     const daysOverdue = Math.floor(Math.abs(timeDifference) / (24 * 60 * 60 * 1000));
@@ -148,11 +130,8 @@ function getUrgencyLevel(timeDifference, isOverdue) {
   }
 }
 
-/**
- * Calculate total payment amount including late fees
- * @param {Object} paymentData - Payment calculation data
- * @returns {Object} - Complete payment breakdown
- */
+
+
 export function calculateTotalPayment(paymentData) {
   try {
     const { baseAmount, dueDate, lateFeeBps = 500 } = paymentData;
@@ -187,14 +166,8 @@ export function calculateTotalPayment(paymentData) {
   }
 }
 
-/**
- * Get payment schedule for future payments
- * @param {number} startDate - Start date timestamp
- * @param {number} paymentInterval - Payment interval in days
- * @param {number} numberOfPayments - Number of payments to generate
- * @param {number} baseAmount - Base payment amount
- * @returns {Array} - Payment schedule
- */
+
+
 export function generatePaymentSchedule(startDate, paymentInterval, numberOfPayments, baseAmount) {
   try {
     const schedule = [];
@@ -223,11 +196,8 @@ export function generatePaymentSchedule(startDate, paymentInterval, numberOfPaym
   }
 }
 
-/**
- * Format time countdown for display
- * @param {Object} countdown - Countdown object with days, hours, minutes, seconds
- * @returns {string} - Formatted time string
- */
+
+
 export function formatCountdown(countdown) {
   try {
     const { days, hours, minutes, seconds } = countdown;
@@ -247,12 +217,8 @@ export function formatCountdown(countdown) {
   }
 }
 
-/**
- * Check if contract is in grace period
- * @param {number} dueDate - Due date timestamp
- * @param {number} gracePeriodHours - Grace period in hours (default 24)
- * @returns {boolean} - Whether contract is in grace period
- */
+
+
 export function isInGracePeriod(dueDate, gracePeriodHours = 24) {
   try {
     const dueDateMs = typeof dueDate === 'string' ? parseInt(dueDate) : dueDate;
@@ -268,11 +234,8 @@ export function isInGracePeriod(dueDate, gracePeriodHours = 24) {
   }
 }
 
-/**
- * Get time-based color coding for UI
- * @param {Object} timeData - Time data from getTimeBasedData
- * @returns {Object} - Color codes for UI elements
- */
+
+
 export function getTimeBasedColors(timeData) {
   const { isOverdue, status, urgency } = timeData;
   
@@ -286,11 +249,8 @@ export function getTimeBasedColors(timeData) {
   return colors[status] || colors.CURRENT;
 }
 
-/**
- * Validate time-based input parameters
- * @param {Object} params - Parameters to validate
- * @returns {Object} - Validation result
- */
+
+
 export function validateTimeParams(params) {
   const errors = [];
   

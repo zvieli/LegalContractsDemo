@@ -1,9 +1,8 @@
-/**
- * V7 Backend Testing Endpoints
- * Additional endpoints specifically for testing and debugging
- */
+
+
 
 import express from 'express';
+import { getContractAddress } from '../utils/deploymentLoader.js';
 
 const router = express.Router();
 
@@ -18,9 +17,8 @@ const testingData = {
   }
 };
 
-/**
- * Health check endpoint
- */
+
+
 router.get('/health', (req, res) => {
   testingData.metrics.requestCount++;
   
@@ -32,9 +30,8 @@ router.get('/health', (req, res) => {
   });
 });
 
-/**
- * Configuration endpoint
- */
+
+
 router.get('/config', (req, res) => {
   res.json({
     nodeEnv: process.env.NODE_ENV || 'development',
@@ -46,21 +43,19 @@ router.get('/config', (req, res) => {
   });
 });
 
-/**
- * CCIP status endpoint
- */
+
+
 router.get('/ccip/status', (req, res) => {
   res.json({
     eventListener: 'active',
-    senderAddress: process.env.CCIP_SENDER_ADDRESS || null,
-    receiverAddress: process.env.CCIP_RECEIVER_ADDRESS || null,
-    arbitrationService: process.env.ARBITRATION_SERVICE_ADDRESS || null
+    senderAddress: getContractAddress('CCIPArbitrationSender') || process.env.CCIP_SENDER_ADDRESS || null,
+    receiverAddress: getContractAddress('CCIPArbitrationReceiver') || process.env.CCIP_RECEIVER_ADDRESS || null,
+    arbitrationService: getContractAddress('ArbitrationService') || process.env.ARBITRATION_SERVICE_ADDRESS || null
   });
 });
 
-/**
- * CCIP configuration endpoint
- */
+
+
 router.get('/ccip/config', (req, res) => {
   res.json({
     chainId: parseInt(process.env.CHAIN_ID) || 31337,
@@ -70,23 +65,20 @@ router.get('/ccip/config', (req, res) => {
   });
 });
 
-/**
- * CCIP requests endpoint
- */
+
+
 router.get('/ccip/requests', (req, res) => {
   res.json(testingData.requests);
 });
 
-/**
- * CCIP events endpoint
- */
+
+
 router.get('/ccip/events', (req, res) => {
   res.json(testingData.events);
 });
 
-/**
- * LLM health check
- */
+
+
 router.get('/llm/health', (req, res) => {
   // Check if Ollama is accessible
   const ollamaUrl = process.env.LLM_ARBITRATOR_URL || 'http://localhost:11434';
@@ -100,9 +92,8 @@ router.get('/llm/health', (req, res) => {
   });
 });
 
-/**
- * Modules status endpoint
- */
+
+
 router.get('/modules', (req, res) => {
   res.json({
     ccipEventListener: true,
@@ -114,9 +105,8 @@ router.get('/modules', (req, res) => {
   });
 });
 
-/**
- * Performance metrics endpoint
- */
+
+
 router.get('/metrics', (req, res) => {
   const currentMemory = process.memoryUsage();
   
@@ -137,9 +127,8 @@ router.get('/metrics', (req, res) => {
   });
 });
 
-/**
- * Add CCIP request for testing
- */
+
+
 router.post('/ccip/add-request', (req, res) => {
   const request = {
     id: Date.now(),
@@ -152,9 +141,8 @@ router.post('/ccip/add-request', (req, res) => {
   res.json(request);
 });
 
-/**
- * Add CCIP event for testing
- */
+
+
 router.post('/ccip/add-event', (req, res) => {
   const event = {
     id: Date.now(),
@@ -166,9 +154,8 @@ router.post('/ccip/add-event', (req, res) => {
   res.json(event);
 });
 
-/**
- * Clear testing data
- */
+
+
 router.delete('/reset', (req, res) => {
   testingData.requests = [];
   testingData.events = [];

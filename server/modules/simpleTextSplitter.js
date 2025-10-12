@@ -1,7 +1,5 @@
-/**
- * Simple and Memory-Efficient Text Splitter
- * Designed for legal arbitration without memory leaks
- */
+
+
 
 export class SimpleTextSplitter {
   constructor(config = {}) {
@@ -12,9 +10,8 @@ export class SimpleTextSplitter {
     };
   }
 
-  /**
-   * Split text into simple chunks
-   */
+  
+
   splitText(text, type = 'general') {
     if (!text || text.length <= this.config.maxChunkSize) {
       return [{
@@ -63,9 +60,8 @@ export class SimpleTextSplitter {
     return chunks;
   }
 
-  /**
-   * Find simple break point
-   */
+  
+
   findSimpleBreakPoint(text, start, end) {
     const searchText = text.substring(start, end);
     
@@ -87,9 +83,8 @@ export class SimpleTextSplitter {
     return end;
   }
 
-  /**
-   * Create simple chunk prompt
-   */
+  
+
   createChunkPrompt(chunk, contractInfo, disputeQuestion) {
     return `LEGAL ANALYSIS - CHUNK ${chunk.index + 1}/${chunk.total}
 
@@ -113,9 +108,8 @@ Respond in JSON:
   }
 }
 
-/**
- * Simple Evidence Synthesizer
- */
+
+
 export class SimpleEvidenceSynthesizer {
   synthesizeAnalyses(chunkAnalyses, contractInfo, disputeQuestion) {
     console.log(`🔗 Synthesizing ${chunkAnalyses.length} analyses...`);
