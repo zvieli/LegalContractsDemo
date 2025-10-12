@@ -1,4 +1,4 @@
-import { nlpVerdictMapping, mergeArbitrationVerdicts, processV7ArbitrationWithOllama } from '../modules/ollamaLLMArbitrator.js';
+import { nlpVerdictMapping, mergeArbitrationVerdicts, processV7ArbitrationWithOllama } from '../../modules/ollamaLLMArbitrator.js';
 
 // Use real LLM via Ollama
 // Use the full pipeline to get a unified arbitration result (LLM + NLP + merge)
@@ -90,3 +90,6 @@ async function runAllCases() {
 (async () => {
   await runAllCases();
 })();
+
+// ייצוא לפונקציות שימוש חוזר בטסטים אחרים
+export { getLLMResult };
