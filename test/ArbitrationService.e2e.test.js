@@ -5,7 +5,7 @@ import { expect } from 'chai';
 import pkg from 'hardhat';
 const { ethers } = pkg;
 
-describe.skip('ArbitrationService E2E Flow (skipped pending refactor)', function () {
+describe('ArbitrationService E2E Flow', function () {
   let factory, arbitrationService, arbitrator, rentContract;
   let landlord, tenant, admin;
   let evidenceDigest;
@@ -32,8 +32,7 @@ describe.skip('ArbitrationService E2E Flow (skipped pending refactor)', function
     await arbitrator.waitForDeployment();
   });
 
-  it('should create a new rent contract via factory', async () => {
-    // Use minimal overload: (tenant, rentAmount, priceFeed, dueDate)
+  it('should create a new rent contract via factory and verify initial state', async () => {
     const priceFeed = '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419';
     const tx = await factory.connect(landlord).createRentContract(
       tenant.address,
@@ -44,11 +43,12 @@ describe.skip('ArbitrationService E2E Flow (skipped pending refactor)', function
     const receipt = await tx.wait();
     const event = receipt.events.find(e => e.event === 'ContractCreated');
     expect(event).to.exist;
-  rentContract = await ethers.getContractAt('TemplateRentContract', event.args.contractAddress);
-  expect(await rentContract.arbitrationService()).to.equal(arbitrationService.target);
+    rentContract = await ethers.getContractAt('TemplateRentContract', event.args.contractAddress);
+    expect(await rentContract.arbitrationService()).to.equal(arbitrationService.target);
     expect(await rentContract.landlord()).to.equal(landlord.address);
     expect(await rentContract.tenant()).to.equal(tenant.address);
     expect(await rentContract.rentAmount()).to.equal(rentAmount);
+    expect(await rentContract.active()).to.be.true;
   });
 
   it('should allow deposit and update balances', async () => {
@@ -58,7 +58,7 @@ describe.skip('ArbitrationService E2E Flow (skipped pending refactor)', function
     expect(await rentContract.partyDeposit(tenant.address)).to.equal(requiredDeposit);
   });
 
-  it('should allow evidence digest submission', async () => {
+  it('should allow evidence digest submission and verify digest', async () => {
     evidenceDigest = ethers.keccak256(ethers.toUtf8Bytes("evidence-data"));
     // New flow: submitEvidenceWithSignature (caseId, cid, contentDigest, recipientsHash, signature)
     // For simplicity, use submitEvidenceWithSignature with empty values except digest
@@ -83,7 +83,7 @@ describe.skip('ArbitrationService E2E Flow (skipped pending refactor)', function
     ).to.emit(rentContract, 'DisputeReported');
   });
 
-  it('should apply arbitration resolution via ArbitrationService', async () => {
+  it('should apply arbitration resolution via ArbitrationService and update contract state', async () => {
     // Simulate LLM decision: approve, appliedAmount, beneficiary
     const approve = true;
     const appliedAmount = requiredDeposit;
@@ -105,7 +105,7 @@ describe.skip('ArbitrationService E2E Flow (skipped pending refactor)', function
     expect(await rentContract.partyDeposit(tenant.address)).to.equal(0);
   });
 
-  it('should prevent unauthorized actions', async () => {
+  it('should prevent unauthorized actions and unauthorized withdrawals', async () => {
     // Non-admin tries to apply resolution
     await expect(
       arbitrationService.connect(tenant).applyResolutionToTarget(
