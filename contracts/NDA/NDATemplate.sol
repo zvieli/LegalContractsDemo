@@ -234,6 +234,11 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         emit PaymentWithdrawn(msg.sender, amount);
     }
 
+    function deposit() external payable onlyParty onlyActive {
+        deposits[msg.sender] += msg.value;
+        emit DepositMade(msg.sender, msg.value);
+    }
+
     function reportBreach(
         address offender,
         uint256 requestedPenalty,
