@@ -95,23 +95,13 @@ export class CCIPEventListener {
 
   async _loadContractABI(contractName) {
     try {
-      // Try local artifacts first (copied ABIs)
-      const localArtifactPath = path.join(process.cwd(), 'artifacts', 'contracts', 'ccip', `${contractName}.json`);
-      
-      if (fs.existsSync(localArtifactPath)) {
-        const artifact = JSON.parse(fs.readFileSync(localArtifactPath, 'utf8'));
+      // Always use .sol subfolder for CCIP contracts
+      const artifactPath = path.join(process.cwd(), 'artifacts', 'contracts', 'ccip', `${contractName}.sol`, `${contractName}.json`);
+      if (fs.existsSync(artifactPath)) {
+        const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
         return artifact.abi;
       }
-
-      // Fallback to main artifacts folder
-      const mainArtifactPath = path.join(process.cwd(), '..', 'artifacts', 'contracts', 'ccip', `${contractName}.sol`, `${contractName}.json`);
-      
-      if (fs.existsSync(mainArtifactPath)) {
-        const artifact = JSON.parse(fs.readFileSync(mainArtifactPath, 'utf8'));
-        return artifact.abi;
-      }
-
-      console.warn(`⚠️ ABI not found for ${contractName} at ${localArtifactPath}`);
+      console.warn(`⚠️ ABI not found for ${contractName} at ${artifactPath}`);
       return null;
 
     } catch (error) {

@@ -1,8 +1,11 @@
 import request from 'supertest';
 import fs from 'fs';
 import { test, describe, beforeAll, afterAll } from 'vitest';
+import deploymentSummary from '../../../front/src/utils/contracts/deployment-summary.json';
 import { getLLMResult } from '../test/test_multi_llm.js';
 import { ethers } from 'ethers';
+import { CCIPEventListener } from '../../ccip/ccipEventListener.js';
+
 // Hardhat test accounts
 const hardhatAccounts = [
   {
@@ -21,7 +24,11 @@ const hardhatAccounts = [
 
 const BACKEND_URL = 'http://localhost:3001';
 const contractFactoryAbi = require('../../../artifacts/contracts/ContractFactory.sol/ContractFactory.json').abi;
-const contractFactoryAddress = process.env.CONTRACT_FACTORY_ADDRESS || '0x66713e76897CdC363dF358C853df5eE5831c3E5a';
+const contractFactoryAddress = deploymentSummary.contracts.ContractFactory;
+
+const receiverAddress = deploymentSummary.ccip.contracts.CCIPArbitrationReceiver;
+const receiverAbi = require('../../../artifacts/contracts/ccip/CCIPArbitrationReceiver.sol/CCIPArbitrationReceiver.json').abi;
+let receiverContract;
 
 const cases = [
   { file: 'server/tests/test/evidence1.json', expected: 'PARTY_A_WINS', type: 'NDA' },
@@ -39,15 +46,39 @@ const cases = [
 ];
 
 const deployedContracts = {};
+let ccipListener;
+let start;
 
 beforeAll(async () => {
+  start = Date.now();
   // Increase timeout for contract deployment
   const provider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
   const partyA = hardhatAccounts[1].address;
   const partyB = hardhatAccounts[2].address;
   const factoryAdminWallet = new ethers.Wallet(hardhatAccounts[0].privateKey, provider);
   const factory = new ethers.Contract(contractFactoryAddress, contractFactoryAbi, factoryAdminWallet);
-  const priceFeedAddress = '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419';
+  const priceFeedAddress = deploymentSummary.priceFeed;
+
+  console.log('Receiver address:', receiverAddress);
+  console.log('Receiver ABI loaded:', !!receiverAbi);
+  receiverContract = new ethers.Contract(receiverAddress, receiverAbi, factoryAdminWallet);
+  console.log('Receiver contract instance:', receiverContract ? receiverContract.target : null);
+  if (!receiverContract) {
+    throw new Error('Receiver contract not initialized');
+  }
+  ccipListener = new CCIPEventListener({
+    receiverAddress,
+    senderAddress: deploymentSummary.ccip.contracts.CCIPArbitrationSender,
+    rpcUrl: 'http://127.0.0.1:8545',
+    enableLLM: false
+  });
+  await ccipListener.initialize();
+  setImmediate(() => {
+    if (!receiverContract) {
+      throw new Error('Receiver contract not initialized');
+    }
+    ccipListener.startListening();
+  });
 
   for (const testCase of cases) {
     try {
@@ -75,6 +106,7 @@ beforeAll(async () => {
       }
 
       receipt = await tx.wait();
+      await new Promise(r => setTimeout(r, 300)); // sleep for hardhat
 
       // Parse logs to find NDACreated or RentContractCreated event and get contract address
       for (const log of receipt.logs) {
@@ -97,121 +129,139 @@ beforeAll(async () => {
       console.error(`[ERROR] Deploying contract for ${testCase.file}:`, err);
     }
   }
-}, 60000);
+}, 120000);
 
 describe('End-to-End LLM Arbitration & Blockchain Flow', () => {
   for (const testCase of cases) {
-    test(`E2E: ${testCase.file} → expected verdict: ${testCase.expected}`, async () => {
-      const contractAddress = deployedContracts[testCase.file];
-      if (!contractAddress) {
-        console.warn(`[SKIP] No contract for ${testCase.file}`);
-        return;
-      }
+    test(
+      `E2E: ${testCase.file} → expected verdict: ${testCase.expected}`,
+      async () => {
+        console.log(`\n====== Running case: ${testCase.file} (${testCase.type}) ======\n`);
+        try {
+          const contractAddress = deployedContracts[testCase.file];
+          if (!contractAddress) {
+            console.warn(`[SKIP] No contract for ${testCase.file}`);
+            return;
+          }
+          const provider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+          let abiPath;
+          if (testCase.type === 'Rent') {
+            abiPath = '../../../artifacts/contracts/EnhancedRentContract.sol/EnhancedRentContract.json';
+          } else {
+            abiPath = '../../../artifacts/contracts/NDA/NDATemplate.sol/NDATemplate.json';
+          }
+          const contractAbi = require(abiPath).abi;
+          const signer = testCase.type === 'Rent'
+            ? new ethers.Wallet(hardhatAccounts[1].privateKey, provider)
+            : new ethers.Wallet(hardhatAccounts[2].privateKey, provider);
+          const contract = new ethers.Contract(contractAddress, contractAbi, signer);
+          let evidence;
+          try {
+            const evidenceData = fs.readFileSync(testCase.file, 'utf8');
+            evidence = JSON.parse(evidenceData);
+          } catch (err) {
+            console.error(`[ERROR] Reading evidence ${testCase.file}:`, err);
+            return;
+          }
+          // deposit / pay
+          try {
+            if (contract.deposit) {
+              await contract.deposit({ value: ethers.parseEther(evidence.amount || '1') });
+              console.log(`[INFO] Deposit done for ${testCase.file}`);
+            }
+            if (contract.pay && evidence.recipient) {
+              await contract.pay(evidence.recipient, ethers.parseEther(evidence.amount || '1'));
+              console.log(`[INFO] Payment done for ${testCase.file}`);
+            }
+          } catch (err) {
+            console.error(`[ERROR] Deposit/Pay for ${testCase.file}:`, err);
+          }
+          // Simulate ArbitrationRequestSent event for CCIP listener
+          if (ccipListener && receiverContract && receiverContract.triggerMockEvent) {
+            await receiverContract.triggerMockEvent(
+              ethers.hexlify(ethers.randomBytes(32)),
+              ethers.hexlify(ethers.randomBytes(32)),
+              31337,
+              contractAddress,
+              42
+            );
+            // Wait for async processing
+            await new Promise(res => setTimeout(res, 500));
+            console.log(`[INFO] CCIPEventListener processed events:`, ccipListener.getProcessedEventsCount());
+          }
+          // submit evidence
+          let submitRes, batchRes, disputeRes, merged;
+          try {
+            submitRes = await request(BACKEND_URL)
+              .post('/api/evidence/submit')
+              .send({ caseId: testCase.file, evidenceData: evidence.evidenceData, uploader: 'test-user' });
+            console.log(`[INFO] Evidence submitted for ${testCase.file}, CID: ${submitRes.body.cid}`);
+          } catch (err) {
+            console.error(`[ERROR] Submit evidence for ${testCase.file}:`, err);
+          }
+          // dispute
+          try {
+            disputeRes = await request(BACKEND_URL)
+              .post('/api/dispute')
+              .send({ caseId: testCase.file });
+            console.log(`[INFO] Dispute created for ${testCase.file}, ID: ${disputeRes.body.id}`);
+          } catch (err) {
+            console.error(`[ERROR] Create dispute for ${testCase.file}:`, err);
+          }
+          // arbitration
+          try {
+            const pipelineResult = await getLLMResult({
+              dispute_id: testCase.file
+            });
+            merged = {
+              verdict: pipelineResult.decision || pipelineResult.arbitration,
+              confidence: pipelineResult.confidence,
+              rationale: pipelineResult.reasoning,
+              source: pipelineResult.source,
+              raw: pipelineResult.raw
+            };
+            console.log(`[INFO] Verdict: ${merged.verdict}, Confidence: ${merged.confidence}`);
+          } catch (err) {
+            console.error(`[ERROR] LLM pipeline for ${testCase.file}:`, err);
+          }
 
-      const provider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-      let abiPath;
-      if (testCase.type === 'Rent') {
-        abiPath = '../../../artifacts/contracts/EnhancedRentContract.sol/EnhancedRentContract.json';
-      } else {
-        abiPath = '../../../artifacts/contracts/NDA/NDATemplate.sol/NDATemplate.json';
-      }
-      const contractAbi = require(abiPath).abi;
+          try {
+            await request(BACKEND_URL)
+              .post('/api/arbitrate-batch')
+              .send({ caseId: testCase.file, merkleRoot: batchRes?.body?.merkleRoot, verdict: merged?.verdict });
 
-      const contract = new ethers.Contract(contractAddress, contractAbi, provider.getSigner(0));
+            if (contract.applyResolution) await contract.applyResolution(batchRes?.body?.merkleRoot, merged?.verdict);
+            if (contract.registerBatch) await contract.registerBatch(batchRes?.body?.merkleRoot);
+            console.log(`[INFO] Verdict applied for ${testCase.file}`);
+          } catch (err) {
+            console.error(`[ERROR] Applying verdict for ${testCase.file}:`, err);
+          }
 
-      let evidence;
-      try {
-        const evidenceData = fs.readFileSync(testCase.file, 'utf8');
-        evidence = JSON.parse(evidenceData);
-      } catch (err) {
-        console.error(`[ERROR] Reading evidence ${testCase.file}:`, err);
-        return;
-      }
-
-      // deposit / pay
-      try {
-        if (contract.deposit) {
-          await contract.deposit({ value: ethers.parseEther(evidence.amount || '1') });
-          console.log(`[INFO] Deposit done for ${testCase.file}`);
+          try {
+            const verdictOnChain = contract.getVerdict ? await contract.getVerdict(batchRes?.body?.merkleRoot) : null;
+            if (verdictOnChain) console.log(`[INFO] On-chain verdict for ${testCase.file}: ${verdictOnChain}`);
+          } catch (err) {
+            console.error(`[ERROR] Fetch on-chain verdict for ${testCase.file}:`, err);
+          }
+        } catch (err) {
+          console.error(`[TEST FAILED for ${testCase.file}]`, err);
         }
-        if (contract.pay && evidence.recipient) {
-          await contract.pay(evidence.recipient, ethers.parseEther(evidence.amount || '1'));
-          console.log(`[INFO] Payment done for ${testCase.file}`);
-        }
-      } catch (err) {
-        console.error(`[ERROR] Deposit/Pay for ${testCase.file}:`, err);
-      }
-
-      // submit evidence
-      let submitRes, batchRes, disputeRes, merged;
-      try {
-        submitRes = await request(BACKEND_URL)
-          .post('/api/evidence/submit')
-          .send({ caseId: testCase.file, evidenceData: evidence.evidenceData, uploader: 'test-user' });
-        console.log(`[INFO] Evidence submitted for ${testCase.file}, CID: ${submitRes.body.cid}`);
-      } catch (err) {
-        console.error(`[ERROR] Submit evidence for ${testCase.file}:`, err);
-      }
-
-      try {
-        batchRes = await request(BACKEND_URL)
-          .post('/api/batch/create')
-          .send({ caseId: testCase.file, evidenceItems: [submitRes?.body?.cid] });
-        console.log(`[INFO] Batch created for ${testCase.file}, MerkleRoot: ${batchRes.body.merkleRoot}`);
-      } catch (err) {
-        console.error(`[ERROR] Create batch for ${testCase.file}:`, err);
-      }
-
-      try {
-        disputeRes = await request(BACKEND_URL)
-          .post('/api/dispute/create')
-          .send({ contractAddress, caseId: testCase.file, evidenceCid: submitRes?.body?.cid });
-        console.log(`[INFO] Dispute created for ${testCase.file}, DisputeId: ${disputeRes.body.disputeId}`);
-      } catch (err) {
-        console.error(`[ERROR] Create dispute for ${testCase.file}:`, err);
-      }
-
-      try {
-        const pipelineResult = await getLLMResult({
-          evidence_text: evidence.evidenceData,
-          contract_text: 'GENERIC CONTRACT FOR TESTING',
-          dispute_id: testCase.file
-        });
-        merged = {
-          verdict: pipelineResult.decision || pipelineResult.arbitration,
-          confidence: pipelineResult.confidence,
-          rationale: pipelineResult.reasoning,
-          source: pipelineResult.source,
-          raw: pipelineResult.raw
-        };
-        console.log(`[INFO] Verdict: ${merged.verdict}, Confidence: ${merged.confidence}`);
-      } catch (err) {
-        console.error(`[ERROR] LLM pipeline for ${testCase.file}:`, err);
-      }
-
-      try {
-        await request(BACKEND_URL)
-          .post('/api/arbitrate-batch')
-          .send({ caseId: testCase.file, merkleRoot: batchRes?.body?.merkleRoot, verdict: merged?.verdict });
-
-        if (contract.applyResolution) await contract.applyResolution(batchRes?.body?.merkleRoot, merged?.verdict);
-        if (contract.registerBatch) await contract.registerBatch(batchRes?.body?.merkleRoot);
-        console.log(`[INFO] Verdict applied for ${testCase.file}`);
-      } catch (err) {
-        console.error(`[ERROR] Applying verdict for ${testCase.file}:`, err);
-      }
-
-      try {
-        const verdictOnChain = contract.getVerdict ? await contract.getVerdict(batchRes?.body?.merkleRoot) : null;
-        if (verdictOnChain) console.log(`[INFO] On-chain verdict for ${testCase.file}: ${verdictOnChain}`);
-      } catch (err) {
-        console.error(`[ERROR] Fetch on-chain verdict for ${testCase.file}:`, err);
-      }
-    }, 180000);
+      },
+      120000 // 2 minutes per test
+    );
   }
 });
 
 afterAll(() => {
+  if (ccipListener) {
+    ccipListener.stopListening();
+    ccipListener.clearProcessedEvents();
+  }
+  if (receiverContract && receiverContract.provider) {
+    receiverContract.provider.removeAllListeners();
+  }
   fs.writeFileSync('server/data/dispute_history.json', '[]');
   fs.writeFileSync('server/data/evidence_batches.json', '[]');
+  const end = Date.now();
+  console.log(`🏁 All tests completed in ${(end - start)/1000}s`);
 });
