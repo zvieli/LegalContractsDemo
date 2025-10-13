@@ -3,7 +3,7 @@ import MyContracts from '../../components/MyContracts/MyContracts';
 import EvidenceSubmit from '../../components/EvidenceSubmit/EvidenceSubmit';
 // import TimeCountdown from '../../components/TimeCountdown';
 import AdminDashboard from '../AdminDashboard/AdminDashboard';
-// ...existing code...
+
 import { useEthers } from '../../contexts/EthersContext';
 
 function Home() {

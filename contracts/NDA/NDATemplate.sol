@@ -6,7 +6,6 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../ccip/CCIPArbitrationTypes.sol";
 
-// Interface for CCIP Arbitration Sender
 interface ICCIPArbitrationSender {
     function sendArbitrationRequest(
         bytes32 disputeId,
@@ -15,10 +14,10 @@ interface ICCIPArbitrationSender {
         bytes32 evidenceHash,
         string calldata evidenceURI,
         uint256 requestedAmount,
-        uint8 payFeesIn // 0 = Native, 1 = LINK
+        uint8 payFeesIn
     ) external payable returns (bytes32 messageId);
 }
-// factory enforcement removed (size optimization) - use off-chain policy & deployer pattern
+
 contract NDATemplate is EIP712, ReentrancyGuard {
     using ECDSA for bytes32;
 
@@ -39,15 +38,14 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     bool public active = true;
 
     mapping(address => uint256) public deposits;
-    // Pull-payment ledger: credit recipients here and let them withdraw to avoid stuck transfers
     mapping(address => uint256) public withdrawable;
     uint256 public immutable minDeposit;
 
     address public immutable arbitrationService;
-    // Anti-spam & dispute economics
-    uint256 public disputeFee; // fee required to file a dispute (wei)
-    uint256 public minReportInterval; // min seconds between reports from same reporter
-    uint256 public maxOpenReportsPerReporter; // cap open reports per reporter
+
+    uint256 public disputeFee;
+    uint256 public minReportInterval;
+    uint256 public maxOpenReportsPerReporter;
 
     bytes32 private constant NDA_TYPEHASH =
         keccak256("NDA(address contractAddress,uint256 expiryDate,uint16 penaltyBps,bytes32 customClausesHash)");
@@ -62,28 +60,25 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
     event PaymentWithdrawn(address indexed to, uint256 amount);
     event BreachRationale(uint256 indexed caseId, string classification, string rationale);
-    // debug removed
+    event CCIPArbitrationRequested(uint256 indexed caseId, bytes32 indexed messageId, bytes32 disputeId);
+    event CCIPConfigUpdated(address indexed ccipSender, bool enabled);
 
     struct BreachCase {
         address reporter;
         address offender;
         uint256 requestedPenalty;
         bytes32 evidenceHash;
+        string evidenceURI;
+        bytes32 evidenceMerkleRoot;
         bool resolved;
         bool approved;
     }
 
     struct CaseMeta {
-        string classification;
-        string rationale; // NOTE: demonstration only; in production consider hashing to save gas.
+        bytes32 classificationHash;
+        bytes32 rationaleHash;
     }
 
-    BreachCase[] private _cases;
-    mapping(uint256 => CaseMeta) private _caseMeta; // caseId => meta
-    // mapping(uint256 => string) private _evidenceURI; // optional revealed evidence storage (URI or CID) - removed
-    mapping(uint256 => uint256) private _caseFee; // fee attached to caseId
-    mapping(uint256 => uint256) private _revealDeadline; // timestamp until which reveal allowed
-    mapping(uint256 => uint256) private _resolvedAt; // timestamp when case was resolved
     struct PendingEnforcement {
         uint256 appliedPenalty;
         address beneficiary;
@@ -91,25 +86,24 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         address feeRecipient;
         bool exists;
     }
+
+    BreachCase[] private _cases;
+    mapping(uint256 => CaseMeta) private _caseMeta;
+    mapping(uint256 => uint256) private _caseFee;
+    mapping(uint256 => uint256) private _revealDeadline;
+    mapping(uint256 => uint256) private _resolvedAt;
     mapping(uint256 => PendingEnforcement) private _pendingEnforcement;
+
     mapping(address => uint256) public lastReportAt;
     mapping(address => uint256) public openReportsCount;
-    mapping(address => uint256) public offenderBreachCount; // cumulative approved breaches per offender
-    uint256 public revealWindowSeconds; // default 0 = no reveal deadline enforced
-    uint256 public appealWindowSeconds; // default 0 = no appeal window enforced
+    mapping(address => uint256) public offenderBreachCount;
 
-    // CCIP Integration
+    uint256 public revealWindowSeconds;
+    uint256 public appealWindowSeconds;
+
     ICCIPArbitrationSender public ccipSender;
     bool public ccipEnabled;
-    mapping(uint256 => bytes32) public ccipMessageIds; // caseId => CCIP message ID
-    
-    // Events for CCIP
-    event CCIPArbitrationRequested(
-        uint256 indexed caseId,
-        bytes32 indexed messageId,
-        bytes32 disputeId
-    );
-    event CCIPConfigUpdated(address indexed ccipSender, bool enabled);
+    mapping(uint256 => bytes32) public ccipMessageIds;
 
     constructor(
         address _partyA,
@@ -132,9 +126,7 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         customClausesHash = _customClausesHash;
         minDeposit = _minDeposit;
         arbitrationService = _arbitrationService;
-        // Real runtime resolution should prefer `arbitrationService` (see serviceResolve/serviceEnforce).
 
-        // default anti-spam params
         disputeFee = 0;
         minReportInterval = 0;
         maxOpenReportsPerReporter = 10;
@@ -149,7 +141,6 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         require(active, "Contract inactive");
         _;
     }
-
 
     modifier onlyArbitrationService() {
         require(msg.sender == arbitrationService, "Only arbitration service");
@@ -199,25 +190,12 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         emit NDASigned(signer, block.timestamp);
     }
 
-    // ============ CCIP Configuration ============
-
-    /**
-     * @notice Configure CCIP arbitration (only arbitration service)
-     * @param _ccipSender Address of CCIP arbitration sender
-     * @param _enabled Whether to enable CCIP arbitration
-     */
-    function configureCCIP(
-        address _ccipSender,
-        bool _enabled
-    ) external onlyArbitrationService {
+    function configureCCIP(address _ccipSender, bool _enabled) external onlyArbitrationService {
         ccipSender = ICCIPArbitrationSender(_ccipSender);
         ccipEnabled = _enabled;
         emit CCIPConfigUpdated(_ccipSender, _enabled);
     }
 
-    /**
-     * @notice Check if CCIP arbitration is available
-     */
     function isCCIPAvailable() external view returns (bool) {
         return ccipEnabled && address(ccipSender) != address(0);
     }
@@ -230,37 +208,23 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         return true;
     }
 
-    function deposit() external payable onlyParty onlyActive {
-        require(msg.value > 0, "No value");
-        deposits[msg.sender] += msg.value;
-        emit DepositMade(msg.sender, msg.value);
-    }
-
     function canWithdraw() public view returns (bool) {
-        if (active) {
-            return false;
-        }
-
+        if (active) return false;
         for (uint256 i = 0; i < _cases.length; ) {
-            if (!_cases[i].resolved) {
-                return false;
-            }
+            if (!_cases[i].resolved) return false;
             unchecked { ++i; }
         }
-
         return true;
-}
+    }
 
     function withdrawDeposit(uint256 amount) external nonReentrant {
         require(canWithdraw(), "Cannot withdraw yet");
         require(deposits[msg.sender] >= amount && amount > 0, "Insufficient deposit");
         deposits[msg.sender] -= amount;
-        // credit withdrawable ledger and let the party pull the funds
         withdrawable[msg.sender] += amount;
         emit DepositWithdrawn(msg.sender, amount);
     }
 
-    /// @notice Withdraw any pending pull-payments credited to caller
     function withdrawPayments() external nonReentrant {
         uint256 amount = withdrawable[msg.sender];
         require(amount > 0, "No funds to withdraw");
@@ -273,19 +237,16 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     function reportBreach(
         address offender,
         uint256 requestedPenalty,
-        bytes32 evidenceHash
+        bytes32 evidenceHash,
+        string calldata evidenceURI
     ) external payable onlyParty onlyActive returns (uint256 caseId) {
         require(isParty[offender], "Offender not a party");
         require(offender != msg.sender, "Cannot accuse self");
         require(requestedPenalty > 0, "Requested penalty must be > 0");
         require(deposits[offender] >= minDeposit, "Offender has no minimum deposit");
-        // Anti-spam: fee and per-reporter interval
-        if (disputeFee > 0) {
-            require(msg.value >= disputeFee, "Insufficient dispute fee");
-        }
-        if (minReportInterval > 0) {
-            require(block.timestamp - lastReportAt[msg.sender] >= minReportInterval, "Reporting too frequently");
-        }
+
+        if (disputeFee > 0) require(msg.value >= disputeFee, "Insufficient dispute fee");
+        if (minReportInterval > 0) require(block.timestamp - lastReportAt[msg.sender] >= minReportInterval, "Reporting too frequently");
         require(openReportsCount[msg.sender] < maxOpenReportsPerReporter, "Too many open reports");
 
         caseId = _cases.length;
@@ -295,25 +256,54 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         bc.offender = offender;
         bc.requestedPenalty = requestedPenalty;
         bc.evidenceHash = evidenceHash;
-        // record fee and reporter bookkeeping
-        if (disputeFee > 0) {
-            _caseFee[caseId] = msg.value;
+        bc.evidenceURI = evidenceURI;
+        bc.evidenceMerkleRoot = bytes32(0);
+
+        if (revealWindowSeconds > 0) _revealDeadline[caseId] = block.timestamp + revealWindowSeconds;
+
+        emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidenceHash);
+
+        if (ccipEnabled && address(ccipSender) != address(0)) {
+            _triggerCCIPArbitration(caseId, evidenceHash, evidenceURI);
         }
+    }
+
+    function reportBreachWithMerkle(
+        address offender,
+        uint256 requestedPenalty,
+        bytes32 evidenceHash,
+        string calldata evidenceURI,
+        bytes32 evidenceMerkleRoot
+    ) external payable onlyParty onlyActive returns (uint256 caseId) {
+        require(isParty[offender], "Offender not a party");
+        require(offender != msg.sender, "Cannot accuse self");
+        require(requestedPenalty > 0, "Requested penalty must be > 0");
+        require(deposits[offender] >= minDeposit, "Offender has no minimum deposit");
+
+        if (disputeFee > 0) require(msg.value >= disputeFee, "Insufficient dispute fee");
+        if (minReportInterval > 0) require(block.timestamp - lastReportAt[msg.sender] >= minReportInterval, "Reporting too frequently");
+        require(openReportsCount[msg.sender] < maxOpenReportsPerReporter, "Too many open reports");
+
+        caseId = _cases.length;
+        _cases.push();
+        BreachCase storage bc = _cases[caseId];
+        bc.reporter = msg.sender;
+        bc.offender = offender;
+        bc.requestedPenalty = requestedPenalty;
+        bc.evidenceHash = evidenceHash;
+        bc.evidenceURI = evidenceURI;
+        bc.evidenceMerkleRoot = evidenceMerkleRoot;
+
+        if (disputeFee > 0) _caseFee[caseId] = msg.value;
         lastReportAt[msg.sender] = block.timestamp;
         openReportsCount[msg.sender] += 1;
 
-        // set a reveal deadline for this case if configured
-        if (revealWindowSeconds > 0) {
-            _revealDeadline[caseId] = block.timestamp + revealWindowSeconds;
-        } else {
-            _revealDeadline[caseId] = 0;
-        }
+        if (revealWindowSeconds > 0) _revealDeadline[caseId] = block.timestamp + revealWindowSeconds;
 
         emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidenceHash);
-        
-        // Automatically trigger CCIP arbitration if enabled
+
         if (ccipEnabled && address(ccipSender) != address(0)) {
-            _triggerCCIPArbitration(caseId, evidenceHash);
+            _triggerCCIPArbitrationWithMerkle(caseId, evidenceHash, evidenceURI, evidenceMerkleRoot);
         }
     }
 
@@ -326,101 +316,78 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         address offender,
         uint256 requestedPenalty,
         bytes32 evidenceHash,
+        string memory evidenceURI,
+        bytes32 evidenceMerkleRoot,
         bool resolved,
-        bool approved,
-    uint256 approveVotes,
-    uint256 rejectVotes
+        bool approved
     ) {
         require(caseId < _cases.length, "Invalid case ID");
         BreachCase storage bc = _cases[caseId];
-    // approveVotes and rejectVotes are deprecated (voting removed); return zeros for compatibility
-    return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidenceHash, bc.resolved, bc.approved, 0, 0);
+        return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidenceHash, bc.evidenceURI, bc.evidenceMerkleRoot, bc.resolved, bc.approved);
     }
 
-    // Voting removed for two-party NDAs. Disputes must be resolved by an arbitrator or external oracle.
-
-    // ============ CCIP Arbitration Functions ============
-
-    /**
-     * @notice Trigger CCIP arbitration for a case
-     * @param caseId The case ID to arbitrate
-     * @param evidenceHash Hash of the evidence
-     */
-    function _triggerCCIPArbitration(uint256 caseId, bytes32 evidenceHash) internal {
+    function _triggerCCIPArbitrationWithMerkle(uint256 caseId, bytes32 evidenceHash, string memory evidenceURI, bytes32 evidenceMerkleRoot) internal {
         require(caseId < _cases.length, "Invalid case ID");
         require(ccipEnabled && address(ccipSender) != address(0), "CCIP not available");
-        
+
         BreachCase storage bc = _cases[caseId];
-        
-        // Generate unique dispute ID
-        bytes32 disputeId = keccak256(
-            abi.encodePacked(
-                address(this),
-                caseId,
-                block.timestamp,
-                bc.reporter,
-                bc.offender
-            )
+        bytes32 disputeId = keccak256(abi.encodePacked(address(this), caseId, block.timestamp, bc.reporter, bc.offender));
+        string memory uriWithMerkle = string(abi.encodePacked(evidenceURI, "?merkleRoot=", _toHexString(evidenceMerkleRoot)));
+
+        bytes32 messageId = ccipSender.sendArbitrationRequest(
+            disputeId,
+            address(this),
+            caseId,
+            evidenceHash,
+            uriWithMerkle,
+            bc.requestedPenalty,
+            0
         );
-        
-        // Prepare evidence URI (could be IPFS CID or empty)
-        string memory evidenceURI = ""; // For now empty, could be enhanced
-        
-        try ccipSender.sendArbitrationRequest{value: 0}(
+
+        ccipMessageIds[caseId] = messageId;
+        emit CCIPArbitrationRequested(caseId, messageId, disputeId);
+    }
+
+    function _triggerCCIPArbitration(uint256 caseId, bytes32 evidenceHash, string memory evidenceURI) internal {
+        require(caseId < _cases.length, "Invalid case ID");
+        require(ccipEnabled && address(ccipSender) != address(0), "CCIP not available");
+
+        BreachCase storage bc = _cases[caseId];
+        bytes32 disputeId = keccak256(abi.encodePacked(address(this), caseId, block.timestamp, bc.reporter, bc.offender));
+
+        bytes32 messageId = ccipSender.sendArbitrationRequest(
             disputeId,
             address(this),
             caseId,
             evidenceHash,
             evidenceURI,
             bc.requestedPenalty,
-            0 // Pay with Native tokens
-        ) returns (bytes32 messageId) {
-            ccipMessageIds[caseId] = messageId;
-            emit CCIPArbitrationRequested(caseId, messageId, disputeId);
-        } catch {
-            // If CCIP fails, continue without it
-            // The case can still be resolved manually
-        }
+            0
+        );
+
+        ccipMessageIds[caseId] = messageId;
+        emit CCIPArbitrationRequested(caseId, messageId, disputeId);
     }
 
-    /**
-     * @notice Manually trigger CCIP arbitration for existing case (by arbitration service)
-     * @param caseId The case ID to arbitrate
-     */
     function triggerCCIPArbitration(uint256 caseId) external payable onlyArbitrationService {
         require(caseId < _cases.length, "Invalid case ID");
         require(ccipEnabled && address(ccipSender) != address(0), "CCIP not available");
-        
+
         BreachCase storage bc = _cases[caseId];
         require(!bc.resolved, "Case already resolved");
-        
-        _triggerCCIPArbitration(caseId, bc.evidenceHash);
+
+        _triggerCCIPArbitration(caseId, bc.evidenceHash, bc.evidenceURI);
     }
 
-    /// @notice Minimal service-only entrypoint for external arbitration service to resolve a breach.
-
-    /// @notice Minimal service-only entrypoint for external arbitration service to resolve a breach.
     function serviceResolve(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary) external onlyActive nonReentrant {
-        require(arbitrationService != address(0), "No arbitration service");
         require(msg.sender == arbitrationService, "Only arbitration service");
         require(caseId < _cases.length, "Invalid case ID");
         require(beneficiary != address(0), "Invalid beneficiary");
 
-        BreachCase storage bc = _cases[caseId];
-        require(!bc.resolved, "Case resolved");
-
-        // Delegate to the internal resolution flow which respects appeal windows
-        // and handles fee bookkeeping consistently.
         _applyResolution(caseId, approve, appliedPenalty, beneficiary);
     }
 
-    // Compatibility shim `resolveByArbitrator` removed. Use `serviceResolve` via a configured `arbitrationService`.
-
-    // Note: arbitrationService is immutable and set at construction by the factory/deployer.
-
-    /// @notice Minimal service-only enforcement entrypoint to transfer penalty without additional checks.
     function serviceEnforce(address guiltyParty, uint256 penaltyAmount, address beneficiary) external nonReentrant {
-        require(arbitrationService != address(0), "No arbitration service");
         require(msg.sender == arbitrationService, "Only arbitration service");
         require(penaltyAmount <= deposits[guiltyParty], "Insufficient deposit");
         require(penaltyAmount > 0, "Penalty must be > 0");
@@ -431,52 +398,25 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
     }
 
-    function getCaseMeta(uint256 caseId) external view returns (string memory classification, string memory rationale) {
+    function getCaseMeta(uint256 caseId) external view returns (bytes32 classificationHash, bytes32 rationaleHash) {
         require(caseId < _cases.length, "Invalid case ID");
         CaseMeta storage m = _caseMeta[caseId];
-        return (m.classification, m.rationale);
+        return (m.classificationHash, m.rationaleHash);
     }
 
     function getOffenderBreachCount(address offender) external view returns (uint256) {
         return offenderBreachCount[offender];
     }
 
-    // Admin functions to tune anti-spam parameters
+    function setDisputeFee(uint256 fee) external onlyArbitrationService { disputeFee = fee; }
+    function setRevealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService { revealWindowSeconds = secondsWindow; }
+    function setAppealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService { appealWindowSeconds = secondsWindow; }
+    function setMinReportInterval(uint256 secondsInterval) external onlyArbitrationService { minReportInterval = secondsInterval; }
+    function setMaxOpenReportsPerReporter(uint256 maxOpen) external onlyArbitrationService { maxOpenReportsPerReporter = maxOpen; }
+    function getRevealDeadline(uint256 caseId) external view returns (uint256) { require(caseId < _cases.length, "Invalid case ID"); return _revealDeadline[caseId]; }
+    function getResolvedAt(uint256 caseId) external view returns (uint256) { require(caseId < _cases.length, "Invalid case ID"); return _resolvedAt[caseId]; }
 
-    function setDisputeFee(uint256 fee) external onlyArbitrationService {
-        disputeFee = fee;
-    }
-
-    function setRevealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService {
-        revealWindowSeconds = secondsWindow;
-    }
-
-    function setAppealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService {
-        appealWindowSeconds = secondsWindow;
-    }
-
-    function getRevealDeadline(uint256 caseId) external view returns (uint256) {
-        require(caseId < _cases.length, "Invalid case ID");
-        return _revealDeadline[caseId];
-    }
-
-    function getResolvedAt(uint256 caseId) external view returns (uint256) {
-        require(caseId < _cases.length, "Invalid case ID");
-        return _resolvedAt[caseId];
-    }
-
-    function setMinReportInterval(uint256 secondsInterval) external onlyArbitrationService {
-        minReportInterval = secondsInterval;
-    }
-
-    function setMaxOpenReportsPerReporter(uint256 maxOpen) external onlyArbitrationService {
-        maxOpenReportsPerReporter = maxOpen;
-    }
-
-    // enforcePenalty removed — enforcement must go through the configured `arbitrationService` via `serviceEnforce`
-
-    /// @notice Finalize any deferred enforcement after appeal window
-    function finalizeEnforcement(uint256 caseId) external onlyActive nonReentrant {
+    function finalizeEnforcement(uint256 caseId) external onlyActive onlyArbitrationService nonReentrant {
         require(caseId < _cases.length, "Invalid case ID");
         require(_pendingEnforcement[caseId].exists, "No pending enforcement");
         require(_resolvedAt[caseId] != 0, "Case not resolved");
@@ -489,23 +429,16 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         if (pe.appliedPenalty > 0) {
             require(pe.appliedPenalty <= deposits[bc.offender], "Insufficient deposit for pending penalty");
             deposits[bc.offender] -= pe.appliedPenalty;
-            // credit beneficiary for pull-based withdrawal
             withdrawable[pe.beneficiary] += pe.appliedPenalty;
             emit PenaltyEnforced(bc.offender, pe.appliedPenalty, pe.beneficiary);
             offenderBreachCount[bc.offender] += 1;
         }
 
         if (pe.fee > 0 && pe.feeRecipient != address(0)) {
-            // credit feeRecipient for pull-based withdrawal
             withdrawable[pe.feeRecipient] += pe.fee;
         }
 
         delete _pendingEnforcement[caseId];
-    }
-
-    function getPendingEnforcement(uint256 caseId) external view returns (uint256 appliedPenalty, address beneficiary, uint256 fee, address feeRecipient, bool exists) {
-        PendingEnforcement storage pe = _pendingEnforcement[caseId];
-        return (pe.appliedPenalty, pe.beneficiary, pe.fee, pe.feeRecipient, pe.exists);
     }
 
     function _applyResolution(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary) internal {
@@ -513,59 +446,32 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         bc.resolved = true;
         bc.approved = approve;
 
-        // record resolved timestamp for appeal window
         _resolvedAt[caseId] = block.timestamp;
 
         uint256 applied = 0;
         if (approve) {
-            // Use the provided appliedPenalty (arbitrator may award different amount)
             applied = appliedPenalty > 0 ? appliedPenalty : bc.requestedPenalty;
-            if (applied > deposits[bc.offender]) {
-                applied = deposits[bc.offender];
-            }
+            if (applied > deposits[bc.offender]) applied = deposits[bc.offender];
+
             if (applied > 0) {
                 if (appealWindowSeconds > 0) {
-                    // defer enforcement until appeal window elapses
-                    _pendingEnforcement[caseId] = PendingEnforcement({ appliedPenalty: applied, beneficiary: beneficiary, fee: 0, feeRecipient: address(0), exists: true });
+                    _pendingEnforcement[caseId] = PendingEnforcement({ appliedPenalty: applied, beneficiary: beneficiary, fee: _caseFee[caseId], feeRecipient: bc.reporter, exists: true });
                 } else {
                     deposits[bc.offender] -= applied;
-                    // credit beneficiary for pull-based withdrawal
                     withdrawable[beneficiary] += applied;
+                    if (_caseFee[caseId] > 0) withdrawable[bc.reporter] += _caseFee[caseId];
                 }
+            }
+        } else {
+            if (appealWindowSeconds > 0) {
+                _pendingEnforcement[caseId] = PendingEnforcement({ appliedPenalty: 0, beneficiary: beneficiary, fee: _caseFee[caseId], feeRecipient: beneficiary, exists: true });
+            } else {
+                if (_caseFee[caseId] > 0) withdrawable[beneficiary] += _caseFee[caseId];
             }
         }
 
-        // bookkeeping: decrement open reports and settle dispute fee
         openReportsCount[bc.reporter] = openReportsCount[bc.reporter] > 0 ? openReportsCount[bc.reporter] - 1 : 0;
-        if (_caseFee[caseId] > 0) {
-            uint256 f = _caseFee[caseId];
-            _caseFee[caseId] = 0;
-            if (approve) {
-                if (appealWindowSeconds > 0) {
-                    // associate fee refund with pending enforcement so it is sent along
-                    if (_pendingEnforcement[caseId].exists) {
-                        _pendingEnforcement[caseId].fee = f;
-                        _pendingEnforcement[caseId].feeRecipient = bc.reporter;
-                    } else {
-                        // no pending enforcement, credit reporter immediately
-                        withdrawable[bc.reporter] += f;
-                    }
-                } else {
-                    withdrawable[bc.reporter] += f;
-                }
-            } else {
-                if (appealWindowSeconds > 0) {
-                    if (_pendingEnforcement[caseId].exists) {
-                        _pendingEnforcement[caseId].fee = f;
-                        _pendingEnforcement[caseId].feeRecipient = beneficiary;
-                    } else {
-                        withdrawable[beneficiary] += f;
-                    }
-                } else {
-                    withdrawable[beneficiary] += f;
-                }
-            }
-        }
+        _caseFee[caseId] = 0;
         if (approve) offenderBreachCount[bc.offender] += 1;
 
         emit BreachResolved(caseId, approve, applied, bc.offender, beneficiary);
@@ -578,33 +484,34 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         emit ContractDeactivated(msg.sender, reason);
     }
 
-    function getContractStatus() external view returns (
-        bool isActive,
-        bool fullySigned,
-        uint256 totalDeposits,
-        uint256 activeCases
-    ) {
+    function getContractStatus() external view returns (bool isActive, bool fullySigned, uint256 totalDeposits, uint256 activeCases) {
         uint256 totalDepositsValue;
-        uint256 partiesLen = _parties.length;
-        for (uint256 i = 0; i < partiesLen; ) {
+        for (uint256 i = 0; i < _parties.length; ) {
             totalDepositsValue += deposits[_parties[i]];
             unchecked { ++i; }
         }
 
         uint256 unresolvedCases;
-        uint256 casesLen = _cases.length;
-        for (uint256 j = 0; j < casesLen; ) {
-            if (!_cases[j].resolved) {
-                unresolvedCases++;
-            }
+        for (uint256 j = 0; j < _cases.length; ) {
+            if (!_cases[j].resolved) unresolvedCases++;
             unchecked { ++j; }
         }
 
-        return (
-            active,
-            isFullySigned(),
-            totalDepositsValue,
-            unresolvedCases
-        );
+        return (active, isFullySigned(), totalDepositsValue, unresolvedCases);
+    }
+
+    function _toHexString(bytes32 data) internal pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory str = new bytes(64);
+        for (uint256 i = 0; i < 32; i++) {
+            str[i*2] = alphabet[uint8(data[i] >> 4)];
+            str[1+i*2] = alphabet[uint8(data[i] & 0x0f)];
+        }
+        return string(str);
+    }
+
+    function getPendingEnforcement(uint256 caseId) external view returns (uint256 appliedPenalty, address beneficiary, uint256 fee, address feeRecipient, bool exists) {
+        PendingEnforcement storage pe = _pendingEnforcement[caseId];
+        return (pe.appliedPenalty, pe.beneficiary, pe.fee, pe.feeRecipient, pe.exists);
     }
 }
