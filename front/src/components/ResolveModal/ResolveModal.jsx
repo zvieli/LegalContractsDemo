@@ -10,405 +10,67 @@ import * as ethers from 'ethers';
 import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
 import { createContractInstanceAsync, getLocalDeploymentAddresses } from '../../utils/contracts';
 import './ResolveModal.css';
-import { decryptCiphertextJson } from '../../utils/adminDecrypt';
-import { computeDigestForCiphertext, prepareEvidencePayload } from '../../utils/evidence';
 import useEvidenceFlow from '../../hooks/useEvidenceFlow';
-import { isAdminDecryptEnabled } from '../../utils/env';
 
 function EvidencePanel({ initialEvidenceRef }) {
   // EvidencePanel now treats the passed value as a generic evidence reference
   // which may be an ipfs:// URI or the legacy keccak256 digest (0x...)
   const ref = initialEvidenceRef || '';
   const [evidenceText, setEvidenceText] = useState(ref);
+
+  // Example renderBody implementation (replace with your actual logic)
   const renderBody = () => {
     if (!ref) return <span style={{color:'#888'}}>No evidence reference available on-chain</span>;
     const s = String(ref || '').trim();
+    // Render the evidence reference (IPFS or digest)
     if (s.startsWith('ipfs://')) {
       const cid = s.replace(/^ipfs:\/\//, '');
-      const gateway = `https://ipfs.io/ipfs/${cid}`;
       return (
         <div>
           <div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{s}</code></div>
-          <div><a href={gateway} target="_blank" rel="noreferrer">Open on IPFS gateway ({gateway})</a></div>
+          <div><a href={`https://ipfs.io/ipfs/${cid}`} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div>
         </div>
       );
+    } else {
+      return (
+        <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8}}>{s}</pre>
+      );
     }
-    // Legacy hex digest or arbitrary string: show verbatim
-    return <pre style={{whiteSpace:'pre-wrap', maxHeight:240, overflow:'auto', background:'#fafafa', padding:8}}>{s}</pre>;
   };
 
   return (
-    <div style={{marginTop:12, padding:12, border:'1px solid #eee', borderRadius:6}}>
-      <h4>Evidence</h4>
-      <div style={{marginTop:8}}>
-        <div style={{fontSize:13, color:'#555', marginBottom:6}}>Evidence for this dispute is stored off-chain (encrypted). The contract stores only a reference (IPFS URI or keccak256 digest) for integrity.</div>
-        {renderBody()}
+    <div style={{marginTop:12, padding:12, border:'1px solid #eee', borderRadius:6, background:'#fafafa'}}>
+      <div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence (on-chain reference):</div>
+      {renderBody()}
+      <div style={{marginTop:8, fontSize:12, color:'#555'}}>
+        The full evidence payload is stored off-chain encrypted to the platform admin and is not available in this browser. Contact the platform administrator to request decryption if you are authorized.
       </div>
     </div>
   );
 }
 
-// Export EvidencePanel so tests can import and render it directly
-export { EvidencePanel }
 
-export default function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onResolved }) {
-  const [decision, setDecision] = useState('approve'); // approve | deny
-  const [rationale, setRationale] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [loadingFee, setLoadingFee] = useState(false);
-  const [requiredFeeWei, setRequiredFeeWei] = useState(0n);
-  const [requiredFeeEth, setRequiredFeeEth] = useState('0');
-  const [disputeInfo, setDisputeInfo] = useState(null); // { caseId, requestedAmountWei, initiator }
-  const [reporterBondEth, setReporterBondEth] = useState('0');
-  const [initiatorWithdrawableEth, setInitiatorWithdrawableEth] = useState('0');
-  const [arbOwnerWithdrawableEth, setArbOwnerWithdrawableEth] = useState('0');
-  const [arbOwnerAddr, setArbOwnerAddr] = useState(null);
-  const [withdrawing, setWithdrawing] = useState(false);
-  const [loadingDispute, setLoadingDispute] = useState(false);
-  const [account, setAccount] = useState(null);
-  const [disputeAmountEth, setDisputeAmountEth] = useState('0');
-  const [landlordDepositEth, setLandlordDepositEth] = useState('0');
-  const [tenantDepositEth, setTenantDepositEth] = useState('0');
-  const [debtorDepositEth, setDebtorDepositEth] = useState('0');
-  const [debtorDepositWei, setDebtorDepositWei] = useState(0n);
-  const [willBeDebitedEth, setWillBeDebitedEth] = useState('0');
-  const [debtRemainderEth, setDebtRemainderEth] = useState('0');
-  const [appealLocal, setAppealLocal] = useState(null);
-  const [confirmPay, setConfirmPay] = useState(false);
-  const [forwardEth, setForwardEth] = useState('');
-  const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
-  const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
-  const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
-  const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
-  const [adminDecrypted, setAdminDecrypted] = useState(null);
-  const [adminDigest, setAdminDigest] = useState(null);
-  const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
-  const [adminAutoTried, setAdminAutoTried] = useState(false);
-  const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
-  const [fetchStatusMessage, setFetchStatusMessage] = useState(null);
-  const [fetchedUrl, setFetchedUrl] = useState(null);
-  // evidenceProgress: { stage: 'idle'|'preparing'|'uploading'|'tx'|'register', status: 'pending'|'success'|'failed', cid?, txHash?, message? }
-  const [evidenceProgress, setEvidenceProgress] = useState({ stage: 'idle', status: 'pending' });
 
-  // Evidence endpoint and admin pub (runtime-configurable)
-  const apiBase = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || '';
-  const adminPub = (import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_ADMIN_PUBLIC_KEY) || '';
-
-  // submitToContract: used by useEvidenceFlow to perform the on-chain finalize/applyResolution step.
-  const submitToContract = React.useCallback(async ({ digest: dg }) => {
-    // Reuse the same on-chain finalization logic that handleSubmit uses.
-    try {
-      const svc = new ContractService(signer, chainId);
-      // find arbitration service address
-      let arbAddr = null;
-      try {
-        const rent = await svc.getRentContract(contractAddress);
-        arbAddr = await rent.arbitrationService().catch(() => null);
-      } catch (_) { arbAddr = null; }
-
-      if (!arbAddr || arbAddr === '0x0000000000000000000000000000000000000000') {
-        try {
-          const local = await getLocalDeploymentAddresses();
-          arbAddr = local?.ArbitrationService || null;
-        } catch (_) { arbAddr = null; }
-      }
-
-      if (!arbAddr) throw new Error('No ArbitrationService configured. Cannot finalize on-chain.');
-
-      // Authorization preflight
-      try {
-        const svc2 = new ContractService(signer, chainId);
-        const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, signer.provider || signer);
-        const ownerAddr = await arbRead.owner().catch(() => null);
-        const factoryAddr = await arbRead.factory().catch(() => null);
-        const me = (await signer.getAddress?.()).toLowerCase();
-        const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
-        if (!allowed) throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
-      } catch (authErr) {
-        throw authErr;
-      }
-
-      // Perform the resolution via ArbitrationService. Use applyResolutionToTargetViaService for dispute payments, otherwise finalizeCancellationViaService.
-      const svc2 = new ContractService(signer, chainId);
-      if (disputeInfo && disputeInfo.requestedAmountWei > 0n) {
-        let forwardWei = 0n;
-        try { forwardWei = forwardEth && Number(forwardEth) > 0 ? ethers.parseEther(String(forwardEth)) : 0n; } catch (_) { forwardWei = 0n; }
-        const tx = await svc2.applyResolutionToTargetViaService(arbAddr, contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
-        return tx;
-      } else {
-        const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
-        const tx = await svc2.finalizeCancellationViaService(arbAddr, contractAddress, feeToSend);
-        return tx;
-      }
-    } catch (e) {
-      throw e;
-    }
-  }, [signer, chainId, contractAddress, disputeInfo, forwardEth, requiredFeeWei]);
-
-  const { uploadAndSubmit } = useEvidenceFlow({ submitToContract, apiBaseUrl: apiBase });
-
-  // Enable admin decrypt only when explicitly allowed via environment (demo/dev only)
-  const ENABLE_ADMIN_DECRYPT = isAdminDecryptEnabled();
-
-  // Utility: download plaintext as a file (demo convenience)
-  const handleDownloadPlaintext = () => {
-    try {
-      if (!adminDecrypted) return;
-      const blob = new Blob([adminDecrypted], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `evidence-${disputeInfo?.caseId ?? 'unknown'}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 2000);
-    } catch (e) {
-      console.warn('Download failed', e);
-      alert('Download failed: ' + (e?.message || e));
-    }
-  };
-
-  // Utility: copy digest to clipboard
-  const handleCopyDigest = async () => {
-    try {
-      if (!adminDigest) return;
-      if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(adminDigest);
-        alert('Digest copied to clipboard');
-      } else {
-        // fallback
-        const ta = document.createElement('textarea');
-        ta.value = adminDigest;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
-        alert('Digest copied to clipboard');
-      }
-    } catch (e) {
-      console.warn('Copy failed', e);
-      alert('Copy failed: ' + (e?.message || e));
-    }
-  };
-
-  // Deposit confirmation modal state
-  const [depositConfirmOpen, setDepositConfirmOpen] = useState(false);
-  const [depositConfirmAmount, setDepositConfirmAmount] = useState('0');
-  const [depositConfirmAction, setDepositConfirmAction] = useState(null);
-  const [depositConfirmBusy, setDepositConfirmBusy] = useState(false);
-
-  // ... use imported parseEtherSafe and formatEtherSafe from utils/eth
-
-  useEffect(() => {
-    // When modal opens, attempt to compute required early-termination fee (if any)
-    let mounted = true;
-    const loadFee = async () => {
-      if (!isOpen || !contractAddress || !signer) return;
-      setLoadingFee(true);
-      try {
-        const svc = new ContractService(signer, chainId);
-        const rent = await svc.getRentContract(contractAddress);
-        const feeBps = Number(await rent.earlyTerminationFeeBps().catch(() => 0));
-        if (feeBps > 0) {
-          // getRentInEth returns wei (uint256)
-          const rentWei = BigInt(await rent.getRentInEth());
-          const required = (rentWei * BigInt(feeBps)) / 10000n;
-          if (mounted) {
-            setRequiredFeeWei(required);
-            try { setRequiredFeeEth(ethers.formatEther(required)); } catch { setRequiredFeeEth(String(required)); }
-          }
-        } else {
-          if (mounted) {
-            setRequiredFeeWei(0n);
-            setRequiredFeeEth('0');
-          }
-        }
-      } catch (e) {
-        console.debug('Could not compute required fee:', e);
-        if (mounted) {
-          setRequiredFeeWei(0n);
-          setRequiredFeeEth('0');
-        }
-      } finally {
-        if (mounted) setLoadingFee(false);
-      }
-    };
-    loadFee();
-    // Also attempt to load a pending dispute (case) on the rent contract if present
-    const loadDispute = async () => {
-      // Defensive: require modal to be open and have a valid contract address and signer
-      if (!isOpen || !contractAddress || !signer) {
-        setLoadingDispute(false);
-        return;
-      }
-      setLoadingDispute(true);
-      try {
-        try { const me = await signer.getAddress?.(); setAccount(me || null); } catch (_) { setAccount(null); }
-        const svc = new ContractService(signer, chainId);
-        // If contractAddress is falsy, svc.getRentContract will throw; avoid that.
-        const rent = await svc.getRentContract(contractAddress);
-        // Try to find the most recent dispute/case on-chain via getDisputesCount/getDispute
-        const count = Number(await rent.getDisputesCount().catch(() => 0));
-        if (count > 0) {
-          // Walk backwards to find the first unresolved case
-          for (let i = count - 1; i >= 0; i--) {
-            try {
-              const d = await rent.getDispute(i);
-              // getDispute returns: (initiator, dtype, requestedAmount, evidence, resolved, approved, appliedAmount)
-              const initiator = d[0];
-              const requestedAmount = BigInt(d[2] || 0);
-              const resolved = !!d[4];
-                if (!resolved) {
-                // compute debtor address (the counterparty) and store it on disputeInfo
-                const landlordAddr = await rent.landlord();
-                const tenantAddr = await rent.tenant();
-                const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
-                // include the on-chain evidenceDigest field (d[3]) so the UI can link to the canonical JSON
-                const evidenceOnChain = (d && typeof d[3] !== 'undefined') ? d[3] : null;
-                setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, debtor: debtorAddr, evidenceRef: evidenceOnChain });
-                // reset any per-modal confirmPay/forwardEth state when loading a new dispute
-                try { setConfirmPay(false); setForwardEth(''); } catch (_) {}
-                try { setDisputeAmountEth(formatEtherSafe(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
-
-                // Try to fetch per-party deposit balances so the arbitrator
-                // can see available funds and any remainder that will become debt.
-                try {
-                  const landlordAddr = await rent.landlord();
-                  const tenantAddr = await rent.tenant();
-                  const landlordDep = BigInt(await rent.partyDeposit(landlordAddr));
-                  const tenantDep = BigInt(await rent.partyDeposit(tenantAddr));
-                  setLandlordDepositEth(formatEtherSafe(landlordDep));
-                  setTenantDepositEth(formatEtherSafe(tenantDep));
-
-                  const debtorAddr = String(initiator).toLowerCase() === String(landlordAddr).toLowerCase() ? tenantAddr : landlordAddr;
-                  const debtorDep = BigInt(await rent.partyDeposit(debtorAddr));
-                  setDebtorDepositEth(formatEtherSafe(debtorDep));
-                  setDebtorDepositWei(debtorDep);
-
-                  const toApply = requestedAmount > debtorDep ? debtorDep : requestedAmount;
-                  const remainder = requestedAmount > debtorDep ? requestedAmount - debtorDep : 0n;
-                  setWillBeDebitedEth(formatEtherSafe(toApply));
-                  setDebtRemainderEth(formatEtherSafe(remainder));
-                  // Read reporter bond and withdrawable balances (best-effort via service helpers)
-                    try {
-                      const svc2 = new ContractService(signer, chainId);
-                      const bond = BigInt(await svc2.getDisputeBond(contractAddress, i).catch(() => 0n));
-                      setReporterBondEth(formatEtherSafe(bond));
-                      const initW = BigInt(await svc2.getWithdrawable(contractAddress, initiator).catch(() => 0n));
-                      setInitiatorWithdrawableEth(formatEtherSafe(initW));
-                      // Also read withdrawable for arbitration owner (best-effort via arbitrationService lookup)
-                      try {
-                        const arbSvc = new ArbitrationService(signer, chainId);
-                        const owner = await arbSvc.getArbitrationServiceOwnerByNDA(contractAddress).catch(() => null);
-                        if (owner) {
-                          setArbOwnerAddr(owner);
-                          const arbW = BigInt(await svc2.getWithdrawable(contractAddress, owner).catch(() => 0n));
-                          setArbOwnerWithdrawableEth(formatEtherSafe(arbW));
-                        }
-                      } catch (_) { /* ignore */ }
-                    } catch (bondErr) {
-                      console.debug('Bond/withdrawable read failed', bondErr);
-                    }
-                } catch (dErr) {
-                  console.debug('Could not read party deposits:', dErr);
-                }
-
-                // Try to fetch reporter bond and withdrawable balances
-                  try {
-                    const svc = new ContractService(signer, chainId);
-                    const bond = BigInt(await svc.getDisputeBond(contractAddress, i));
-                    setReporterBondEth(ethers.formatEther(bond));
-                    const initW = BigInt(await svc.getWithdrawable(contractAddress, initiator));
-                    setInitiatorWithdrawableEth(ethers.formatEther(initW));
-                  // arbitration owner withdrawable - best-effort: read arbitrationService owner then withdrawable
-                  try {
-                    const rent = await svc.getRentContract(contractAddress);
-                    const svcAddr = await rent.arbitrationService().catch(() => null);
-                    if (svcAddr && svcAddr !== '0x0000000000000000000000000000000000000000') {
-                      const arbSvc = await createContractInstanceAsync('ArbitrationService', svcAddr, signer);
-                      const owner = await arbSvc.owner().catch(() => null);
-                        if (owner) {
-                        const ownersW = BigInt(await svc.getWithdrawable(contractAddress, owner));
-                        setArbOwnerWithdrawableEth(ethers.formatEther(ownersW));
-                      }
-                    }
-                  } catch (_) {}
-                } catch (bErr) {
-                  console.debug('Could not read reporter bond or withdrawables:', bErr);
-                }
-
-                break;
-              }
-            } catch (_) { }
-          }
-        }
-      } catch (e) {
-        console.debug('Could not load dispute info:', e);
-      } finally {
-        setLoadingDispute(false);
-      }
-    };
-    loadDispute();
-    // Listen for DisputeFiled events from the contract so debtor can be notified in other UIs
-    let cleanupFn = null;
-    try {
-      if (contractAddress && signer) {
-        const svc = new ContractService(signer, chainId);
-        (async () => {
-          try {
-            const rent = await svc.getRentContract(contractAddress);
-            const filter = rent.filters?.DisputeFiled?.();
-            if (filter) {
-              const onFiled = (caseId, debtor, requestedAmount) => {
-                try {
-                  const me = signer && signer.getAddress ? signer.getAddress() : null;
-                  // If I'm the debtor, show a local incomingDispute marker so UI surfaces deposit button
-                  (async () => {
-                    try {
-                      const myAddr = await (me instanceof Promise ? me : Promise.resolve(me));
-                      if (!myAddr) return;
-                      if (String(myAddr).toLowerCase() === String(debtor).toLowerCase()) {
-                        const incoming = { contractAddress, caseId: Number(caseId), requestedAmount: BigInt(requestedAmount || 0).toString(), createdAt: Date.now() };
-                        try { localStorage.setItem(`incomingDispute:${contractAddress}`, JSON.stringify(incoming)); } catch(_) {}
-                        setAppealLocal(incoming);
-                        // update disputeInfo if modal open
-              setDisputeInfo(prev => ({ caseId: Number(caseId), requestedAmountWei: BigInt(requestedAmount || 0), initiator: prev?.initiator || null, evidenceRef: prev?.evidenceRef || null }));
-              try { setConfirmPay(false); } catch (_) {}
-                        try { setDebtorDepositWei(BigInt(requestedAmount || 0)); setDebtorDepositEth(ethers.formatEther(BigInt(requestedAmount || 0))); } catch (_) {}
-                      }
-                    } catch (_) {}
-                  })();
-                } catch (_) {}
-              };
-              rent.on(filter, onFiled);
-              cleanupFn = () => { try { rent.off(filter, onFiled); } catch (_) {} };
-            }
-          } catch (_) {}
-        })();
-      }
-    } catch (_) {}
     // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
-    try {
-      const key1 = `incomingDispute:${contractAddress}`;
-      const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
-      let js = null;
-      try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
-      if (!js) {
-        try {
-          const sess = sessionStorage.getItem('incomingDispute');
-          if (sess) {
-            const o = JSON.parse(sess);
-            if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) js = sess;
-          }
-        } catch (_) { js = js; }
-      }
-      if (js) {
-        try { setAppealLocal(JSON.parse(js)); } catch { setAppealLocal(null); }
-      } else setAppealLocal(null);
-    } catch (_) { setAppealLocal(null); }
-    return () => { mounted = false; if (cleanupFn) cleanupFn(); };
-  }, [isOpen, contractAddress, signer, chainId]);
+    const key1 = `incomingDispute:${contractAddress}`;
+    const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+    let js = null;
+    try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
+    if (!js) {
+      try {
+        const sess = sessionStorage.getItem('incomingDispute');
+        if (sess) {
+          const o = JSON.parse(sess);
+          if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) js = sess;
+        }
+      } catch (_) { js = js; }
+    }
+    if (js) {
+      try { setAppealLocal(JSON.parse(js)); } catch { setAppealLocal(null); }
+    } else setAppealLocal(null);
+
+
+
 
   // Helper to refresh dispute-related state without reloading the page
   const refreshDisputeState = async () => {
@@ -446,6 +108,7 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
       }
     } catch (e) { console.debug('refreshDisputeState failed', e); }
   };
+
 
   useEffect(() => {
     let mounted = true;
@@ -1028,7 +691,8 @@ export default function ResolveModal({ isOpen, onClose, contractAddress, signer,
           </div>
         </form>
       </div>
-      <ConfirmPayModal open={depositConfirmOpen} title="Confirm deposit" amountEth={depositConfirmAmount} details={`This will deposit funds for case ${disputeInfo?.caseId || ''}.`} onConfirm={async () => { if (depositConfirmAction) await depositConfirmAction(); setDepositConfirmOpen(false); }} onCancel={() => setDepositConfirmOpen(false)} busy={depositConfirmBusy} />
-    </div>
-  );
-}
+        <ConfirmPayModal open={depositConfirmOpen} title="Confirm deposit" amountEth={depositConfirmAmount} details={`This will deposit funds for case ${disputeInfo?.caseId || ''}.`} onConfirm={async () => { if (depositConfirmAction) await depositConfirmAction(); setDepositConfirmOpen(false); }} onCancel={() => setDepositConfirmOpen(false)} busy={depositConfirmBusy} />
+      </div>
+    );
+
+      

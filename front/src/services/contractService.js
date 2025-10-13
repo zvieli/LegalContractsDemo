@@ -1,3 +1,28 @@
+/**
+ * Subscribe to contract events (e.g., RentContractCreated, DisputeReported, ResolutionApplied)
+ * Usage: contractService.subscribeToEvents(contractAddress, eventName, callback)
+ * Automatically uses ethers.js provider for local/Chainlink events.
+ */
+export function subscribeToEvents(contractAddress, abi, eventName, callback, options = {}) {
+  // Create a contract instance with the provider (not signer, for event listening)
+  const { ethers } = require('ethers');
+  const provider = options.provider || new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+  const contract = new ethers.Contract(contractAddress, abi, provider);
+  // Remove previous listeners for this event to avoid duplicates
+  contract.removeAllListeners(eventName);
+  contract.on(eventName, (...args) => {
+    // Last argument is the event object
+    const event = args[args.length - 1];
+    callback({ args: args.slice(0, -1), event });
+  });
+  return contract;
+}
+
+  /**
+   * Example: Subscribe to RentContractCreated events from the factory
+   * Usage: contractService.subscribeToEvents(factoryAddress, factoryAbi, 'RentContractCreated', (data) => { ... })
+   */
+  // You can add more event-specific helpers here as needed
 import * as ethers from 'ethers';
 import { contract } from './contractInstance.js';
 import { computePayloadDigest } from '../utils/cidDigest';

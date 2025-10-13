@@ -14,100 +14,36 @@ Arbitration-driven on-chain contract templates (NDA & Rent). This repository pro
 - **NEW**: ⚡ **Improved Performance** - Direct Ollama integration eliminates API overhead
 - **NEW**: 🌳 **Merkle Evidence System** - Gas-efficient batched evidence submission with 82% cost savings
 - **NEW**: 🧹 **Unified Deployment** - Single `deploy.js` script for all infrastructure (replaces 3 separate scripts)
-- **DEPRECATED**: 🗑️ Python FastAPI arbitrator (moved to `tools/legacy/`)
-- Enhanced `ArbitrationService.sol` with improved validation and event emission
-- Updated E2E tests for modern ethers v6 API compatibility
-- **NEW**: Comprehensive E2E test suite with Playwright for V7 integration
 
 ## Overview
 
-This repo demonstrates how to encode dispute resolution into smart contracts and resolve disputes using **Ollama LLM-powered arbitration** with automatic fallback mechanisms.
 
 What you get:
 - `NDATemplate` contract with deposits, breach reporting and arbitrator hooks
 - `TemplateRentContract` with AI arbitration and deposit capping mechanisms
 - **V7 Backend**: Integrated Ollama LLM arbitration with simulation fallback
-- Enhanced `ArbitrationService` with comprehensive validation
-- Hardhat tests and scripts to deploy/configure the complete system
-- **No Python dependencies** - Pure Node.js implementation
-
 ## Architecture
 
-- **V7 Backend Server:**
-	- `server/index.js` — Unified V7 backend with Ollama LLM integration
-	- `server/modules/ollamaLLMArbitrator.js` — Direct Ollama integration with fallback
-	- `server/modules/llmArbitrationSimulator.js` — Rule-based simulation for testing/fallback
 	- Evidence validation, time management, and arbitration processing
 
-- **Smart Contracts:**
-	- `ArbitrationService.sol` — Central dispatcher applying arbitration decisions to target contracts
-	- `NDATemplate.sol` — NDA between parties with deposits, breach reporting and arbitration hooks
-	- `TemplateRentContract.sol` — Rent contract with dispute reporting and AI arbitration
-	- `Arbitrator.sol` — Reference implementation for manual arbitration (legacy fallback)
 
-- **API Endpoints (V7):**
-	- `POST /api/v7/arbitration/ollama` — Ollama LLM arbitration (primary)
-	- `POST /api/v7/arbitration/simulate` — Simulation mode arbitration (fallback)
-
-## Project Structure
-
-The project is organized for clarity and maintainability:
-
-```
-LegalContractsDemo/
-├── contracts/          # Smart contracts (Solidity)
-├── server/             # V7 Backend (Node.js + Ollama)
-│   ├── modules/        # LLM arbitration modules
-│   └── test/           # Backend tests
 ├── front/              # Frontend (Vite + MetaMask)
-├── docs/               # Main documentation
-│   └── archive/        # Historical documentation
-├── scripts/            # Deployment and utility scripts
-├── logs/               # Log files and outputs
-├── test/               # Contract tests (Hardhat)
-├── WALLETS.txt         # Important wallet information
-└── README.md           # This file
-```
-
 ### Key Files
 - **`.env`** - Environment configuration with optimized LLM settings
-- **`hardhat.config.js`** - Hardhat configuration
-- **`package.json`** - Project dependencies
 - **`WALLETS.txt`** - Wallet addresses and keys (IMPORTANT!)
-
-### Documentation
 - **Main docs**: `docs/` - Current specifications and guides
 - **Archive**: `docs/archive/` - Historical migration documentation
 - **Optimization**: `docs/LLM_OPTIMIZATION_GUIDE.md` - LLM performance tuning
 	- `GET /api/v7/arbitration/ollama/health` — Ollama service health check
 
-### V7 Arbitration Flow
-
+```mermaid
+flowchart LR
+	S[Smart Contract] -- dispute --> B[V7 Backend Server]
+	B --> O[🦙 Ollama LLM]
+	B --> Sim[🎯 Simulation]
+	B --> E[📊 Evidence]
+	O & Sim & E --> ARB[Arbitration (JSON Response)]
 ```
- ┌──────────────┐     dispute      ┌────────────────────┐
- │ Smart        │ ─────────────▶   │ V7 Backend Server  │
- │ Contract     │                  │ (Node.js + Ollama) │
- └──────────────┘                  └─────────┬──────────┘
-                                            │
-                ┌──────────────────┬────────▼─────────────┐
-                │                  │                      │
-                ▼                  ▼                      ▼
-        ┌───────────────┐  ┌─────────────────┐  ┌─────────────────┐
-        │ 🦙 Ollama LLM │  │ 🎯 Simulation   │  │ 📊 Evidence     │
-        │ Primary AI    │  │ Fallback Mode   │  │ Validation      │
-        │ Arbitration   │  │ Rule-based      │  │ IPFS/Helia      │
-        └───────────────┘  └─────────────────┘  └─────────────────┘
-                │                  │                      │
-                └──────────────────┼──────────────────────┘
-                                   │
-                                   ▼
-                           ┌─────────────────┐
-                           │ Arbitration     │
-                           │ Decision        │
-                           │ (JSON Response) │
-                           └─────────────────┘
-```
-
 ### ArbitrationService (wiring & notes)
 
 - Purpose: central, owner-controlled service that applies arbitrator resolutions to template contracts using low-level ABI attempts. This keeps template bytecode small and avoids coupling templates to a specific arbitrator ABI.
@@ -132,34 +68,15 @@ Flow (prod / local):
 
 ### NDA Contract Deployment & Arbitration Flow Diagram
 
-```
- (Deployment Phase)
- ┌──────────────┐        creates        ┌────────────────────┐
- │ Deployer /   │ ───────────────────▶  │ ContractFactory    │
- │ Frontend     │                      │ (creates templates)│
- └──────────────┘                       └─────────┬──────────┘
-											 │ createNDA()
-											 ▼
- ┌──────────────────────────────────────────────────────────┐
- │                     NDATemplate                          │
- │  - deposits(A,B)                                         │
- │  - reportBreach(offender, requested, evidenceHash)       │
- │  - stores case state                                     │
- │  - receives resolution (approve, penalty, beneficiary)   │
- └──────────┬───────────────────────────────┬───────────────┘
-						│
-						│ reportBreach(offender, requested, evidenceHash)
-						▼
-	 ┌──────────────────┐
-	 │ Arbitrator        │
-	 │ (owner / manual)  │
-	 └─────────┬─────────┘
-						 │ resolve() call (owner)
-						 ▼
-			NDATemplate.applyResolution()
-						 │
-						 ▼
-		 Funds distribution + case closed
+```mermaid
+flowchart TD
+	subgraph Deployment
+		D[Deployer / Frontend] -- creates --> F[ContractFactory]
+		F -- createNDA() --> N[NDATemplate]
+	end
+	N -- reportBreach(offender, requested, evidenceHash) --> A[Arbitrator (owner/manual)]
+	A -- resolve() call (owner) --> N2[NDATemplate.applyResolution]
+	N2 -- Funds distribution + case closed --> End[End]
 ```
 
 > **Note:** All template deployments in this repo are intended to be created via `ContractFactory`.

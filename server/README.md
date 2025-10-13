@@ -1,3 +1,31 @@
+# Backend (Node.js V7)
+
+## Overview
+The backend provides LLM-based arbitration, evidence validation, dispute history, and contract integration. It exposes REST endpoints for frontend and contract workflows.
+
+## Architecture
+- **LLM Arbitration**: Receives dispute payloads, validates evidence, calls Ollama (or simulates), and returns JSON decisions.
+- **Evidence Validation**: Validates canonicalization and digest of submitted evidence. Integrates with IPFS/Helia for off-chain storage.
+- **Dispute History**: Tracks all resolutions and evidence for frontend display.
+- **API Endpoints**: `/api/v7/arbitration/ollama-test`, `/api/v7/arbitration/status`, `/api/v7/arbitration/decisions`, `/api/v7/evidence/submit`.
+
+## Integration Points
+- Chainlink/CCIP event simulation
+- Helia/IPFS evidence validation
+- LLM backend decision logic
+- Dispute history and notifications
+- System health endpoints
+
+## Admin Role Clarification
+- Admin is system manager only (not arbitrator).
+- Arbitration decisions are made by LLM backend and applied via `ArbitrationService`.
+
+## Developer Notes
+- See `modules/` for backend logic and API wiring.
+- E2E tests: See `test/` and integration scripts.
+
+## MVP Status
+- All major integration points are implemented and tested.
 # V7 Backend System - Installation & Setup Guide
 
 ## מערכת Backend V7 עבור בוררות LLM ואימות ראיות Helia

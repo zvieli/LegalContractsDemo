@@ -1,68 +1,93 @@
-import { useEthers } from '../../../contexts/EthersContext';
-import './WalletConnector.css';
+import React, { useState, useEffect } from 'react';
 
-function WalletConnector() {
-  const { 
-    account, 
-    isConnected, 
-    loading, 
-    isConnecting, // הוספתי את זה
-    connectWallet, 
-    disconnectWallet 
-  } = useEthers();
+function detectRole(address) {
+  if (!address) return 'guest';
+  if (address.toLowerCase() === '0xadminaddress') return 'admin';
+  if (address.toLowerCase() === '0xsystemaddress') return 'system';
+  return 'user';
+}
 
-  const formatAddress = (address) => {
-    if (!address) return '';
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
-  };
+function formatAddress(address) {
+  return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
+}
 
-  const handleConnect = async () => {
-    if (isConnecting) {
-      console.log('Connection already in progress...');
-      return;
-    }
+export default function WalletConnector({ onWallet }) {
+  const [address, setAddress] = useState(null);
+  const [role, setRole] = useState('guest');
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+
+  async function connectWallet() {
+    setLoading(true);
+    setError(null);
+    setIsConnecting(true);
     try {
-      await connectWallet();
-    } catch (err) {
-      console.error('Connect wallet failed:', err);
-      if (err && err.code === 'NO_WALLET') {
-        alert('MetaMask not found. Please install MetaMask or use the Local RPC option.');
-      } else if (err && err.code === -32002) {
-        alert('MetaMask is already processing a request. Please check your MetaMask window.');
+      if (window.ethereum) {
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        const addr = accounts[0];
+        setAddress(addr);
+        setRole(detectRole(addr));
+        if (onWallet) onWallet(addr);
       } else {
-        alert('Failed to connect wallet: ' + (err && err.message ? err.message : String(err)));
+        setError('לא נמצא ספק Ethereum (כמו MetaMask)');
       }
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
+      setLoading(false);
+      setIsConnecting(false);
     }
-  };
+  }
+
+  function disconnectWallet() {
+    setAddress(null);
+    setRole('guest');
+    if (onWallet) onWallet(null);
+  }
+
+  // אם כבר יש ארנק מחובר
+  useEffect(() => {
+    if (window.ethereum && window.ethereum.selectedAddress) {
+      const addr = window.ethereum.selectedAddress;
+      setAddress(addr);
+      setRole(detectRole(addr));
+      if (onWallet) onWallet(addr);
+    }
+  }, [onWallet]);
 
   if (loading) {
     return (
       <div className="wallet-connector">
-        <div className="wallet-loading">Loading...</div>
+        <div className="wallet-loading">טוען...</div>
       </div>
     );
   }
 
   return (
-    <div className="wallet-connector">
-      {isConnected && account ? (
-        <div className="connected-wallet">
-          <span className="wallet-address">
-            <i className="fas fa-wallet"></i>
-            {formatAddress(account)}
+    <div className="wallet-connector" style={{ marginBottom: 18 }}>
+      {address ? (
+        <div className="connected-wallet" style={{ display: 'flex', alignItems: 'center' }}>
+          <span className="wallet-address" style={{ fontWeight: 'bold', color: '#2a7' }}>
+            <i className="fas fa-wallet" style={{ marginRight: 6 }}></i>
+            {formatAddress(address)}
           </span>
-          <button 
+          <span className="wallet-role" style={{ marginLeft: 12, color: '#888' }}>
+            Role: <strong>{role}</strong>
+          </span>
+          <button
             onClick={disconnectWallet}
             className="disconnect-btn"
             aria-label="Disconnect wallet"
             disabled={isConnecting}
+            style={{ marginLeft: 12 }}
           >
-            <i className="fas fa-sign-out-alt"></i>
+            <i className="fas fa-sign-out-alt"></i> התנתק
           </button>
         </div>
       ) : (
-        <button 
-          onClick={handleConnect}
+        <button
+          onClick={connectWallet}
           className="connect-btn"
           aria-label="Connect wallet"
           disabled={isConnecting}
@@ -71,8 +96,7 @@ function WalletConnector() {
           {isConnecting ? 'Connecting...' : 'Connect Wallet'}
         </button>
       )}
+      {error && <div style={{ color: 'crimson', marginTop: 8 }}>{error}</div>}
     </div>
   );
 }
-
-export default WalletConnector;

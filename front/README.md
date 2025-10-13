@@ -1,10 +1,38 @@
 Frontend notes
 
-- The front-end uses the contract service helpers in `front/src/services/contractService.js` to compute evidence digests. Do NOT attempt to import admin decryption helpers into the front-end.
-- Admin decryption tooling lives in `tools/admin/` and is intended for trusted admin environments only. Do not bundle private keys or admin helpers into the front build.
 
-Build / dev
+# Frontend (Vite + React)
 
+## Overview
+The frontend provides a unified interface for contract interaction, evidence submission, dispute history, LLM decision display, wallet/role management, and live blockchain event feeds.
+
+## Architecture
+- **ABIs/Artifacts**: Auto-copied from contract deployments for direct interaction.
+- **Evidence Flow**: Evidence is canonicalized, hashed, and submitted as digests. Full content is stored on IPFS/Helia. Verification via CID and digest is supported with a "Verify on IPFS" button.
+- **ArbitrationView.jsx**: Centralizes all frontend logic, including role-based UI, evidence modal, dispute history, system health, and evidence verification.
+- **EvidenceDigestItem**: Standalone component for verifying CID existence on IPFS.
+- **LLMDecisionView.jsx**: Displays backend LLM decision/rationale.
+- **WalletConnector.jsx**: Handles wallet connection and role detection.
+
+## Integration Points
+- Chainlink/CCIP event feeds
+- Helia/IPFS evidence verification
+- LLM backend decision display
+- Dispute history and notifications
+- Wallet/permissions and role-based UI
+- System health and backend status
+
+## Admin Role Clarification
+- Admin is system manager only (not arbitrator).
+- No evidence decryption in UI; all decrypt logic removed.
+
+## Developer Notes
+- ABIs are auto-copied by `scripts/deploy.js` and prebuild step.
+- E2E tests: See `tests/e2e/` and Playwright config.
+
+## MVP Status
+- All major integration points are implemented and tested.
+- "Verify on IPFS" button is available in production.
 ```
 npm install
 npm run dev

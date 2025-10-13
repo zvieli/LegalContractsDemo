@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import { getRecipientPubkey } from '../../utils/recipientKeys.js';
-import { decryptEnvelopeWithPrivateKey } from '../../utils/clientDecrypt';
 import EvidenceViewer from './EvidenceViewer.jsx';
 import EvidenceErrorHelp from './EvidenceErrorHelp.jsx';
 
@@ -27,26 +25,13 @@ function getStatusDescription(status) {
   return descriptions[status] || 'Unknown status';
 }
 
-export default function EvidenceCard({ ev, onView, activePrivateKey, activeAddress }) {
-  const [decPlain, setDecPlain] = useState(null);
-  const [decErr, setDecErr] = useState(null);
+export default function EvidenceCard({ ev, onView, heliaClient }) {
   const [copied, setCopied] = useState(false);
   const [showViewer, setShowViewer] = useState(false);
   const [showErrorHelp, setShowErrorHelp] = useState(false);
-  
-  const canAttemptDecrypt = !!(ev.encrypted && activePrivateKey);
+  const [fetchSource, setFetchSource] = useState(null); // 'helia' | 'gateway' | null
   const hasError = ['sig-invalid', 'cid-mismatch', 'content-mismatch', 'fetch-failed', 'error'].includes(ev.status);
-  
-  async function handleDecrypt(){
-    setDecErr(null); setDecPlain(null);
-    try {
-      const envelope = ev.fetched;
-      if(!envelope) throw new Error('No fetched JSON');
-      const plain = await decryptEnvelopeWithPrivateKey(envelope, activePrivateKey);
-      setDecPlain(plain);
-    } catch(e){ setDecErr(e.message || String(e)); }
-  }
-  
+
   async function copyCID() {
     try {
       await navigator.clipboard.writeText(ev.cid);
@@ -56,7 +41,24 @@ export default function EvidenceCard({ ev, onView, activePrivateKey, activeAddre
       console.warn('Copy failed:', e);
     }
   }
-  
+
+  async function handleOpenEvidence() {
+    if (heliaClient && ev.cid) {
+      try {
+        // Try to fetch evidence from Helia
+        setFetchSource('helia');
+        setShowViewer(true);
+        // EvidenceViewer will use heliaClient prop
+      } catch (err) {
+        setFetchSource('gateway');
+        setShowViewer(true);
+      }
+    } else {
+      setFetchSource('gateway');
+      setShowViewer(true);
+    }
+  }
+
   const color = statusColors[ev.status] || '#eef';
   return (
     <div className="transaction-item" style={{display:'flex',flexDirection:'column',position:'relative'}}>
@@ -78,8 +80,7 @@ export default function EvidenceCard({ ev, onView, activePrivateKey, activeAddre
         {ev.encrypted && (
           <span 
             title="Evidence is encrypted to specific recipients"
-            style={{padding:'2px 6px',borderRadius:4,fontSize:11,background:'#ffe4b3'}}
-          >
+            style={{padding:'2px 6px',borderRadius:4,fontSize:11,background:'#ffe4b3'}}>
             Encrypted
           </span>
         )}
@@ -105,8 +106,7 @@ export default function EvidenceCard({ ev, onView, activePrivateKey, activeAddre
         {ev.sigValid === false && (
           <span 
             title="EIP-712 signature verification failed - evidence may be forged"
-            style={{padding:'2px 6px',borderRadius:4,fontSize:11,background:'#ffc9c9'}}
-          >
+            style={{padding:'2px 6px',borderRadius:4,fontSize:11,background:'#ffc9c9'}}>
             Bad Sig
           </span>
         )}
@@ -141,7 +141,7 @@ export default function EvidenceCard({ ev, onView, activePrivateKey, activeAddre
           <button className="btn-sm" onClick={() => onView && onView(ev)}>View JSON</button>
           <button 
             className="btn-sm" 
-            onClick={() => setShowViewer(true)}
+            onClick={handleOpenEvidence}
             style={{
               background: '#f0f8ff',
               color: '#0066cc',
@@ -153,19 +153,19 @@ export default function EvidenceCard({ ev, onView, activePrivateKey, activeAddre
           </button>
           {ev.cid && <a className="btn-sm outline" href={`https://ipfs.io/ipfs/${ev.cid}`} target="_blank" rel="noreferrer">IPFS</a>}
           {ev.fetched && <button className="btn-sm outline" onClick={() => { try { const blob = new Blob([JSON.stringify(ev.fetched,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`evidence-${ev.cidDigestEvent.slice(2,10)}.json`; a.click(); } catch(_){} }}>Export</button>}
-          {canAttemptDecrypt && <button className="btn-sm" onClick={handleDecrypt}>Decrypt</button>}
         </div>
       </div>
-      {decErr && <div style={{color:'crimson',marginTop:4,fontSize:12}}>Decrypt failed: {decErr}</div>}
-      {decPlain && <pre style={{marginTop:4,maxHeight:160,overflow:'auto',fontSize:12}}>{typeof decPlain==='string'?decPlain:JSON.stringify(decPlain,null,2)}</pre>}
-      
+      {fetchSource && (
+        <div style={{fontSize:12,marginTop:4,color:'#888'}}>
+          Source: {fetchSource === 'helia' ? 'Helia/IPFS node' : 'Public IPFS gateway'}
+        </div>
+      )}
       <EvidenceViewer 
         cid={ev.cid} 
         isOpen={showViewer} 
         onClose={() => setShowViewer(false)}
-        heliaClient={null} // TODO: Pass actual Helia client if available
+        heliaClient={heliaClient || null}
       />
-      
       <EvidenceErrorHelp 
         status={ev.status} 
         isOpen={showErrorHelp} 
