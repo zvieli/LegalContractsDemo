@@ -44,3 +44,4 @@ front/tests/e2e/metamask-extension
 server/data/dispute_history.json
 server/data/evidence_batches.json
 server/data/CLEANUP_LOG.txt
+.github/copilot-instructions.md

@@ -4,7 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "../ccip/CCIPArbitrationTypes.sol";
+import "contracts/Arbitration/ccip/CCIPArbitrationTypes.sol";
+import "contracts/MerkleEvidenceManager.sol";
 
 interface ICCIPArbitrationSender {
     function sendArbitrationRequest(
@@ -18,50 +19,24 @@ interface ICCIPArbitrationSender {
     ) external payable returns (bytes32 messageId);
 }
 
+enum ContractState { Draft, PendingActivation, Active, Disputed, Resolved, Terminated }
+enum PayFeesIn { ETH, LINK }
+enum DisputeStatus { None, Open, Resolved }
+enum Role { Unassigned, Claimant, Defendant }
+
 contract NDATemplate is EIP712, ReentrancyGuard {
-    using ECDSA for bytes32;
+    // --- Circuit Breaker ---
+    bool private paused;
+    PayFeesIn public payFeesIn;
 
-    string public constant CONTRACT_NAME = "NDATemplate";
-    string public constant CONTRACT_VERSION = "1";
+    mapping(uint256 => DisputeStatus) private disputeStatus;
+    mapping(uint256 => uint256) private appealDeadline;
 
-    address public immutable partyA;
-    address public immutable partyB;
+    mapping(address => Role) private roles;
+    mapping(bytes32 => bool) private clauseHashes;
 
-    mapping(address => bool) public isParty;
-    mapping(address => bool) public signedBy;
-    address[] private _parties;
-
-    uint256 public immutable expiryDate;
-    uint16 public immutable penaltyBps;
-    bytes32 public immutable customClausesHash;
-
-    bool public active = true;
-
-    mapping(address => uint256) public deposits;
-    mapping(address => uint256) public withdrawable;
-    uint256 public immutable minDeposit;
-
-    address public immutable arbitrationService;
-
-    uint256 public disputeFee;
-    uint256 public minReportInterval;
-    uint256 public maxOpenReportsPerReporter;
-
-    bytes32 private constant NDA_TYPEHASH =
-        keccak256("NDA(address contractAddress,uint256 expiryDate,uint16 penaltyBps,bytes32 customClausesHash)");
-
-    event NDASigned(address indexed signer, uint256 timestamp);
-    event PartyAdded(address indexed party);
-    event DepositMade(address indexed party, uint256 amount);
-    event DepositWithdrawn(address indexed party, uint256 amount);
-    event BreachReported(uint256 indexed caseId, address indexed reporter, address indexed offender, uint256 requestedPenalty, bytes32 evidenceHash);
-    event BreachResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address offender, address beneficiary);
-    event ContractDeactivated(address indexed by, string reason);
-    event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
-    event PaymentWithdrawn(address indexed to, uint256 amount);
-    event BreachRationale(uint256 indexed caseId, string classification, string rationale);
-    event CCIPArbitrationRequested(uint256 indexed caseId, bytes32 indexed messageId, bytes32 disputeId);
-    event CCIPConfigUpdated(address indexed ccipSender, bool enabled);
+    MerkleEvidenceManager public immutable merkleEvidenceManager;
+    mapping(uint256 => bool) public batchUsedForEvidence;
 
     struct BreachCase {
         address reporter;
@@ -87,6 +62,30 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         bool exists;
     }
 
+    string public constant CONTRACT_NAME = "NDATemplate";
+    string public constant CONTRACT_VERSION = "1";
+
+    address public immutable partyA;
+    address public immutable partyB;
+    address public immutable arbitrationService;
+    address public immutable factory;
+    uint256 public immutable expiryDate;
+    uint16 public immutable penaltyBps;
+    bytes32 public immutable customClausesHash;
+    uint256 public immutable minDeposit;
+    uint256 public earlyTerminationFee;
+
+    ContractState public contractState;
+    bool public active = true;
+
+    mapping(address => bool) private isParty;
+    mapping(address => bool) private signedBy;
+    address[] private _parties;
+
+    mapping(address => uint256) public deposits;
+    mapping(address => bool) public hasDeposited;
+    mapping(address => uint256) public withdrawable;
+
     BreachCase[] private _cases;
     mapping(uint256 => CaseMeta) private _caseMeta;
     mapping(uint256 => uint256) private _caseFee;
@@ -98,6 +97,9 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     mapping(address => uint256) public openReportsCount;
     mapping(address => uint256) public offenderBreachCount;
 
+    uint256 public disputeFee;
+    uint256 public minReportInterval;
+    uint256 public maxOpenReportsPerReporter;
     uint256 public revealWindowSeconds;
     uint256 public appealWindowSeconds;
 
@@ -105,36 +107,55 @@ contract NDATemplate is EIP712, ReentrancyGuard {
     bool public ccipEnabled;
     mapping(uint256 => bytes32) public ccipMessageIds;
 
-    constructor(
-        address _partyA,
-        address _partyB,
-        uint256 _expiryDate,
-        uint16 _penaltyBps,
-        bytes32 _customClausesHash,
-        uint256 _minDeposit,
-        address _arbitrationService
-    ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
-        require(_partyA != address(0) && _partyB != address(0), "Invalid parties");
-        require(_expiryDate > block.timestamp, "Expiry must be in future");
-        require(_penaltyBps <= 10_000, "penaltyBps > 100%");
+    bytes32 private constant NDA_TYPEHASH =
+        keccak256("NDA(address contractAddress,uint256 expiryDate,uint16 penaltyBps,bytes32 customClausesHash)");
 
-        partyA = _partyA;
-        partyB = _partyB;
+    // --- Events ---
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
+    event AppealOpened(uint256 indexed caseId, uint256 deadline);
+    event RoleChanged(address indexed party, Role newRole);
+    event ClauseHashAdded(bytes32 indexed clauseHash);
+    event DecisionAudit(uint256 indexed caseId, bytes32 indexed decisionHash, string cid);
+    event NDASigned(address indexed signer, uint256 timestamp);
+    event PartyAdded(address indexed party);
+    event DepositMade(address indexed party, uint256 amount);
+    event DepositWithdrawn(address indexed party, uint256 amount);
+    event BreachReported(uint256 indexed caseId, address indexed reporter, address indexed offender, uint256 requestedPenalty, bytes32 evidenceHash);
+    event BreachResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address offender, address beneficiary);
+    event ContractDeactivated(address indexed by, string reason);
+    event PenaltyEnforced(address indexed offender, uint256 penaltyAmount, address beneficiary);
+    event PaymentWithdrawn(address indexed to, uint256 amount);
+    event CCIPArbitrationRequested(uint256 indexed caseId, bytes32 indexed messageId, bytes32 disputeId);
+    event CCIPConfigUpdated(address indexed ccipSender, bool enabled);
+    event MutualCancelRequested(address indexed party, uint256 indexed timestamp);
+    event MutualCancelExecuted(uint256 indexed timestamp);
+    event ContractActivated(uint256 timestamp);
+    event ArbitrationResolved(uint256 indexed caseId, bool approved, uint256 appliedPenalty, address beneficiary);
+    event ContractTerminated(uint256 timestamp);
+    event AppealResolved(uint256 indexed caseId, bool approved, uint256 timestamp);
+    event EvidenceBatchReferenced(uint256 indexed caseId, uint256 indexed batchId, bytes32 indexed merkleRoot, address reporter);
+    event BatchEvidenceVerified(uint256 indexed caseId, uint256 indexed batchId, bytes32 indexed cidHash, address uploader, bytes32 contentDigest);
 
-        expiryDate = _expiryDate;
-        penaltyBps = _penaltyBps;
-        customClausesHash = _customClausesHash;
-        minDeposit = _minDeposit;
-        arbitrationService = _arbitrationService;
+    // --- Modifiers ---
+    modifier whenNotPaused() {
+        require(!paused, "Contract is paused");
+        _;
+    }
 
-        disputeFee = 0;
-        minReportInterval = 0;
-        maxOpenReportsPerReporter = 10;
+    modifier whenPaused() {
+        require(paused, "Contract is not paused");
+        _;
+    }
 
-        isParty[_partyA] = true;
-        isParty[_partyB] = true;
-        _parties.push(_partyA);
-        _parties.push(_partyB);
+    modifier onlyClaimant() {
+        require(roles[msg.sender] == Role.Claimant, "Not Claimant");
+        _;
+    }
+
+    modifier onlyDefendant() {
+        require(roles[msg.sender] == Role.Defendant, "Not Defendant");
+        _;
     }
 
     modifier onlyActive() {
@@ -152,6 +173,90 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         _;
     }
 
+    // --- Constructor ---
+    constructor(
+        address _partyA,
+        address _partyB,
+        address _arbitrationService,
+        address _factory,
+        uint256 _expiryDate,
+        uint16 _penaltyBps,
+        bytes32 _customClausesHash,
+        uint256 _minDeposit,
+        address _merkleEvidenceManager,
+        PayFeesIn _payFeesIn
+    ) EIP712(CONTRACT_NAME, CONTRACT_VERSION) {
+        partyA = _partyA;
+        partyB = _partyB;
+        arbitrationService = _arbitrationService;
+        factory = _factory;
+        expiryDate = _expiryDate;
+        penaltyBps = _penaltyBps;
+        customClausesHash = _customClausesHash;
+        minDeposit = _minDeposit;
+        payFeesIn = _payFeesIn;
+
+        merkleEvidenceManager = MerkleEvidenceManager(_merkleEvidenceManager);
+
+        isParty[_partyA] = true;
+        isParty[_partyB] = true;
+        _parties.push(_partyA);
+        _parties.push(_partyB);
+        contractState = ContractState.Draft;
+
+        roles[_partyA] = Role.Unassigned;
+        roles[_partyB] = Role.Unassigned;
+    }
+
+    // --- Pause/Unpause ---
+    function pause() external {
+        require(msg.sender == factory || msg.sender == arbitrationService, "Only admin/factory");
+        require(!paused, "Already paused");
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external {
+        require(msg.sender == factory || msg.sender == arbitrationService, "Only admin/factory");
+        require(paused, "Not paused");
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    // --- Roles & Clauses ---
+    function setRole(address party, Role newRole) external {
+        require(msg.sender == factory, "Only Factory");
+        require(contractState == ContractState.Disputed, "Can set role only in Disputed state");
+        require(isParty[party], "Not a party");
+        roles[party] = newRole;
+        emit RoleChanged(party, newRole);
+    }
+
+    function addClauseHash(bytes32 clauseHash) external {
+        require(msg.sender == factory, "Only Factory");
+        require(!clauseHashes[clauseHash], "Clause already exists");
+        clauseHashes[clauseHash] = true;
+        emit ClauseHashAdded(clauseHash);
+    }
+
+    function verifyClauseHash(bytes32 clauseHash) external view returns (bool) {
+        return clauseHashes[clauseHash];
+    }
+
+    function getRole(address party) external view returns (Role) {
+        return roles[party];
+    }
+
+    // --- Receive/Fallback ---
+    receive() external payable {
+        revert("Direct ETH not allowed");
+    }
+
+    fallback() external payable {
+        revert("Fallback not allowed");
+    }
+
+    // --- NDA Signing ---
     function _messageHash() internal view returns (bytes32) {
         return _hashTypedDataV4(
             keccak256(
@@ -170,7 +275,33 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         return _messageHash();
     }
 
+    function signNDA(bytes calldata signature) external onlyActive {
+        address signer = ECDSA.recover(_messageHash(), signature);
+        require(isParty[signer], "Invalid signer (not a party)");
+        require(!signedBy[signer], "Already signed");
+        signedBy[signer] = true;
+        emit NDASigned(signer, block.timestamp);
+        _checkActivation();
+    }
+
+    function _checkActivation() internal {
+        bool allSigned = true;
+        bool allDeposited = true;
+        for (uint256 i = 0; i < _parties.length; i++) {
+            if (!signedBy[_parties[i]]) allSigned = false;
+            if (!hasDeposited[_parties[i]]) allDeposited = false;
+        }
+        if (allSigned && allDeposited) {
+            contractState = ContractState.Active;
+            emit ContractActivated(block.timestamp);
+        } else if (allSigned || allDeposited) {
+            contractState = ContractState.PendingActivation;
+        }
+    }
+
+    // --- Party Management ---
     function addParty(address newParty) external onlyArbitrationService onlyActive {
+        require(msg.sender == factory, "Only Factory");
         require(newParty != address(0), "Invalid address");
         require(!isParty[newParty], "Already a party");
         isParty[newParty] = true;
@@ -182,39 +313,13 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         return _parties;
     }
 
-    function signNDA(bytes calldata signature) external onlyActive {
-        address signer = ECDSA.recover(_messageHash(), signature);
-        require(isParty[signer], "Invalid signer (not a party)");
-        require(!signedBy[signer], "Already signed");
-        signedBy[signer] = true;
-        emit NDASigned(signer, block.timestamp);
-    }
-
-    function configureCCIP(address _ccipSender, bool _enabled) external onlyArbitrationService {
-        ccipSender = ICCIPArbitrationSender(_ccipSender);
-        ccipEnabled = _enabled;
-        emit CCIPConfigUpdated(_ccipSender, _enabled);
-    }
-
-    function isCCIPAvailable() external view returns (bool) {
-        return ccipEnabled && address(ccipSender) != address(0);
-    }
-
-    function isFullySigned() public view returns (bool) {
-        for (uint256 i = 0; i < _parties.length; ) {
-            if (!signedBy[_parties[i]]) return false;
-            unchecked { ++i; }
-        }
-        return true;
-    }
-
-    function canWithdraw() public view returns (bool) {
-        if (active) return false;
-        for (uint256 i = 0; i < _cases.length; ) {
-            if (!_cases[i].resolved) return false;
-            unchecked { ++i; }
-        }
-        return true;
+    // --- Deposits ---
+    function deposit() external payable onlyParty onlyActive whenNotPaused {
+        require(msg.value >= minDeposit, "Deposit below minimum");
+        deposits[msg.sender] += msg.value;
+        hasDeposited[msg.sender] = true;
+        emit DepositMade(msg.sender, msg.value);
+        _checkActivation();
     }
 
     function withdrawDeposit(uint256 amount) external nonReentrant {
@@ -234,23 +339,78 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         emit PaymentWithdrawn(msg.sender, amount);
     }
 
-    function deposit() external payable onlyParty onlyActive {
-        deposits[msg.sender] += msg.value;
-        emit DepositMade(msg.sender, msg.value);
+    function getTotalDeposited() public view returns (uint256 total) {
+        for (uint256 i = 0; i < _parties.length; i++) {
+            total += deposits[_parties[i]];
+        }
     }
 
+    function canWithdraw() public view returns (bool) {
+        return contractState == ContractState.Terminated;
+    }
+
+    // --- Mutual Cancel ---
+    mapping(address => bool) private cancelVotes;
+
+    function mutualCancel() external onlyParty nonReentrant {
+        require(contractState == ContractState.Active, "Not active");
+        require(contractState != ContractState.Disputed, "Cannot cancel during dispute");
+        require(!cancelVotes[msg.sender], "Already voted");
+        cancelVotes[msg.sender] = true;
+        emit MutualCancelRequested(msg.sender, block.timestamp);
+
+        bool allVoted = true;
+        for (uint256 i = 0; i < _parties.length; i++) {
+            if (!cancelVotes[_parties[i]]) {
+                allVoted = false;
+                break;
+            }
+        }
+        if (allVoted) {
+            _finalizeMutualCancel();
+        }
+    }
+
+    function _finalizeMutualCancel() internal {
+        contractState = ContractState.Terminated;
+        emit MutualCancelExecuted(block.timestamp);
+        _finalizeWithdrawals();
+    }
+
+    function _finalizeWithdrawals() internal {
+        uint256 fee = earlyTerminationFee;
+        if (fee > 0) {
+            payable(arbitrationService).transfer(fee);
+        }
+        for (uint256 i = 0; i < _parties.length; i++) {
+            address party = _parties[i];
+            uint256 amount = deposits[party];
+            if (amount > 0) {
+                deposits[party] = 0;
+                hasDeposited[party] = false;
+                (bool ok, ) = payable(party).call{value: amount}("");
+                require(ok, "Withdraw failed");
+            }
+        }
+    }
+
+    // --- Breach Reporting ---
     function reportBreach(
         address offender,
         uint256 requestedPenalty,
         bytes32 evidenceHash,
         string calldata evidenceURI
-    ) external payable onlyParty onlyActive returns (uint256 caseId) {
+    ) external payable onlyParty onlyActive whenNotPaused returns (uint256 caseId) {
+        require(contractState == ContractState.Active, "Must be active");
         require(isParty[offender], "Offender not a party");
         require(offender != msg.sender, "Cannot accuse self");
         require(requestedPenalty > 0, "Requested penalty must be > 0");
         require(deposits[offender] >= minDeposit, "Offender has no minimum deposit");
 
-        if (disputeFee > 0) require(msg.value >= disputeFee, "Insufficient dispute fee");
+        if (payFeesIn == PayFeesIn.ETH) {
+            require(msg.value == disputeFee, "Incorrect dispute fee (ETH)");
+        }
+
         if (minReportInterval > 0) require(block.timestamp - lastReportAt[msg.sender] >= minReportInterval, "Reporting too frequently");
         require(openReportsCount[msg.sender] < maxOpenReportsPerReporter, "Too many open reports");
 
@@ -264,7 +424,10 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         bc.evidenceURI = evidenceURI;
         bc.evidenceMerkleRoot = bytes32(0);
 
-        if (revealWindowSeconds > 0) _revealDeadline[caseId] = block.timestamp + revealWindowSeconds;
+        disputeStatus[caseId] = DisputeStatus.Open;
+        lastReportAt[msg.sender] = block.timestamp;
+        openReportsCount[msg.sender] += 1;
+        contractState = ContractState.Disputed;
 
         emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidenceHash);
 
@@ -273,84 +436,33 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         }
     }
 
-    function reportBreachWithMerkle(
-        address offender,
-        uint256 requestedPenalty,
-        bytes32 evidenceHash,
-        string calldata evidenceURI,
-        bytes32 evidenceMerkleRoot
-    ) external payable onlyParty onlyActive returns (uint256 caseId) {
-        require(isParty[offender], "Offender not a party");
-        require(offender != msg.sender, "Cannot accuse self");
-        require(requestedPenalty > 0, "Requested penalty must be > 0");
-        require(deposits[offender] >= minDeposit, "Offender has no minimum deposit");
-
-        if (disputeFee > 0) require(msg.value >= disputeFee, "Insufficient dispute fee");
-        if (minReportInterval > 0) require(block.timestamp - lastReportAt[msg.sender] >= minReportInterval, "Reporting too frequently");
-        require(openReportsCount[msg.sender] < maxOpenReportsPerReporter, "Too many open reports");
-
-        caseId = _cases.length;
-        _cases.push();
-        BreachCase storage bc = _cases[caseId];
-        bc.reporter = msg.sender;
-        bc.offender = offender;
-        bc.requestedPenalty = requestedPenalty;
-        bc.evidenceHash = evidenceHash;
-        bc.evidenceURI = evidenceURI;
-        bc.evidenceMerkleRoot = evidenceMerkleRoot;
-
-        if (disputeFee > 0) _caseFee[caseId] = msg.value;
-        lastReportAt[msg.sender] = block.timestamp;
-        openReportsCount[msg.sender] += 1;
-
-        if (revealWindowSeconds > 0) _revealDeadline[caseId] = block.timestamp + revealWindowSeconds;
-
-        emit BreachReported(caseId, msg.sender, offender, requestedPenalty, evidenceHash);
-
-        if (ccipEnabled && address(ccipSender) != address(0)) {
-            _triggerCCIPArbitrationWithMerkle(caseId, evidenceHash, evidenceURI, evidenceMerkleRoot);
+    // --- Paginated Dispute History ---
+    function getDisputeHistoryPaginated(uint256 offset, uint256 limit) external view returns (BreachCase[] memory cases) {
+        uint256 total = _cases.length;
+        if (offset >= total) return new BreachCase[](0);
+        uint256 end = offset + limit;
+        if (end > total) end = total;
+        uint256 size = end - offset;
+        cases = new BreachCase[](size);
+        for (uint256 i = 0; i < size; i++) {
+            cases[i] = _cases[offset + i];
         }
     }
 
-    function getCasesCount() external view returns (uint256) {
-        return _cases.length;
+    // --- CCIP Arbitration ---
+    function configureCCIP(address _ccipSender, bool _enabled) external onlyArbitrationService {
+        ccipSender = ICCIPArbitrationSender(_ccipSender);
+        ccipEnabled = _enabled;
+        emit CCIPConfigUpdated(_ccipSender, _enabled);
     }
 
-    function getCase(uint256 caseId) external view returns (
-        address reporter,
-        address offender,
-        uint256 requestedPenalty,
-        bytes32 evidenceHash,
-        string memory evidenceURI,
-        bytes32 evidenceMerkleRoot,
-        bool resolved,
-        bool approved
-    ) {
-        require(caseId < _cases.length, "Invalid case ID");
-        BreachCase storage bc = _cases[caseId];
-        return (bc.reporter, bc.offender, bc.requestedPenalty, bc.evidenceHash, bc.evidenceURI, bc.evidenceMerkleRoot, bc.resolved, bc.approved);
+    function setPayFeesIn(PayFeesIn _payFeesIn) external {
+        require(msg.sender == factory, "Only Factory");
+        payFeesIn = _payFeesIn;
     }
 
-    function _triggerCCIPArbitrationWithMerkle(uint256 caseId, bytes32 evidenceHash, string memory evidenceURI, bytes32 evidenceMerkleRoot) internal {
-        require(caseId < _cases.length, "Invalid case ID");
-        require(ccipEnabled && address(ccipSender) != address(0), "CCIP not available");
-
-        BreachCase storage bc = _cases[caseId];
-        bytes32 disputeId = keccak256(abi.encodePacked(address(this), caseId, block.timestamp, bc.reporter, bc.offender));
-        string memory uriWithMerkle = string(abi.encodePacked(evidenceURI, "?merkleRoot=", _toHexString(evidenceMerkleRoot)));
-
-        bytes32 messageId = ccipSender.sendArbitrationRequest(
-            disputeId,
-            address(this),
-            caseId,
-            evidenceHash,
-            uriWithMerkle,
-            bc.requestedPenalty,
-            0
-        );
-
-        ccipMessageIds[caseId] = messageId;
-        emit CCIPArbitrationRequested(caseId, messageId, disputeId);
+    function isCCIPAvailable() external view returns (bool) {
+        return ccipEnabled && address(ccipSender) != address(0);
     }
 
     function _triggerCCIPArbitration(uint256 caseId, bytes32 evidenceHash, string memory evidenceURI) internal {
@@ -367,156 +479,10 @@ contract NDATemplate is EIP712, ReentrancyGuard {
             evidenceHash,
             evidenceURI,
             bc.requestedPenalty,
-            0
+            uint8(payFeesIn)
         );
 
         ccipMessageIds[caseId] = messageId;
         emit CCIPArbitrationRequested(caseId, messageId, disputeId);
-    }
-
-    function triggerCCIPArbitration(uint256 caseId) external payable onlyArbitrationService {
-        require(caseId < _cases.length, "Invalid case ID");
-        require(ccipEnabled && address(ccipSender) != address(0), "CCIP not available");
-
-        BreachCase storage bc = _cases[caseId];
-        require(!bc.resolved, "Case already resolved");
-
-        _triggerCCIPArbitration(caseId, bc.evidenceHash, bc.evidenceURI);
-    }
-
-    function serviceResolve(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary) external onlyActive nonReentrant {
-        require(msg.sender == arbitrationService, "Only arbitration service");
-        require(caseId < _cases.length, "Invalid case ID");
-        require(beneficiary != address(0), "Invalid beneficiary");
-
-        _applyResolution(caseId, approve, appliedPenalty, beneficiary);
-    }
-
-    function serviceEnforce(address guiltyParty, uint256 penaltyAmount, address beneficiary) external nonReentrant {
-        require(msg.sender == arbitrationService, "Only arbitration service");
-        require(penaltyAmount <= deposits[guiltyParty], "Insufficient deposit");
-        require(penaltyAmount > 0, "Penalty must be > 0");
-        require(beneficiary != address(0), "Invalid beneficiary");
-
-        deposits[guiltyParty] -= penaltyAmount;
-        withdrawable[beneficiary] += penaltyAmount;
-        emit PenaltyEnforced(guiltyParty, penaltyAmount, beneficiary);
-    }
-
-    function getCaseMeta(uint256 caseId) external view returns (bytes32 classificationHash, bytes32 rationaleHash) {
-        require(caseId < _cases.length, "Invalid case ID");
-        CaseMeta storage m = _caseMeta[caseId];
-        return (m.classificationHash, m.rationaleHash);
-    }
-
-    function getOffenderBreachCount(address offender) external view returns (uint256) {
-        return offenderBreachCount[offender];
-    }
-
-    function setDisputeFee(uint256 fee) external onlyArbitrationService { disputeFee = fee; }
-    function setRevealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService { revealWindowSeconds = secondsWindow; }
-    function setAppealWindowSeconds(uint256 secondsWindow) external onlyArbitrationService { appealWindowSeconds = secondsWindow; }
-    function setMinReportInterval(uint256 secondsInterval) external onlyArbitrationService { minReportInterval = secondsInterval; }
-    function setMaxOpenReportsPerReporter(uint256 maxOpen) external onlyArbitrationService { maxOpenReportsPerReporter = maxOpen; }
-    function getRevealDeadline(uint256 caseId) external view returns (uint256) { require(caseId < _cases.length, "Invalid case ID"); return _revealDeadline[caseId]; }
-    function getResolvedAt(uint256 caseId) external view returns (uint256) { require(caseId < _cases.length, "Invalid case ID"); return _resolvedAt[caseId]; }
-
-    function finalizeEnforcement(uint256 caseId) external onlyActive onlyArbitrationService nonReentrant {
-        require(caseId < _cases.length, "Invalid case ID");
-        require(_pendingEnforcement[caseId].exists, "No pending enforcement");
-        require(_resolvedAt[caseId] != 0, "Case not resolved");
-        require(appealWindowSeconds > 0, "No appeal window configured");
-        require(block.timestamp >= _resolvedAt[caseId] + appealWindowSeconds, "Appeal window not elapsed");
-
-        PendingEnforcement storage pe = _pendingEnforcement[caseId];
-        BreachCase storage bc = _cases[caseId];
-
-        if (pe.appliedPenalty > 0) {
-            require(pe.appliedPenalty <= deposits[bc.offender], "Insufficient deposit for pending penalty");
-            deposits[bc.offender] -= pe.appliedPenalty;
-            withdrawable[pe.beneficiary] += pe.appliedPenalty;
-            emit PenaltyEnforced(bc.offender, pe.appliedPenalty, pe.beneficiary);
-            offenderBreachCount[bc.offender] += 1;
-        }
-
-        if (pe.fee > 0 && pe.feeRecipient != address(0)) {
-            withdrawable[pe.feeRecipient] += pe.fee;
-        }
-
-        delete _pendingEnforcement[caseId];
-    }
-
-    function _applyResolution(uint256 caseId, bool approve, uint256 appliedPenalty, address beneficiary) internal {
-        BreachCase storage bc = _cases[caseId];
-        bc.resolved = true;
-        bc.approved = approve;
-
-        _resolvedAt[caseId] = block.timestamp;
-
-        uint256 applied = 0;
-        if (approve) {
-            applied = appliedPenalty > 0 ? appliedPenalty : bc.requestedPenalty;
-            if (applied > deposits[bc.offender]) applied = deposits[bc.offender];
-
-            if (applied > 0) {
-                if (appealWindowSeconds > 0) {
-                    _pendingEnforcement[caseId] = PendingEnforcement({ appliedPenalty: applied, beneficiary: beneficiary, fee: _caseFee[caseId], feeRecipient: bc.reporter, exists: true });
-                } else {
-                    deposits[bc.offender] -= applied;
-                    withdrawable[beneficiary] += applied;
-                    if (_caseFee[caseId] > 0) withdrawable[bc.reporter] += _caseFee[caseId];
-                }
-            }
-        } else {
-            if (appealWindowSeconds > 0) {
-                _pendingEnforcement[caseId] = PendingEnforcement({ appliedPenalty: 0, beneficiary: beneficiary, fee: _caseFee[caseId], feeRecipient: beneficiary, exists: true });
-            } else {
-                if (_caseFee[caseId] > 0) withdrawable[beneficiary] += _caseFee[caseId];
-            }
-        }
-
-        openReportsCount[bc.reporter] = openReportsCount[bc.reporter] > 0 ? openReportsCount[bc.reporter] - 1 : 0;
-        _caseFee[caseId] = 0;
-        if (approve) offenderBreachCount[bc.offender] += 1;
-
-        emit BreachResolved(caseId, approve, applied, bc.offender, beneficiary);
-    }
-
-    function deactivate(string calldata reason) external {
-        require(block.timestamp >= expiryDate, "Not authorized");
-        require(active, "Already inactive");
-        active = false;
-        emit ContractDeactivated(msg.sender, reason);
-    }
-
-    function getContractStatus() external view returns (bool isActive, bool fullySigned, uint256 totalDeposits, uint256 activeCases) {
-        uint256 totalDepositsValue;
-        for (uint256 i = 0; i < _parties.length; ) {
-            totalDepositsValue += deposits[_parties[i]];
-            unchecked { ++i; }
-        }
-
-        uint256 unresolvedCases;
-        for (uint256 j = 0; j < _cases.length; ) {
-            if (!_cases[j].resolved) unresolvedCases++;
-            unchecked { ++j; }
-        }
-
-        return (active, isFullySigned(), totalDepositsValue, unresolvedCases);
-    }
-
-    function _toHexString(bytes32 data) internal pure returns (string memory) {
-        bytes memory alphabet = "0123456789abcdef";
-        bytes memory str = new bytes(64);
-        for (uint256 i = 0; i < 32; i++) {
-            str[i*2] = alphabet[uint8(data[i] >> 4)];
-            str[1+i*2] = alphabet[uint8(data[i] & 0x0f)];
-        }
-        return string(str);
-    }
-
-    function getPendingEnforcement(uint256 caseId) external view returns (uint256 appliedPenalty, address beneficiary, uint256 fee, address feeRecipient, bool exists) {
-        PendingEnforcement storage pe = _pendingEnforcement[caseId];
-        return (pe.appliedPenalty, pe.beneficiary, pe.fee, pe.feeRecipient, pe.exists);
     }
 }

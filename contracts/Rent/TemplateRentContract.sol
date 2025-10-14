@@ -9,8 +9,8 @@ import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 // factory enforcement removed (size optimization) - relying on factory pattern off-chain
 
 // CCIP imports for Oracle arbitration integration
-import "../ccip/CCIPArbitrationTypes.sol";
-import "../ccip/CCIPArbitrationSender.sol"; // Import the interface from the actual contract
+import "contracts/Arbitration/ccip/CCIPArbitrationTypes.sol";
+import "contracts/Arbitration/ccip/CCIPArbitrationSender.sol"; // Import the interface from the actual contract
 
 /// @title TemplateRentContract with EIP712 dual-party signature (similar to NDATemplate)
 /// @notice Adds structured data signing so BOTH landlord & tenant can sign immutable core terms.

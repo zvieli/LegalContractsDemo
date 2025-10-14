@@ -1,17 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./Rent/TemplateRentContract.sol";
-import "./EnhancedRentContract.sol";
+import "./Rent/EnhancedRentContract.sol";
 import "./NDA/NDATemplate.sol";
-
-// Lightweight deployer for Rent contracts (keeps large creation bytecode out of main factory runtime)
-contract _RentDeployer {
-    function deploy(address _landlord, address _tenant, uint256 _rentAmount, uint256 _dueDate, address _priceFeed, uint256 _propertyId, address _arbitration_service, uint256 _requiredDeposit, string memory _initialEvidenceUri) external returns (address) {
-        TemplateRentContract c = new TemplateRentContract(_landlord, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, _arbitration_service, _requiredDeposit, _initialEvidenceUri);
-        return address(c);
-    }
-}
 
 // Enhanced rent deployer with Merkle evidence support
 contract _EnhancedRentDeployer {
@@ -39,7 +30,7 @@ contract _EnhancedRentDeployer {
     }
 }
 
-// Lightweight deployer for NDA contracts (now passes explicit admin)
+// Lightweight deployer for NDA contracts
 contract _NDADeployer {
     function deploy(
         address _partyA,
@@ -48,16 +39,21 @@ contract _NDADeployer {
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
         uint256 _minDeposit,
-        address _arbitrationService
+        address _arbitrationService,
+        address _merkleEvidenceManager,
+        PayFeesIn _payFeesIn
     ) external returns (address) {
         NDATemplate c = new NDATemplate(
             _partyA,
             _partyB,
+            _arbitrationService,
+            address(this),
             _expiryDate,
             _penaltyBps,
             _customClausesHash,
             _minDeposit,
-            _arbitrationService
+            _merkleEvidenceManager,
+            _payFeesIn
         );
         return address(c);
     }
@@ -66,17 +62,15 @@ contract _NDADeployer {
 contract ContractFactory {
     address public factoryOwner;
     address public defaultArbitrationService;
-    uint256 public defaultRequiredDeposit;
     address public merkleEvidenceManager;
     address[] public allContracts;
     mapping(address => address[]) public contractsByCreator;
-    // Map a contract address to its creator (deployer) for quick lookup
     mapping(address => address) public contractCreator;
-    _RentDeployer private immutable rentDeployer;
+
     _EnhancedRentDeployer private immutable enhancedRentDeployer;
     _NDADeployer private immutable ndaDeployer;
 
-    // Custom errors (gas-cheaper than revert strings)
+    // Custom errors
     error ZeroTenant();
     error SameAddresses();
     error ZeroRentAmount();
@@ -89,11 +83,10 @@ contract ContractFactory {
     error MinDepositZero();
     error ArbitratorNotContract();
 
-    event RentContractCreated(address indexed contractAddress, address indexed landlord, address indexed tenant);
+    event EnhancedRentContractCreated(address indexed contractAddress, address indexed landlord, address indexed tenant);
     event NDACreated(address indexed contractAddress, address indexed partyA, address indexed partyB);
 
     constructor() {
-        rentDeployer = new _RentDeployer();
         enhancedRentDeployer = new _EnhancedRentDeployer();
         ndaDeployer = new _NDADeployer();
         factoryOwner = msg.sender;
@@ -104,63 +97,11 @@ contract ContractFactory {
         _;
     }
 
-    function setDefaultArbitrationService(address _arbitrationService, uint256 _requiredDeposit) external onlyOwner {
+    function setDefaultArbitrationService(address _arbitrationService) external onlyOwner {
         require(_arbitrationService != address(0), "Zero address arbitration service");
         defaultArbitrationService = _arbitrationService;
-        defaultRequiredDeposit = _requiredDeposit;
     }
 
-    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _propertyId) external returns (address) {
-        address creator = msg.sender;
-        if (_tenant == address(0)) revert ZeroTenant();
-        if (_tenant == creator) revert SameAddresses();
-        if (_rentAmount == 0) revert ZeroRentAmount();
-        if (_priceFeed == address(0)) revert ZeroPriceFeed();
-        if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
-        // Property validation removed - V7 simplification
-        // pass 0 as default dueDate for backward compatibility; no initial evidence URI
-        address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, 0, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, "");
-        allContracts.push(newAddr);
-        contractsByCreator[creator].push(newAddr);
-        contractCreator[newAddr] = creator;
-        emit RentContractCreated(newAddr, creator, _tenant);
-        return newAddr;
-    }
-
-    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _dueDate, uint256 _propertyId) external returns (address) {
-        address creator = msg.sender;
-        if (_tenant == address(0)) revert ZeroTenant();
-        if (_tenant == creator) revert SameAddresses();
-        if (_rentAmount == 0) revert ZeroRentAmount();
-        if (_priceFeed == address(0)) revert ZeroPriceFeed();
-        if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
-        // Property validation removed - V7 simplification
-        address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, "");
-        allContracts.push(newAddr);
-        contractsByCreator[creator].push(newAddr);
-        contractCreator[newAddr] = creator;
-        emit RentContractCreated(newAddr, creator, _tenant);
-        return newAddr;
-    }
-
-    /// @notice Create a Rent contract with an explicit dueDate and an initial evidence URI (string)
-    function createRentContract(address _tenant, uint256 _rentAmount, address _priceFeed, uint256 _dueDate, uint256 _propertyId, string calldata _initialEvidenceUri) external returns (address) {
-        address creator = msg.sender;
-        if (_tenant == address(0)) revert ZeroTenant();
-        if (_tenant == creator) revert SameAddresses();
-        if (_rentAmount == 0) revert ZeroRentAmount();
-        if (_priceFeed == address(0)) revert ZeroPriceFeed();
-        if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
-        // Property validation removed - V7 simplification
-        address newAddr = rentDeployer.deploy(creator, _tenant, _rentAmount, _dueDate, _priceFeed, _propertyId, defaultArbitrationService, defaultRequiredDeposit, _initialEvidenceUri);
-        allContracts.push(newAddr);
-        contractsByCreator[creator].push(newAddr);
-        contractCreator[newAddr] = creator;
-        emit RentContractCreated(newAddr, creator, _tenant);
-        return newAddr;
-    }
-
-    /// @notice Set the Merkle evidence manager address (owner only)
     function setMerkleEvidenceManager(address _merkleEvidenceManager) external onlyOwner {
         require(_merkleEvidenceManager != address(0), "Zero address not allowed");
         merkleEvidenceManager = _merkleEvidenceManager;
@@ -197,18 +138,17 @@ contract ContractFactory {
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;
-        emit RentContractCreated(newAddr, creator, _tenant);
+        emit EnhancedRentContractCreated(newAddr, creator, _tenant);
         return newAddr;
     }
-
-    // Property registration removed in V7 - contracts work with propertyId as simple uint256
 
     function createNDA(
         address _partyB,
         uint256 _expiryDate,
         uint16 _penaltyBps,
         bytes32 _customClausesHash,
-        uint256 _minDeposit
+        uint256 _minDeposit,
+        PayFeesIn _payFeesIn
     ) external returns (address) {
         address creator = msg.sender;
         if (_partyB == address(0)) revert ZeroPartyB();
@@ -216,9 +156,19 @@ contract ContractFactory {
         if (_expiryDate <= block.timestamp) revert ExpiryNotFuture();
         if (_penaltyBps > 10000) revert PenaltyTooHigh();
         if (_minDeposit == 0) revert MinDepositZero();
+        require(merkleEvidenceManager != address(0), "Merkle evidence manager not set");
 
-        // Factory sets itself as admin for the NDA template
-    address newAddr = ndaDeployer.deploy(creator, _partyB, _expiryDate, _penaltyBps, _customClausesHash, _minDeposit, defaultArbitrationService);
+        address newAddr = ndaDeployer.deploy(
+            creator,
+            _partyB,
+            _expiryDate,
+            _penaltyBps,
+            _customClausesHash,
+            _minDeposit,
+            defaultArbitrationService,
+            merkleEvidenceManager,
+            _payFeesIn
+        );
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;

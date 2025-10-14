@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./Rent/TemplateRentContract.sol";
-import "./MerkleEvidenceManager.sol";
+import "./TemplateRentContract.sol";
+import "contracts/MerkleEvidenceManager.sol";
 
 /// @title EnhancedRentContract
 /// @notice Extension of TemplateRentContract with Merkle evidence batching support

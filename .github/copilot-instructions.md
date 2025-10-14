@@ -1,47 +1,60 @@
-# Repo-specific Copilot instructions for contributors
+# Copilot Instructions for LegalContractsDemo
 
-This repository implements ArbiTrust: Solidity templates (NDA, Rent) + a V7 Node.js backend (Ollama LLM arbitration) and a Vite React frontend. Use these concise pointers to be immediately productive.
+## Project Overview
+- **Purpose:** Arbitration-driven smart contract templates (NDA & Rent) with AI-powered dispute resolution via Chainlink Functions and Ollama LLM.
+- **Major Components:**
+  - `contracts/`: Solidity contracts (NDATemplate, Rent, ArbitrationService, ContractFactory, etc.)
+  - `front/`: Vite + React frontend for contract interaction, evidence submission, dispute history, and LLM decision display
+  - `server/`: Node.js backend for LLM arbitration, evidence validation, and REST API endpoints
+  - `tools/`: AI arbitration tools, admin decryption helpers, Chainlink integration scripts
+  - `scripts/`: Deployment, monitoring, and utility scripts
+  - `docs/`: Specifications, optimization guides, and migration history
 
-- Big picture
-  - Smart contracts are in `contracts/` and are intended to be created via `ContractFactory` (see `test/` and `scripts/deploy.js`). `ArbitrationService` is the owner-controlled dispatcher that applies resolutions to template contracts.
-  - V7 backend is in `server/` (primary files: `server/index.js`, `server/modules/ollamaLLMArbitrator.js`, `server/modules/llmArbitrationSimulator.js`). It receives dispute payloads, validates evidence, calls Ollama (or simulates), and returns a JSON decision consumed by `ArbitrationService` in tests and workflows.
-  - Frontend is in `front/` (Vite + React). ABIs and generated JSON are copied into `front/src/utils/contracts` by `scripts/deploy.js` and prebuild step `prebuild` in `front/package.json`.
+## Architecture & Data Flow
+- **Dispute Flow:**
+  1. Breach reported in NDATemplate
+  2. Dispute created; arbitrator notified
+  3. Arbitrator resolves via ArbitrationService (low-level ABI calls)
+  4. Resolution applied to contract; funds distributed
+- **Evidence:** Canonicalized, hashed, and stored off-chain (IPFS/Helia); only digests on-chain
+- **Arbitration:** LLM backend (Ollama) or simulation fallback; JSON decisions returned to contracts
+- **Frontend:** ABIs auto-copied from deployments; role-based UI; evidence verification via IPFS
 
-- Key developer workflows & commands (project root unless noted)
-  - Install deps: `npm install`
-  - Compile contracts and build artifacts: `npm run compile`
-  - Start a local Hardhat node: `npx hardhat node`
-  - Deploy to localhost and copy ABIs for frontend: `npx hardhat run scripts/deploy.js --network localhost`
-  - Run unit tests: `npm test` (runs Hardhat tests)
-  - Run server (V7) locally: `cd server && npm install && npm run start:v7` (also `server/.env.example` exists)
-  - Run frontend dev: `cd front && npm install && npm run dev` (prebuild copies ABIs automatically)
-  - E2E frontend tests: from `front/`: `npm test -- tests/e2e/template.rent.e2e.spec.ts` or `npm run e2e` uses Playwright projects.
+## Developer Workflows
+- **Install:** `npm install`
+- **Compile Contracts:** `npm run compile` or `npx hardhat compile`
+- **Deploy Contracts:** `node scripts/deploy.js` (unified deployment)
+- **Start All Services:** `./scripts/start-all.ps1` (Windows) or run server/frontend separately
+- **Run Tests:** `npm test` (Hardhat, frontend, backend)
+- **E2E Frontend Test:** `cd front && npm test -- tests/e2e/template.rent.e2e.spec.ts`
+- **Local Node:** `npx hardhat node`
+- **Smoke Test:** `npx hardhat run scripts/smokeTest.js --network localhost`
 
-- Project-specific patterns and gotchas
-  - ArbitrationService flow: templates do not store an `arbitrator` address; instead use `ArbitrationService` as the central caller. To apply a decision in tests/userspace, call `arbitrationService.applyResolutionToTarget(target, caseId, approved, amount, beneficiary)` (see `test/*` for examples).
-  - Evidence on-chain: only bytes32 digests are stored (keccak256). Frontend utilities compute both `cidDigest` and `contentDigest` in `front/src/utils/evidenceCanonical.js` (and related helpers in `front/src/utils/evidence.js`). Use canonicalization before hashing.
-  - Submit evidence fallback: frontend will try `submitEvidenceWithDigest` and fall back to `submitEvidence` when extended entrypoints are missing (see tests and `front/README.md`).
-  - ContractFactory is the canonical deployment mechanism. Prefer wiring via the factory and setting default arbitration service via `factory.setDefaultArbitrationService(arbitrationAddress, requiredDeposit)`.
-  - Low-level ABI calls: `ArbitrationService` attempts multiple resolution entrypoints with low-level `call`. If your target contract changes its API, update the service mappings (see `ArbitrationService.sol`).
+## Key Conventions & Patterns
+- **Contract Deployment:** Use `ContractFactory` for all template deployments; arbitration service set immutably at creation
+- **ArbitrationService:** Centralized, owner-controlled; applies resolutions via low-level ABI calls to templates
+- **Frontend ABIs:** Auto-copied to `front/src/utils/contracts` after deployment
+- **Evidence Encryption:** Encrypt client-side to admin public key; store only digest on-chain
+- **Admin Tools:** Decryption helpers in `tools/admin/`; never bundle private keys in frontend
+- **Event Listening:** Frontend listens for `DisputeAppliedCapped` and `ResolutionApplied` events
 
-- Integration points & external deps
-  - Ollama LLM local or hosted — health endpoint: `GET /api/v7/arbitration/ollama/health` (server defaults to `http://localhost:8000` in `.env`)
-  - IPFS/Helia evidence storage — `server/modules/evidenceValidator.js` and `front` utilities show how digests are computed/validated.
-  - Chainlink Functions (optional) — wiring exists in `scripts/` and docs; environment variables for CCIP/Chainlink are present in root `.env` config instructions.
+## Integration Points
+- **Chainlink Functions:** Automated arbitration triggers
+- **Ollama LLM:** Native integration for dispute resolution
+- **IPFS/Helia:** Off-chain evidence storage and verification
+- **REST API:** Backend endpoints for arbitration, evidence, and health checks
 
-- Examples to copy when editing code
-  - Apply resolution from scripts/tests: see `test/V7BackendCCIPFullFlow.test.js` lines around applyResolutionToTarget usage for correct param order and signer handling.
-  - Evidence digest usage: look at `test/ArbitrationService.e2e.test.js` for canonical digest computation and `rent` flow examples.
+## Troubleshooting
+- If tests fail, ensure all dependencies are installed and contracts are compiled
+- Secrets and external integrations are managed via `.env` (see `.env.example`)
+- For admin decryption, use CLI tools in `tools/admin/` only in trusted environments
 
-- Files to read first (priority)
-  1. `README.md` (root) — architecture & quickstart
-  2. `server/README.md` — backend modules and API
-  3. `contracts/ArbitrationService.sol` — core wiring & low-level call behavior
-  4. `scripts/deploy.js` — unified deployment and ABI copying
-  5. `front/README.md` & `front/src/utils/evidence.js` — frontend evidence & build notes
-  6. `test/` — many example usage patterns for contract wiring, arbitration application and E2E scenarios
+## References
+- See `README.md` (root, front/, server/, scripts/, tools/) and `docs/` for specs and guides
+- Key contracts: `contracts/ArbitrationService.sol`, `contracts/ContractFactory.sol`, `contracts/NDA/`, `contracts/Rent/`
+- Main deployment: `scripts/deploy.js`
+- Frontend logic: `front/src/ArbitrationView.jsx`, `front/src/LLMDecisionView.jsx`, `front/src/WalletConnector.jsx`
+- Backend logic: `server/modules/`, `server/routes/`
 
-- Tone & style
-  - Follow the repository's clear, example-driven style: prefer copying adjacent tests/snippets for behavior, keep ABIs and JSON artifacts in sync with `scripts/deploy.js`, and keep admin-only helpers in `tools/admin/` (do not import them into `front/`).
-
-If anything here is unclear or you'd like me to expand on specific areas (e.g., exact `ArbitrationService` ABI shapes, `server` endpoints examples, or frontend evidence canonicalization), tell me which section to iterate on.
+---
+*Update this file as architecture or workflows evolve. For unclear or missing sections, ask maintainers for clarification.*
