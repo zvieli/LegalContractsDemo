@@ -21,21 +21,13 @@ function EvidencePanel({ initialEvidenceRef }) {
   // Example renderBody implementation (replace with your actual logic)
   const renderBody = () => {
     if (!ref) return <span style={{color:'#888'}}>No evidence reference available on-chain</span>;
-    const s = String(ref || '').trim();
-    // Render the evidence reference (IPFS or digest)
-    if (s.startsWith('ipfs://')) {
-      const cid = s.replace(/^ipfs:\/\//, '');
-      return (
-        <div>
-          <div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{s}</code></div>
-          <div><a href={`https://ipfs.io/ipfs/${cid}`} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div>
-        </div>
-      );
-    } else {
-      return (
-        <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8}}>{s}</pre>
-      );
-    }
+    // הערך תמיד CID נקי – אפשר להציג קישור ישיר ל-IPFS gateway
+    return (
+      <div>
+        <div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{ref}</code></div>
+        <div><a href={`https://ipfs.io/ipfs/${ref}`} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div>
+      </div>
+    );
   };
 
   return (
@@ -394,7 +386,14 @@ function EvidencePanel({ initialEvidenceRef }) {
               </div>
             ) : (
               <div style={{padding:8, background:'#fafafa', border:'1px solid #eee', borderRadius:4, minHeight:48}}>
-                {(appealLocal && (appealLocal.evidenceRef || appealLocal.evidenceDigest)) ? (<div style={{marginTop:6}}><div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence (on-chain reference):</div>{ (String(appealLocal.evidenceRef || appealLocal.evidenceDigest).startsWith('ipfs://')) ? (() => { const uri = String(appealLocal.evidenceRef || appealLocal.evidenceDigest); const cid = uri.replace(/^ipfs:\/\//,''); const gateway = `https://ipfs.io/ipfs/${cid}`; return (<div><div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{uri}</code></div><div><a href={gateway} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div></div>); })() : (<pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fff', padding:8}}>{appealLocal.evidenceRef || appealLocal.evidenceDigest}</pre>) }<div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain encrypted to the platform admin and is not available in this browser. Contact the platform administrator to request decryption if you are authorized.</div></div>) : (rationale || <span style={{color:'#888'}}>No rationale provided</span>)}
+                {(appealLocal && (appealLocal.evidenceRef || appealLocal.evidenceDigest)) ? (
+                  <div style={{marginTop:6}}>
+                    <div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence (on-chain reference):</div>
+                    <div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{appealLocal.evidenceRef || appealLocal.evidenceDigest}</code></div>
+                    <div><a href={`https://ipfs.io/ipfs/${appealLocal.evidenceRef || appealLocal.evidenceDigest}`} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div>
+                    <div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain encrypted to the platform admin and is not available in this browser. Contact the platform administrator to request decryption if you are authorized.</div>
+                  </div>
+                ) : (rationale || <span style={{color:'#888'}}>No rationale provided</span>)}
                 <div style={{marginTop:8, color:'#a33'}}>Note: your connected wallet is not authorized to perform arbitration actions for this contract. To finalize disputes via the ArbitrationService, connect the ArbitrationService owner or the ContractFactory creator account (the account that deployed this contract).</div>
               </div>
             )}

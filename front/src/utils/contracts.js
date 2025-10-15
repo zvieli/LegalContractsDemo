@@ -8,7 +8,7 @@ import { ethers } from 'ethers';
 import { CONTRACT_ADDRESSES } from '../../config/chains';
 
 let ContractFactoryABI = null;
-let TemplateRentContractABI = null;
+// ...existing code...
 let NDATemplateABI = null;
 let ArbitratorABI = null;
 let ArbitrationServiceABI = null;
@@ -57,7 +57,7 @@ export const getContractABI = (contractName) => {
     if (typeof window !== 'undefined' && window.__ABIS__) {
       const abis = window.__ABIS__;
       if (!ContractFactoryABI && abis.ContractFactory) ContractFactoryABI = abis.ContractFactory;
-      if (!TemplateRentContractABI && abis.TemplateRentContract) TemplateRentContractABI = abis.TemplateRentContract;
+// ...existing code...
       if (!NDATemplateABI && abis.NDATemplate) NDATemplateABI = abis.NDATemplate;
       if (!ArbitratorABI && abis.Arbitrator) ArbitratorABI = abis.Arbitrator;
       if (!ArbitrationServiceABI && abis.ArbitrationService) ArbitrationServiceABI = abis.ArbitrationService;
@@ -69,9 +69,7 @@ export const getContractABI = (contractName) => {
     case 'ContractFactory':
       if (ContractFactoryABI && ContractFactoryABI.abi) return ContractFactoryABI.abi;
       throw new Error('ContractFactory ABI not available. Ensure frontend ABIs are generated in front/src/utils/contracts/.');
-    case 'TemplateRentContract':
-      if (TemplateRentContractABI && TemplateRentContractABI.abi) return TemplateRentContractABI.abi;
-      throw new Error('TemplateRentContract ABI not available. Ensure frontend ABIs are generated in front/src/utils/contracts/.');
+// ...existing code...
     case 'NDATemplate':
       if (NDATemplateABI && NDATemplateABI.abi) return NDATemplateABI.abi;
       throw new Error('NDATemplate ABI not available. Ensure frontend ABIs are generated in front/src/utils/contracts/.');

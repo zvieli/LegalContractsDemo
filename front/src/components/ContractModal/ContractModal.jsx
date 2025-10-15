@@ -2098,9 +2098,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           const maybe = (appealData && (appealData.evidence || appealData.evidenceRef || appealData.evidenceDigest)) || null;
                           if (base && maybe) {
                             const s = String(maybe).trim();
-                            if (s.startsWith('ipfs://')) {
-                              const cid = s.replace(/^ipfs:\/\//, '');
-                              guessed = `https://ipfs.io/ipfs/${cid}`;
+                            if (s) {
+                              guessed = `https://ipfs.io/ipfs/${s}`;
                             } else if (/^0x[0-9a-fA-F]{64}$/.test(s)) {
                               const digestNo0x = s.replace(/^0x/, '');
                               guessed = `${base.replace(/\/$/, '')}/${digestNo0x}.json`;
@@ -2201,11 +2200,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                       ) : ((appealData.evidenceRef || appealData.evidenceDigest) ? (
                         <div style={{marginTop:6}}>
                           <div style={{fontSize:13, color:'#333', marginBottom:6}}>Evidence (on-chain reference):</div>
-                          { (String(appealData.evidenceRef || appealData.evidenceDigest).startsWith('ipfs://')) ? (
-                            (() => { const uri = String(appealData.evidenceRef || appealData.evidenceDigest); const cid = uri.replace(/^ipfs:\/\//,''); const gateway = `https://ipfs.io/ipfs/${cid}`; return (<div><div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{uri}</code></div><div><a href={gateway} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div></div>); })()
-                          ) : (
-                            <pre style={{whiteSpace:'pre-wrap', wordBreak:'break-all', background:'#fafafa', padding:8}}>{String(appealData.evidenceRef || appealData.evidenceDigest)}</pre>
-                          )}
+                          <div style={{marginBottom:6}}><code style={{wordBreak:'break-all'}}>{appealData.evidenceRef || appealData.evidenceDigest}</code></div>
+                          <div><a href={`https://ipfs.io/ipfs/${appealData.evidenceRef || appealData.evidenceDigest}`} target="_blank" rel="noreferrer">Open on IPFS gateway</a></div>
                           <div style={{marginTop:8, fontSize:12, color:'#555'}}>The full evidence payload is stored off-chain (encrypted). Contact the platform administrator to request decryption if you are authorized.</div>
                         </div>
                       ) : (

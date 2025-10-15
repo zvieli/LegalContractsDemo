@@ -6,7 +6,7 @@ import { getHelia } from '../../utils/heliaClient.js';
 import EvidenceBadgeLegend from './EvidenceBadgeLegend.jsx';
 import BatchDashboardAdvanced from '../Dashboard/BatchDashboardAdvanced.jsx';
 import { subscribeToEvents } from '../../services/contractService.js';
-import TemplateRentContractAbi from '../../utils/contracts/TemplateRentContract.abi.json';
+// ...existing code...
 
 function LiveEvents({ chainEvents }) {
   if (!chainEvents.length) return null;
@@ -52,14 +52,14 @@ export default function EvidenceList({ evidence, caseId, extraHeaderActions = nu
 
     const disputeListener = subscribeToEvents(
       contractAddress,
-      TemplateRentContractAbi,
+// ...existing code...
       'DisputeReported',
       data => setChainEvents(evts => [{ type:'DisputeReported', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))])
     );
 
     const resolutionListener = subscribeToEvents(
       contractAddress,
-      TemplateRentContractAbi,
+// ...existing code...
       'ResolutionApplied',
       data => setChainEvents(evts => [{ type:'ResolutionApplied', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))])
     );

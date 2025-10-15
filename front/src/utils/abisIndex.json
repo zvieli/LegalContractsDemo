@@ -17,9 +17,5 @@
   "MerkleEvidenceManager": "/utils/contracts/MerkleEvidenceManager.json",
   "NDATemplate": "/utils/contracts/NDATemplate.json",
   "RecipientKeyRegistry": "/utils/contracts/RecipientKeyRegistry.json",
-  "Reverter": "/utils/contracts/Reverter.json",
-  "TemplateRentContract": "/utils/contracts/TemplateRentContract.json",
-  "_EnhancedRentDeployer": "/utils/contracts/_EnhancedRentDeployer.json",
-  "_NDADeployer": "/utils/contracts/_NDADeployer.json",
-  "_RentDeployer": "/utils/contracts/_RentDeployer.json"
+  "Reverter": "/utils/contracts/Reverter.json"
 }

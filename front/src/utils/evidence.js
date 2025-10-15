@@ -188,7 +188,7 @@ export async function signEvidenceEIP712(evidenceData, contractInfo, signer) {
   
   // EIP-712 domain
   const domain = {
-    name: 'TemplateRentContract',
+  // ...existing code...
     version: '1',
     chainId: chainId,
     verifyingContract: verifyingContract

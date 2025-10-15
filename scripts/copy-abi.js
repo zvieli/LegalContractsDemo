@@ -33,16 +33,18 @@ let count = 0;
 walkDir(artifactsRoot, (file) => {
   try {
     const art = readJson(file);
-    if (!art || !art.contractName) return;
-    const cname = art.contractName;
-    const abiOnly = { abi: art.abi };
-    const abiFile = path.join(destDir, `${cname}ABI.json`);
-    writeJson(abiFile, abiOnly);
-    count++;
-    // if front expects a full artifact file name, also write full artifact
-    const fullFile = path.join(destDir, `${cname}.json`);
-    try { writeJson(fullFile, art); } catch (e) {}
-    console.log('WROTE', abiFile);
+  if (!art || !art.contractName) return;
+  const cname = art.contractName;
+  // Skip deprecated contracts and deployers
+  if (cname === 'TemplateRentContract' || cname === '_EnhancedRentDeployer' || cname === '_NDADeployer') return;
+  const abiOnly = { abi: art.abi };
+  const abiFile = path.join(destDir, `${cname}ABI.json`);
+  writeJson(abiFile, abiOnly);
+  count++;
+  // if front expects a full artifact file name, also write full artifact
+  const fullFile = path.join(destDir, `${cname}.json`);
+  try { writeJson(fullFile, art); } catch (e) {}
+  console.log('WROTE', abiFile);
   } catch (e) {
     console.error('SKIP', file, e && e.message ? e.message : e);
   }

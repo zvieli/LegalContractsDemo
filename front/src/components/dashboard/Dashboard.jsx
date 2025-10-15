@@ -98,7 +98,7 @@ function Dashboard() {
         if (!a) continue;
         if (contractListenersRef.current[a]) continue; // already listening
         try {
-          const inst = await createContractInstanceAsync('TemplateRentContract', a, provider);
+          const inst = await createContractInstanceAsync('EnhancedRentContract', a, provider);
           const refresh = () => loadUserContracts();
           inst.on('CancellationInitiated', refresh);
           inst.on('CancellationApproved', refresh);

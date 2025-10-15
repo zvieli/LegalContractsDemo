@@ -6,6 +6,7 @@ Arbitration-driven on-chain contract templates (NDA & Rent). This repository pro
 
 </div>
 
+
 ## Recent Changes (October 2025) - V7 Release
 
 - **NEW**: 🦙 **Ollama LLM Integration** - Native Ollama integration with automatic fallback to simulation mode
@@ -14,13 +15,14 @@ Arbitration-driven on-chain contract templates (NDA & Rent). This repository pro
 - **NEW**: ⚡ **Improved Performance** - Direct Ollama integration eliminates API overhead
 - **NEW**: 🌳 **Merkle Evidence System** - Gas-efficient batched evidence submission with 82% cost savings
 - **NEW**: 🧹 **Unified Deployment** - Single `deploy.js` script for all infrastructure (replaces 3 separate scripts)
+- **COMPLETE MIGRATION**: All contract views, event listeners, and evidence/dispute/arbitration flows have been fully migrated to EnhancedRentContract/NDATemplate. Legacy TemplateRentContract logic and event handling are fully removed from all layers (frontend, backend, scripts, docs).
 
 ## Overview
 
 
 What you get:
 - `NDATemplate` contract with deposits, breach reporting and arbitrator hooks
-- `TemplateRentContract` with AI arbitration and deposit capping mechanisms
+- `EnhancedRentContract` (replaces TemplateRentContract) with AI arbitration, Merkle evidence batching, and deposit capping mechanisms
 - **V7 Backend**: Integrated Ollama LLM arbitration with simulation fallback
 ## Architecture
 
@@ -66,17 +68,22 @@ Flow (prod / local):
 3. The arbitrator resolves the dispute by instructing the `ArbitrationService` to apply the resolution to the NDA; templates only accept the configured service as an authorized caller.
 4. `NDATemplate` applies the resolution: enforcement may be deferred by an appeal window or applied immediately; fund distribution uses a pull‑payment ledger.
 
-### NDA Contract Deployment & Arbitration Flow Diagram
+
+### Contract Deployment & Arbitration Flow Diagram
 
 ```mermaid
 flowchart TD
 	subgraph Deployment
 		D[Deployer / Frontend] -- creates --> F[ContractFactory]
 		F -- createNDA() --> N[NDATemplate]
+		F -- createEnhancedRent() --> R[EnhancedRentContract]
 	end
 	N -- reportBreach(offender, requested, evidenceHash) --> A[Arbitrator (owner/manual)]
 	A -- resolve() call (owner) --> N2[NDATemplate.applyResolution]
 	N2 -- Funds distribution + case closed --> End[End]
+	R -- reportDispute(digest, amount) --> A2[Arbitrator (owner/manual)]
+	A2 -- resolve() call (owner) --> R2[EnhancedRentContract.applyResolution]
+	R2 -- Funds distribution + case closed --> End2[End]
 ```
 
 > **Note:** All template deployments in this repo are intended to be created via `ContractFactory`.
@@ -189,7 +196,7 @@ npm run deploy:sepolia
 ```
 
 Notes:
-- `ContractFactory` is used to deploy templates and initialize admin/parties.
+- `ContractFactory` is used to deploy NDA and EnhancedRent templates and initialize admin/parties.
 
 ## Frontend
 
@@ -197,22 +204,25 @@ ABIs are copied into `front/src/utils/contracts`. The V7 UI integrates with:
 
 - **AI Arbitration Flow**: Create case → Trigger Chainlink Functions → AI decision → Automatic resolution
 - **Deposit Capping**: When requested amount exceeds available deposits, system automatically caps to available amount
+- **Merkle Evidence Batching**: EnhancedRentContract supports gas-efficient batched evidence submission (see docs)
 - **Evidence Encryption**: Client-side encryption to admin public key with keccak256 digest storage on-chain
 - **Real-time Updates**: Event listening for `DisputeAppliedCapped` and `ResolutionApplied` events
 
 ### E2E Testing
 
+
 Run the complete arbitration flow test:
 ```bash
 cd front
-npm test -- tests/e2e/template.rent.e2e.spec.ts
+npm test -- tests/e2e/enhanced.rent.e2e.spec.ts
 ```
 
 The E2E test validates:
-- Contract deployment and signing
+- Contract deployment and signing (NDA & EnhancedRent)
 - Dispute creation with bond deposits
 - AI arbitration via ArbitrationContractV2
 - Deposit capping when requested > available
+- Merkle evidence batching (EnhancedRentContract)
 - Fund distribution and withdrawable tracking
 
 ### Admin decryption helper
@@ -246,9 +256,11 @@ Admin decryption utilities live under `tools/admin/`. These helpers are intended
 
 ## ABI / Evidence digest change (2025-09)
 
-- New contracts store off-chain evidence as a `bytes32` digest (keccak256 of the off-chain payload) instead of relying on raw string CIDs or URIs on-chain. This reduces gas and standardizes verification.
-- Smart-contract entrypoints:
-	- `reportDispute(...)` accepts a `bytes32 evidenceDigest` only; the contract no longer stores or references raw off-chain URIs.
+
+EnhancedRentContract and NDATemplate store off-chain evidence as a `bytes32` digest (keccak256 of the off-chain payload) instead of relying on raw string CIDs or URIs on-chain. This reduces gas and standardizes verification.
+Smart-contract entrypoints:
+	- `reportDispute(...)` (EnhancedRentContract) accepts a `bytes32 evidenceDigest` only; the contract no longer stores or references raw off-chain URIs.
+	- Merkle evidence batching is supported in EnhancedRentContract for gas savings.
 
 If you maintain integrations or UIs, update your contract ABIs and prefer providing the digest precomputed by the frontend (see `front/src/services/contractService.js`).
 

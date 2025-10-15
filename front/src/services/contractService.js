@@ -1,8 +1,16 @@
+import * as ethers from 'ethers';
+import { contract } from './contractInstance.js';
+import { computePayloadDigest } from '../utils/cidDigest';
+import { prepareEvidencePayload } from '../utils/evidence';
+import { IN_E2E } from '../utils/env';
+
+
 /**
  * Subscribe to contract events (e.g., RentContractCreated, DisputeReported, ResolutionApplied)
  * Usage: contractService.subscribeToEvents(contractAddress, eventName, callback)
  * Automatically uses ethers.js provider for local/Chainlink events.
  */
+
 export function subscribeToEvents(contractAddress, abi, eventName, callback, options = {}) {
   // Create a contract instance with the provider (not signer, for event listening)
   const { ethers } = require('ethers');
@@ -23,11 +31,6 @@ export function subscribeToEvents(contractAddress, abi, eventName, callback, opt
    * Usage: contractService.subscribeToEvents(factoryAddress, factoryAbi, 'RentContractCreated', (data) => { ... })
    */
   // You can add more event-specific helpers here as needed
-import * as ethers from 'ethers';
-import { contract } from './contractInstance.js';
-import { computePayloadDigest } from '../utils/cidDigest';
-import { prepareEvidencePayload } from '../utils/evidence';
-import { IN_E2E } from '../utils/env';
 
 // Resolve Vite env variables but allow runtime overrides injected by Playwright into window.__ENV__
 function getEvidenceEndpoint() {
@@ -646,7 +649,7 @@ export class ContractService {
         console.warn('getRentContract called with invalid contractAddress:', contractAddress);
         return null;
       }
-      return await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+  return await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
       throw error;
@@ -662,7 +665,7 @@ export class ContractService {
     } catch (e) {
       // Fallback: attempt low-level call with signature
       try {
-  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+  const rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
         const data = rent.interface.encodeFunctionData('withdrawable', [account]);
         const res = await this.signer.provider.call({ to: contractAddress, data });
         const decoded = rent.interface.decodeFunctionResult('withdrawable', res);
@@ -683,7 +686,7 @@ export class ContractService {
     } catch (e) {
       // fallback: try alternative getter name
       try {
-  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+  const rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
         const data = rent.interface.encodeFunctionData('getDisputeBond', [caseId]);
         const res = await this.signer.provider.call({ to: contractAddress, data });
         const decoded = rent.interface.decodeFunctionResult('getDisputeBond', res);
@@ -758,7 +761,7 @@ export class ContractService {
     } catch (e) {
       try {
         // fallback: low-level call decode
-  const rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+  const rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
         const data = rent.interface.encodeFunctionData('getDisputeMeta', [Number(caseId)]);
         const ret = await this.signer.provider.call({ to: contractAddress, data });
         const decoded = rent.interface.decodeFunctionResult('getDisputeMeta', ret);
@@ -779,7 +782,7 @@ export class ContractService {
         throw new Error(`Address ${contractAddress} has no contract code`);
       }
       const rentContract = await this.getRentContract(contractAddress);
-      // Defensive: ensure this contract appears to implement the TemplateRentContract ABI
+  // ...existing code...
       // If key functions are missing, return null so callers can try NDA parsing instead.
       if (typeof rentContract.rentAmount !== 'function' || typeof rentContract.landlord !== 'function' || typeof rentContract.tenant !== 'function') {
         if (!silent) console.debug('getRentContractDetails: contract ABI mismatch, not a Rent contract', contractAddress);
@@ -791,7 +794,7 @@ export class ContractService {
         rentContract.tenant().catch(() => null),
         rentContract.rentAmount().catch(() => 0n),
         (typeof rentContract.priceFeed === 'function' ? rentContract.priceFeed().catch(() => null) : Promise.resolve(null)),
-        // TemplateRentContract exposes `active()`
+  // ...existing code...
         (typeof rentContract.active === 'function' ? rentContract.active().catch(() => true) : Promise.resolve(true))
       ]);
       // If landlord/tenant are not valid addresses, this is likely not a Rent contract
@@ -1030,7 +1033,7 @@ export class ContractService {
   /**
    * Finalize a pending cancellation by calling the ArbitrationService.finalizeTargetCancellation
    * arbitrationServiceAddress: address of ArbitrationService
-   * contractAddress: target TemplateRentContract
+  * contractAddress: target EnhancedRentContract or NDATemplate
    * feeWei: BigInt or string value to forward as msg.value
    */
   async finalizeCancellationViaService(arbitrationServiceAddress, contractAddress, feeWei = 0n) {
@@ -1038,7 +1041,7 @@ export class ContractService {
       if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
       // Preflight: ensure the target contract is configured for arbitration and whether a fee is required.
       try {
-  const target = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+  const target = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
         // Check arbitrationService field
         const targetArb = await target.arbitrationService().catch(() => null);
         if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
@@ -1108,7 +1111,7 @@ export class ContractService {
       if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
 
       // Preflight: ensure target configured and cancellation pending
-  const target = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+  const target = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
       const targetArb = await target.arbitrationService().catch(() => null);
       if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
         throw new Error(`Target contract ${contractAddress} has no arbitrationService configured`);
@@ -1205,7 +1208,7 @@ export class ContractService {
 
       // Target preflight: ensure the target contract has this arbitration service configured
       try {
-  const target = await createContractInstanceAsync('TemplateRentContract', targetContract, this.signer);
+  const target = await createContractInstanceAsync('EnhancedRentContract', targetContract, this.signer);
         const targetArb = await target.arbitrationService().catch(() => null);
         if (!targetArb || targetArb === ethers.ZeroAddress) {
           throw new Error(`Target contract ${targetContract} has no arbitrationService configured`);
@@ -1285,7 +1288,7 @@ export class ContractService {
 
   /**
    * Report a dispute on a Rent contract (appeal to arbitration).
-   * disputeType: numeric enum matching TemplateRentContract.DisputeType (0..)
+  * disputeType: numeric enum matching EnhancedRentContract.DisputeType (0..)
    * requestedAmount: BigInt or string in wei (use 0 for none)
    * evidenceText: optional plain text or URL to store on-chain as string
    */
@@ -1293,7 +1296,7 @@ export class ContractService {
     try {
       let submitterAddress = null;
       // Defensive checks: ensure a valid contractAddress was provided before attempting to
-      // instantiate the TemplateRentContract. This prevents obscure TypeErrors from
+  // instantiate the EnhancedRentContract. This prevents obscure TypeErrors from
       // bubbling up when createContractInstanceAsync receives a null/undefined target.
       if (!contractAddress) {
         console.error('reportRentDispute called with empty contractAddress', { contractAddress });
@@ -1306,9 +1309,9 @@ export class ContractService {
       console.debug('reportRentDispute target:', contractAddress);
       let rent;
       try {
-        rent = await createContractInstanceAsync('TemplateRentContract', contractAddress, this.signer);
+        rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
       } catch (instErr) {
-        console.error('Failed to create TemplateRentContract instance for', contractAddress, instErr);
+        console.error('Failed to create EnhancedRentContract instance for', contractAddress, instErr);
         throw instErr;
       }
       // Ensure caller is one of the parties recorded on-chain
@@ -1480,7 +1483,7 @@ export class ContractService {
   /**
    * Determine whether the connected signer/address is authorized to perform
    * arbitration actions for the given contract. We allow:
-   *  - the original creator/deployer of the contract (as recorded in ContractFactory.contractsByCreator)
+  *  - the original creator/deployer of the contract (as recorded in ContractFactory.contractsByCreator)
    *  - the owner of the configured ArbitrationService for the contract (if set)
    * Returns boolean.
    */
@@ -1669,7 +1672,7 @@ export class ContractService {
           if (raw) {
             const selector = raw.slice(2, 10);
             const map = {
-              // selectors from TemplateRentContract custom errors (best-effort guesses)
+              // selectors from EnhancedRentContract custom errors (best-effort guesses)
               '2f54bf6e': 'Only tenant may call this',
               'd3d3d3d3': 'Only landlord may call this',
               'b7f9c7a1': 'Contract is not active',
@@ -2081,7 +2084,7 @@ async signRent(contractAddress) {
       const dueDate = await rent.dueDate();
       const rentAmount = await rent.rentAmount();
       const domain = {
-        name: 'TemplateRentContract',
+  name: 'EnhancedRentContract',
         version: '1',
         chainId: Number(this.chainId),
         verifyingContract: contractAddress

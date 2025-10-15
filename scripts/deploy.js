@@ -492,15 +492,14 @@ async function main() {
   }
   
   console.log("\n🔧 Usage Instructions:");
-  console.log("   1. Use factory.createEnhancedRentContract() for gas-optimized evidence");
-  console.log("   2. Use factory.createRentContract() for traditional contracts");
-  console.log("   3. Batch evidence off-chain using MerkleEvidenceHelper");
-  console.log("   4. Submit batches via MerkleEvidenceManager");
-  
+  console.log("   1. Use factory.createEnhancedRentContract() for all rent contracts (TemplateRentContract is deprecated)");
+  console.log("   2. Batch evidence off-chain using MerkleEvidenceHelper");
+  console.log("   3. Submit batches via MerkleEvidenceManager");
+
   if (ccipSenderAddress) {
-    console.log("   5. Configure CCIP in templates: contract.configureCCIP('" + ccipSenderAddress + "', true)");
-    console.log("   6. Start V7 backend: npm run start:v7 in server/");
-    console.log("   7. Report disputes to trigger automatic Oracle arbitration");
+    console.log("   4. Configure CCIP in templates: contract.configureCCIP('" + ccipSenderAddress + "', true)");
+    console.log("   5. Start V7 backend: npm run start:v7 in server/");
+    console.log("   6. Report disputes to trigger automatic Oracle arbitration");
   }
   console.log(`\n📁 Files saved to: ${frontendContractsDir}`);
 }
