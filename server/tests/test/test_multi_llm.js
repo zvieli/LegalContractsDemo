@@ -36,8 +36,20 @@ async function runAllCases() {
       console.error(`[test] ❌ Failed to load evidence for ${testCase.file}:`, error.message);
       continue;
     }
+
+    // Handle both string and array evidenceData formats
+    let evidenceText;
+    if (typeof testEvidence.evidenceData === 'string') {
+      evidenceText = testEvidence.evidenceData;
+    } else if (Array.isArray(testEvidence.evidenceData)) {
+      // Extract descriptions from evidence objects
+      evidenceText = testEvidence.evidenceData.map(item => item.description || item).join(' ');
+    } else {
+      evidenceText = String(testEvidence.evidenceData);
+    }
+
     const testData = {
-      evidence_text: testEvidence.evidenceData,
+      evidence_text: evidenceText,
       contract_text: 'GENERIC CONTRACT FOR TESTING',
       dispute_id: testCase.file
     };
