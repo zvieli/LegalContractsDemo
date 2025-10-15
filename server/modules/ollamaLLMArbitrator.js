@@ -810,7 +810,7 @@ async function processV7ArbitrationWithOllama(payload = {}) {
   const contract_text = payload.contract_text || payload.contractText || payload.contract || 'GENERIC CONTRACT FOR TESTING';
     const dispute_id = payload.dispute_id || payload.disputeId || payload.caseId || 'unknown';
 
-    const prompt = `EVIDENCE:\n${evidence_text}\nCONTRACT:\n${contract_text}\nDISPUTE_ID: ${dispute_id}\n\nPlease provide VERDICT, RATIONALE, CONFIDENCE, REIMBURSEMENT.`;
+    const prompt = `EVIDENCE:\n${evidence_text}\nCONTRACT:\n${contract_text}\nDISPUTE_ID: ${dispute_id}\n\nYou are an arbitrator. Analyze the evidence and contract dispute above. Provide your decision in EXACTLY this format:\n\nVERDICT: [PARTY_A_WINS or PARTY_B_WINS or NO_PENALTY or DRAW]\nRATIONALE: [brief explanation]\nCONFIDENCE: [0.0-1.0 or percentage]\nREIMBURSEMENT: [amount or NONE]`;
 
     const raw = await callOllama(prompt, 200000, false, 400);
     const responseText = raw.response || '';

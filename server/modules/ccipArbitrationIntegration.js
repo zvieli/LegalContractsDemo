@@ -54,9 +54,9 @@ export class CCIPArbitrationIntegration {
       console.log(`  • ArbitrationService: ${this.config.arbitrationServiceAddress}`);
 
       // Load ABIs
-      const ccipSenderABI = this.loadABI('contracts/ccip/CCIPArbitrationSender.sol/CCIPArbitrationSender.json');
-      const ccipReceiverABI = this.loadABI('contracts/ccip/CCIPArbitrationReceiver.sol/CCIPArbitrationReceiver.json');
-      const arbitrationServiceABI = this.loadABI('contracts/ArbitrationService.sol/ArbitrationService.json');
+      const ccipSenderABI = this.loadABI('contracts/Arbitration/ccip/CCIPArbitrationSender.sol/CCIPArbitrationSender.json');
+      const ccipReceiverABI = this.loadABI('contracts/Arbitration/ccip/CCIPArbitrationReceiver.sol/CCIPArbitrationReceiver.json');
+      const arbitrationServiceABI = this.loadABI('contracts/Arbitration/ArbitrationService.sol/ArbitrationService.json');
 
       // Create contract instances
       if (this.config.ccipSenderAddress && ccipSenderABI) {
@@ -105,7 +105,9 @@ export class CCIPArbitrationIntegration {
         path.resolve(__dirname, '../artifacts', path.basename(contractPath)),
         // Direct lookups for CCIP folder
         path.resolve(__dirname, '../../artifacts/contracts/ccip', path.basename(contractPath)),
-        path.resolve(__dirname, '../artifacts/contracts/ccip', path.basename(contractPath))
+        path.resolve(__dirname, '../artifacts/contracts/ccip', path.basename(contractPath)),
+        // Correct path for CCIP contracts in Arbitration folder
+        path.resolve(__dirname, '../../artifacts/contracts/Arbitration/ccip', path.basename(contractPath))
       ];
 
       for (const artifactPath of candidates) {
@@ -114,15 +116,15 @@ export class CCIPArbitrationIntegration {
             const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
             if (artifact && artifact.abi) return artifact.abi;
           } catch (e) {
-            console.warn(`⚠️ Failed to parse artifact at ${artifactPath}: ${e.message}`);
+            // Silently ignore parse errors
           }
         }
       }
 
-      console.warn(`⚠️ ABI artifact not found for ${contractPath} (looked in ${candidates.join(', ')})`);
+      // ABI not found - return null silently
       return null;
     } catch (error) {
-      console.warn(`⚠️ Failed to load ABI for ${contractPath}:`, error.message);
+      // Silently return null on error
       return null;
     }
   }

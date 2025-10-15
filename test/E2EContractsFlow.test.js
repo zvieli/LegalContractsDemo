@@ -7,7 +7,7 @@ const { ethers } = pkg;
 import { MerkleEvidenceHelper } from '../utils/merkleEvidenceHelper.js';
 
 describe('E2E Contracts Flow', function () {
-  let factory, rentContract, ndaContract, landlord, tenant, partyA, partyB, arbitrationService, merkleEvidenceManager;
+  let factory, rentContract, ndaContract, landlord, tenant, partyA, partyB, arbitrationService, merkleEvidenceManager, ccipSender;
 
   before(async function () {
     // Deploy signers
@@ -23,12 +23,33 @@ describe('E2E Contracts Flow', function () {
     arbitrationService = await ArbitrationService.deploy();
     await arbitrationService.waitForDeployment();
 
+    // Deploy CCIPArbitrationSender (for CCIP integration)
+    const CCIPArbitrationSender = await ethers.getContractFactory('CCIPArbitrationSender');
+    const MAINNET_CCIP_ROUTER = "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D";
+    const MAINNET_LINK_TOKEN = "0x514910771AF9Ca656af840dff83E8264EcF986CA";
+    const FORK_CHAIN_SELECTOR = "31337"; // Our local fork chain ID
+    ccipSender = await CCIPArbitrationSender.deploy(
+      MAINNET_CCIP_ROUTER,
+      MAINNET_LINK_TOKEN,
+      FORK_CHAIN_SELECTOR,
+      landlord.address // Use landlord as initial oracle receiver for testing
+    );
+    await ccipSender.waitForDeployment();
+
     // Deploy Factory
     const Factory = await ethers.getContractFactory('ContractFactory');
     factory = await Factory.deploy();
     await factory.waitForDeployment();
-  await factory.setDefaultArbitrationService(arbitrationService.target);
-  await factory.setMerkleEvidenceManager(merkleEvidenceManager.target);
+    await factory.setDefaultArbitrationService(arbitrationService.target);
+    await factory.setMerkleEvidenceManager(merkleEvidenceManager.target);
+
+    // Configure CCIP sender in contracts (example for NDA)
+    // If you deploy NDA/Rent contracts here, configure CCIP
+    // ndaContract.configureCCIP(ccipSender.target, true);
+    // rentContract.configureCCIP(ccipSender.target, true);
+
+    // Optionally: Start CCIP listener (off-chain)
+    // await startCCIPListener();
   });
 
  describe('EnhancedRentContract Flow', function () {
@@ -576,12 +597,32 @@ describe('E2E Contracts Flow', function () {
   });
 
   it('should handle edge cases', async function () {
-    // First set up a valid contract
+    // Define test parameters
+    const rentAmount = ethers.parseEther('1.0');
+    const securityDeposit = ethers.parseEther('0.5');
+    const dueDate = Math.floor(Date.now() / 1000) + 86400;
+
+    // Create a fresh contract for edge cases testing
+    const tx = await factory.connect(landlord).createEnhancedRentContract(
+      tenant.address,
+      rentAmount,
+      '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419', // price feed
+      dueDate,
+      12345 // propertyId
+    );
+    const receipt = await tx.wait();
+    const parsedLogs = receipt.logs.map(l => {
+      try { return factory.interface.parseLog(l); } catch { return null; }
+    });
+    const evt = parsedLogs.find(e => e && e.name === 'EnhancedRentContractCreated');
+    const edgeRentContract = await ethers.getContractAt('TemplateRentContract', evt.args.contractAddress);
+
+    // Sign the contract
     const domain = {
       name: 'TemplateRentContract',
       version: '1',
       chainId: (await landlord.provider.getNetwork()).chainId,
-      verifyingContract: rentContract.target ?? rentContract.address
+      verifyingContract: edgeRentContract.target ?? edgeRentContract.address
     };
     const types = {
       RENT: [
@@ -593,76 +634,132 @@ describe('E2E Contracts Flow', function () {
       ]
     };
     const value = {
-      contractAddress: rentContract.target ?? rentContract.address,
+      contractAddress: edgeRentContract.target ?? edgeRentContract.address,
       landlord: landlord.address,
       tenant: tenant.address,
       rentAmount,
       dueDate
     };
-    
+
     const sigLandlord = await landlord.signTypedData(domain, types, value);
-    await rentContract.connect(landlord).signRent(sigLandlord);
+    await edgeRentContract.connect(landlord).signRent(sigLandlord);
     const sigTenant = await tenant.signTypedData(domain, types, value);
-    await rentContract.connect(tenant).signRent(sigTenant);
-    
+    await edgeRentContract.connect(tenant).signRent(sigTenant);
+
     // Make deposit
     const depositValue = ethers.parseEther('0.5');
-    await rentContract.connect(tenant).depositSecurity({ value: depositValue });
-    
+    await edgeRentContract.connect(tenant).depositSecurity({ value: depositValue });
+
     // Test 1: Non-party cannot report dispute
     await expect(
-      rentContract.connect(partyA).reportDispute(0, ethers.parseEther('0.1'), 'ipfs://test', { value: ethers.parseEther('0.001') })
-    ).to.be.revertedWithCustomError(rentContract, 'NotParty');
+      edgeRentContract.connect(partyA).reportDispute(0, ethers.parseEther('0.1'), 'ipfs://test', { value: ethers.parseEther('0.001') })
+    ).to.be.revertedWithCustomError(edgeRentContract, 'NotParty');
     
     // Test 2: Cannot report dispute with zero amount for damage claims
     await expect(
-      rentContract.connect(landlord).reportDispute(0, 0, 'ipfs://test', { value: ethers.parseEther('0.001') })
-    ).to.be.revertedWithCustomError(rentContract, 'AmountTooLow');
+      edgeRentContract.connect(landlord).reportDispute(0, 0, 'ipfs://test', { value: ethers.parseEther('0.001') })
+    ).to.be.revertedWithCustomError(edgeRentContract, 'AmountTooLow');
     
     // Test 3: Insufficient bond should revert
     const requestedAmount = ethers.parseEther('0.3');
     const insufficientBond = ethers.parseEther('0.0001'); // Too low
     await expect(
-      rentContract.connect(landlord).reportDispute(0, requestedAmount, 'ipfs://test', { value: insufficientBond })
-    ).to.be.revertedWithCustomError(rentContract, 'InsufficientFee');
+      edgeRentContract.connect(landlord).reportDispute(0, requestedAmount, 'ipfs://test', { value: insufficientBond })
+    ).to.be.revertedWithCustomError(edgeRentContract, 'InsufficientFee');
     
     // Test 4: Valid dispute reporting
     const percentageBond = (requestedAmount * 50n) / 10000n;
     const minimumBond = ethers.parseEther('0.001');
     const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
     
-    const disputeTx = await rentContract.connect(landlord).reportDispute(
+    const disputeTx = await edgeRentContract.connect(landlord).reportDispute(
       0, requestedAmount, 'ipfs://test', { value: requiredBond }
     );
     const disputeReceipt = await disputeTx.wait();
     const disputeEvents = disputeReceipt.logs.map(log => {
-      try { return rentContract.interface.parseLog(log); } catch { return null; }
+      try { return edgeRentContract.interface.parseLog(log); } catch { return null; }
     }).filter(e => e && e.name === 'DisputeReported');
     const caseId = disputeEvents[0].args.caseId;
-    
+
     // Test 5: Cannot resolve already resolved dispute
-    const [owner] = await ethers.getSigners();
-    await arbitrationService.connect(owner).applyResolutionToTarget(
-      rentContract.target, caseId, true, requestedAmount, landlord.address
+    const [serviceOwner] = await ethers.getSigners();
+    await arbitrationService.connect(serviceOwner).applyResolutionToTarget(
+      edgeRentContract.target, caseId, true, requestedAmount, landlord.address
     );
-    
+
     // Try to resolve again - should fail
     await expect(
-      arbitrationService.connect(owner).applyResolutionToTarget(
-        rentContract.target, caseId, false, 0, tenant.address
+      arbitrationService.connect(serviceOwner).applyResolutionToTarget(
+        edgeRentContract.target, caseId, false, 0, tenant.address
       )
     ).to.be.reverted; // Should fail due to replay protection or already resolved
-    
+
     // Test 6: Invalid dispute ID access
     await expect(
-      rentContract.getDisputeUri(999)
+      edgeRentContract.getDisputeUri(999)
     ).to.be.revertedWith('bad id');
     
     // Test 7: Cannot report dispute on inactive contract
-    // First need a new contract for this test
-    // Test 7: Cannot report dispute on inactive contract
-    // TODO: Implement proper cancellation finalization through ArbitrationService
-    console.log('Skipping inactive contract dispute test - cancellation finalization not implemented in ArbitrationService');
+    // Create a new contract for this test
+    const cancelTx = await factory.connect(landlord).createEnhancedRentContract(
+      tenant.address,
+      rentAmount,
+      '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419', // price feed
+      dueDate,
+      12346 // propertyId
+    );
+    const cancelReceipt = await cancelTx.wait();
+    const cancelParsedLogs = cancelReceipt.logs.map(l => {
+      try { return factory.interface.parseLog(l); } catch { return null; }
+    });
+    const cancelEvt = cancelParsedLogs.find(e => e && e.name === 'EnhancedRentContractCreated');
+    const cancelRentContract = await ethers.getContractAt('TemplateRentContract', cancelEvt.args.contractAddress);
+
+    // Sign the contract
+    const cancelDomain = {
+      name: 'TemplateRentContract',
+      version: '1',
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: cancelRentContract.target
+    };
+    const cancelTypes = {
+      RENT: [
+        { name: 'contractAddress', type: 'address' },
+        { name: 'landlord', type: 'address' },
+        { name: 'tenant', type: 'address' },
+        { name: 'rentAmount', type: 'uint256' },
+        { name: 'dueDate', type: 'uint256' }
+      ]
+    };
+    const cancelValue = {
+      contractAddress: cancelRentContract.target,
+      landlord: landlord.address,
+      tenant: tenant.address,
+      rentAmount,
+      dueDate
+    };
+
+    const cancelSigLandlord = await landlord.signTypedData(cancelDomain, cancelTypes, cancelValue);
+    await cancelRentContract.connect(landlord).signRent(cancelSigLandlord);
+    const cancelSigTenant = await tenant.signTypedData(cancelDomain, cancelTypes, cancelValue);
+    await cancelRentContract.connect(tenant).signRent(cancelSigTenant);
+
+    // Make deposit
+    await cancelRentContract.connect(tenant).depositSecurity({ value: securityDeposit });
+
+    // Initiate cancellation
+    await cancelRentContract.connect(landlord).initiateCancellation();
+
+    // Approve cancellation
+    await cancelRentContract.connect(tenant).approveCancellation();
+
+    // Finalize cancellation through ArbitrationService
+    await arbitrationService.connect(serviceOwner).finalizeTargetCancellation(cancelRentContract.target);
+
+    // Now try to report dispute on inactive contract - should fail
+    await expect(
+      cancelRentContract.connect(landlord).reportDispute(0, ethers.parseEther('0.1'), 'ipfs://test', { value: ethers.parseEther('0.001') })
+    ).to.be.revertedWithCustomError(cancelRentContract, 'NotActive');
   });
 });
 
@@ -826,28 +923,143 @@ describe('E2E Contracts Flow', function () {
     });
 
     it('should open dispute and report breach', async function () {
-      // TODO: Fix maxOpenReportsPerReporter initialization issue in NDA contract
-      // Currently maxOpenReportsPerReporter = 0, preventing any breach reports
-      console.log('Skipping NDA breach reporting test due to contract initialization bug');
-      this.skip();
+      // Sign and deposit to activate contract
+      await ndaContract.connect(partyA).deposit({ value: minDeposit });
+      await ndaContract.connect(partyB).deposit({ value: minDeposit });
+
+      // Sign the contract
+      const domain = {
+        name: 'NDATemplate',
+        version: '1',
+        chainId: (await partyA.provider.getNetwork()).chainId,
+        verifyingContract: ndaContract.target ?? ndaContract.address
+      };
+      const types = {
+        NDA: [
+          { name: 'contractAddress', type: 'address' },
+          { name: 'expiryDate', type: 'uint256' },
+          { name: 'penaltyBps', type: 'uint16' },
+          { name: 'customClausesHash', type: 'bytes32' }
+        ]
+      };
+      const value = {
+        contractAddress: ndaContract.target ?? ndaContract.address,
+        expiryDate: BigInt(expiryDate),
+        penaltyBps: penaltyBps,
+        customClausesHash: ethers.ZeroHash
+      };
+
+      const sigA = await partyA.signTypedData(domain, types, value);
+      await ndaContract.connect(partyA).signNDA(sigA);
+
+      const sigB = await partyB.signTypedData(domain, types, value);
+      await ndaContract.connect(partyB).signNDA(sigB);
+
+      // Now report breach
+      const requestedPenalty = ethers.parseEther('0.05');
+      const breachTx = await ndaContract.connect(partyA).reportBreach(
+        partyB.address,
+        requestedPenalty,
+        ethers.ZeroHash, // evidenceHash
+        'ipfs://breach-evidence',
+        { value: ethers.parseEther('0.001') } // bond
+      );
+      const breachReceipt = await breachTx.wait();
+
+      // Check BreachReported event
+      const breachEvents = breachReceipt.logs.map(log => {
+        try { return ndaContract.interface.parseLog(log); } catch { return null; }
+      }).filter(e => e && e.name === 'BreachReported');
+
+      expect(breachEvents.length).to.equal(1);
+      const caseId = breachEvents[0].args.caseId;
+      expect(breachEvents[0].args.reporter).to.equal(partyA.address);
+      expect(breachEvents[0].args.offender).to.equal(partyB.address);
+      expect(breachEvents[0].args.requestedPenalty).to.equal(requestedPenalty);
+
+      // Verify case was created
+      const caseData = await ndaContract.getCase(caseId);
+      expect(caseData.reporter).to.equal(partyA.address);
+      expect(caseData.offender).to.equal(partyB.address);
+      expect(caseData.requestedPenalty).to.equal(requestedPenalty);
+      expect(caseData.resolved).to.be.false;
     });
 
     it('should resolve dispute via ArbitrationService', async function () {
-      // TODO: Fix maxOpenReportsPerReporter initialization issue in NDA contract
-      console.log('Skipping NDA dispute resolution test due to contract initialization bug');
-      this.skip();
+      // Sign and deposit to activate contract
+      await ndaContract.connect(partyA).deposit({ value: minDeposit });
+      await ndaContract.connect(partyB).deposit({ value: minDeposit });
+
+      // Sign the contract
+      const domain = {
+        name: 'NDATemplate',
+        version: '1',
+        chainId: (await partyA.provider.getNetwork()).chainId,
+        verifyingContract: ndaContract.target ?? ndaContract.address
+      };
+      const types = {
+        NDA: [
+          { name: 'contractAddress', type: 'address' },
+          { name: 'expiryDate', type: 'uint256' },
+          { name: 'penaltyBps', type: 'uint16' },
+          { name: 'customClausesHash', type: 'bytes32' }
+        ]
+      };
+      const value = {
+        contractAddress: ndaContract.target ?? ndaContract.address,
+        expiryDate: BigInt(expiryDate),
+        penaltyBps: penaltyBps,
+        customClausesHash: ethers.ZeroHash
+      };
+
+      const sigA = await partyA.signTypedData(domain, types, value);
+      await ndaContract.connect(partyA).signNDA(sigA);
+
+      const sigB = await partyB.signTypedData(domain, types, value);
+      await ndaContract.connect(partyB).signNDA(sigB);
+
+      // Report breach
+      const requestedPenalty = ethers.parseEther('0.05');
+      const breachTx = await ndaContract.connect(partyA).reportBreach(
+        partyB.address,
+        requestedPenalty,
+        ethers.ZeroHash,
+        'ipfs://breach-evidence',
+        { value: ethers.parseEther('0.001') }
+      );
+      const breachReceipt = await breachTx.wait();
+      const breachEvents = breachReceipt.logs.map(log => {
+        try { return ndaContract.interface.parseLog(log); } catch { return null; }
+      }).filter(e => e && e.name === 'BreachReported');
+      const caseId = breachEvents[0].args.caseId;
+
+      // Resolve via ArbitrationService
+      const [serviceOwner] = await ethers.getSigners();
+      const approvedPenalty = ethers.parseEther('0.03');
+      await arbitrationService.connect(serviceOwner).applyResolutionToTarget(
+        ndaContract.target,
+        caseId,
+        true, // approve
+        approvedPenalty,
+        partyA.address // beneficiary
+      );
+
+      // Verify resolution
+      const resolvedCase = await ndaContract.getCase(caseId);
+      expect(resolvedCase.resolved).to.be.true;
+      expect(resolvedCase.approved).to.be.true;
     });
 
     it('should emit all relevant events', async function () {
-      // TODO: Fix maxOpenReportsPerReporter initialization issue in NDA contract
-      console.log('Skipping NDA events test due to contract initialization bug');
-      this.skip();
+      // Create a new NDA contract for this test
+      const eventsTx = await factory.connect(partyA).createNDA(
         partyB.address,
         expiryDate,
         penaltyBps,
         ethers.ZeroHash,
         minDeposit,
         0
+      );
       const eventsReceipt = await eventsTx.wait();
       const eventsParsedLogs = eventsReceipt.logs.map(l => {
         try { return factory.interface.parseLog(l); } catch { return null; }
@@ -941,8 +1153,8 @@ describe('E2E Contracts Flow', function () {
       const breachEvents = allEvents.filter(e => e.name === 'BreachReported');
       const caseId = breachEvents[0].args.caseId;
       
-      const [owner] = await ethers.getSigners();
-      const resolveTx = await arbitrationService.connect(owner).applyResolutionToTarget(
+      const [serviceOwner] = await ethers.getSigners();
+      const resolveTx = await arbitrationService.connect(serviceOwner).applyResolutionToTarget(
         eventsNDAContract.target,
         caseId,
         true, // approve
@@ -989,8 +1201,8 @@ describe('E2E Contracts Flow', function () {
       expect(batchEvents[0].args.merkleRoot).to.equal(merkleRoot);
       
       const breachReportedEvents = allEvents.filter(e => e.name === 'BreachReported');
-      expect(breachReportedEvents[0].args.reporter).to.equal(partyA.address);
-      expect(breachReportedEvents[0].args.offender).to.equal(partyB.address);
+      expect(breachReportedEvents[0].args.reporter).to.equal(partyB.address);
+      expect(breachReportedEvents[0].args.offender).to.equal(partyA.address);
       expect(breachReportedEvents[0].args.requestedPenalty).to.equal(requestedPenalty);
       
       const resolutionEvents = allEvents.filter(e => e.name === 'ResolutionApplied');
@@ -1064,18 +1276,47 @@ describe('E2E Contracts Flow', function () {
         )
       ).to.be.revertedWith('Requested penalty must be > 0');
       
-      // Test 4: Valid breach reporting (SKIP due to maxOpenReportsPerReporter bug)
-      console.log('Skipping valid breach reporting test due to contract initialization bug');
-      
+      // Test 4: Valid breach reporting
+      const validPenalty = ethers.parseEther('0.01');
+      const validBreachTx = await ndaContract.connect(partyA).reportBreach(
+        partyB.address,
+        validPenalty,
+        ethers.keccak256(ethers.toUtf8Bytes('valid breach')),
+        'ipfs://valid-breach',
+        { value: ethers.parseEther('0.001') }
+      );
+      const validBreachReceipt = await validBreachTx.wait();
+      const validBreachEvents = validBreachReceipt.logs.map(log => {
+        try { return ndaContract.interface.parseLog(log); } catch { return null; }
+      }).filter(e => e && e.name === 'BreachReported');
+      expect(validBreachEvents.length).to.equal(1);
+      const validCaseId = validBreachEvents[0].args.caseId;
+
       // Test 5: Cannot resolve already resolved dispute
-      // First create a breach report (SKIP)
-      console.log('Skipping cannot resolve already resolved dispute test');
-      
-      // Test 6: Invalid case ID access (SKIP - NDA contract doesn't have getCase function)
-      console.log('Skipping invalid case ID access test - NDA contract missing getCase function');
-      // await expect(
-      //   ndaContract.getCase(999)
-      // ).to.be.revertedWith('InvalidCaseId');
+      const [serviceOwner] = await ethers.getSigners();
+      await arbitrationService.connect(serviceOwner).applyResolutionToTarget(
+        ndaContract.target,
+        validCaseId,
+        true,
+        validPenalty,
+        partyA.address
+      );
+
+      // Try to resolve again - should fail
+      await expect(
+        arbitrationService.connect(serviceOwner).applyResolutionToTarget(
+          ndaContract.target,
+          validCaseId,
+          false,
+          0,
+          partyB.address
+        )
+      ).to.be.reverted; // Should fail due to replay protection
+
+      // Test 6: Invalid case ID access
+      await expect(
+        ndaContract.getCase(999)
+      ).to.be.revertedWith('Case does not exist');
       
       // Test 7: Cannot report breach on inactive contract
       // First need a new contract for this test
@@ -1113,4 +1354,62 @@ describe('E2E Contracts Flow', function () {
   });
 
   // Add more describe/it blocks for edge cases, events, and integration as needed
+});
+
+// Backend integration test skeletons
+
+describe('Backend Integration', function () {
+  // You can use supertest or axios for HTTP requests
+  // Example: const request = require('supertest');
+  // const api = request('http://localhost:3001');
+
+  it('should submit evidence to backend and receive digest', async function () {
+    // TODO: Simulate evidence submission to backend REST endpoint
+    // Example:
+    // const res = await api.post('/api/evidence').send({ ... });
+    // expect(res.status).to.equal(200);
+    // expect(res.body.digest).to.be.a('string');
+  });
+
+  it('should trigger arbitration via backend and receive decision', async function () {
+    // TODO: Simulate dispute trigger to backend arbitration endpoint
+    // Example:
+    // const res = await api.post('/api/arbitrate').send({ ... });
+    // expect(res.status).to.equal(200);
+    // expect(res.body.decision).to.have.property('approved');
+  });
+
+  it('should fetch dispute history from backend', async function () {
+    // TODO: Simulate fetching dispute history
+    // Example:
+    // const res = await api.get('/api/disputes?contract=0x...');
+    // expect(res.status).to.equal(200);
+    // expect(res.body.cases).to.be.an('array');
+  });
+
+  it('should validate evidence digest against IPFS', async function () {
+    // TODO: Simulate evidence digest validation
+    // Example:
+    // const res = await api.post('/api/evidence/validate').send({ digest: '...' });
+    // expect(res.status).to.equal(200);
+    // expect(res.body.valid).to.be.true;
+  });
+
+  it('should return backend health status', async function () {
+    // TODO: Simulate health check endpoint
+    // Example:
+    // const res = await api.get('/api/health');
+    // expect(res.status).to.equal(200);
+    // expect(res.body.status).to.equal('ok');
+  });
+
+  it('should upload NDA custom clauses to Helia and return CID', async function () {
+    // TODO: Simulate uploading NDA custom clauses to Helia via backend
+    // Example:
+    // const customClauses = 'Confidentiality, Non-compete, No solicitation';
+    // const res = await api.post('/api/helia/upload').send({ content: customClauses });
+    // expect(res.status).to.equal(200);
+    // expect(res.body.cid).to.be.a('string');
+    // Optionally: fetch from Helia/IPFS and verify content matches
+  });
 });

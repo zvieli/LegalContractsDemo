@@ -1,0 +1,12 @@
+{
+  "evidenceData": [
+    {
+      "type": "contract_breach",
+      "description": "הצד השני הפר את סעיף הסודיות המותאם",
+      "timestamp": 1693526400,
+      "uploader": "party_a"
+    }
+  ],
+  "amount": "0.5",
+  "recipient": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+}

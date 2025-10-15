@@ -86,6 +86,7 @@ export class CCIPResponseHandler {
         process.cwd(), 
         'artifacts', 
         'contracts', 
+        'Arbitration', 
         'ccip', 
         `${contractName}.sol`, 
         `${contractName}.json`
@@ -96,7 +97,7 @@ export class CCIPResponseHandler {
         return artifact.abi;
       }
 
-      console.warn(`⚠️ ABI not found for ${contractName}`);
+      // ABI not found - return null silently
       return null;
 
     } catch (error) {

@@ -206,6 +206,13 @@ contract NDATemplate is EIP712, ReentrancyGuard {
 
         roles[_partyA] = Role.Unassigned;
         roles[_partyB] = Role.Unassigned;
+
+        // Initialize reporting limits
+        maxOpenReportsPerReporter = 1; // Allow 1 open report per reporter
+        minReportInterval = 3600; // 1 hour minimum between reports
+        revealWindowSeconds = 86400; // 24 hours to reveal evidence
+        appealWindowSeconds = 604800; // 7 days to appeal
+        disputeFee = 0.001 ether; // Minimum dispute fee
     }
 
     // --- Pause/Unpause ---
@@ -447,6 +454,40 @@ contract NDATemplate is EIP712, ReentrancyGuard {
         for (uint256 i = 0; i < size; i++) {
             cases[i] = _cases[offset + i];
         }
+    }
+
+    function getCase(uint256 caseId) external view returns (BreachCase memory) {
+        require(caseId < _cases.length, "Case does not exist");
+        return _cases[caseId];
+    }
+
+    // --- Arbitration Resolution ---
+    function serviceResolve(uint256 caseId, bool approve, uint256 appliedAmount, address beneficiary) external payable onlyArbitrationService {
+        require(caseId < _cases.length, "Invalid case ID");
+        BreachCase storage bc = _cases[caseId];
+        require(!bc.resolved, "Case already resolved");
+
+        bc.resolved = true;
+        bc.approved = approve;
+
+        if (approve && appliedAmount > 0) {
+            // Apply penalty - transfer from offender's deposits to beneficiary
+            uint256 available = deposits[bc.offender];
+            uint256 penalty = appliedAmount > available ? available : appliedAmount;
+
+            if (penalty > 0) {
+                deposits[bc.offender] -= penalty;
+                if (beneficiary == address(this)) {
+                    // Keep in contract
+                } else {
+                    withdrawable[beneficiary] += penalty;
+                }
+                emit PenaltyEnforced(bc.offender, penalty, beneficiary);
+            }
+        }
+
+        emit BreachResolved(caseId, approve, appliedAmount, bc.offender, beneficiary);
+        emit ArbitrationResolved(caseId, approve, appliedAmount, beneficiary);
     }
 
     // --- CCIP Arbitration ---

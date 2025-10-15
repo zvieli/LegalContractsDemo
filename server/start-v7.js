@@ -212,6 +212,8 @@ function startCCIPEventListener() {
       chainId: parseInt(process.env.CHAIN_ID) || 31337,
       pollingInterval: 5000,
       enableLLM: true,
+      receiverAddress: getContractAddress('CCIPArbitrationReceiver') || process.env.CCIP_RECEIVER_ADDRESS,
+      senderAddress: getContractAddress('CCIPArbitrationSender') || process.env.CCIP_SENDER_ADDRESS,
       arbitrationServiceAddress: getContractAddress('ArbitrationService') || process.env.ARBITRATION_SERVICE_ADDRESS,
       privateKey: process.env.PRIVATE_KEY
     });

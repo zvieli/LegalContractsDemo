@@ -62,6 +62,13 @@ app.post('/api/evidence/upload', async (req, res) => {
       decoded = payload;
     }
 
+    // Validate content for customClause
+    if (decoded && decoded.type === 'customClause') {
+      if (!decoded.content || typeof decoded.content !== 'string' || decoded.content.trim() === '') {
+        return res.status(400).json({ error: 'Missing or empty customClause content' });
+      }
+    }
+
     let evidenceOut = decoded || { mock: true, content: 'No evidence provided' };
     if (!evidenceOut || typeof evidenceOut !== 'object') evidenceOut = {};
     evidenceOut.type = evidenceOut.type && evidenceOut.type !== null && evidenceOut.type !== '' ? evidenceOut.type : 'rent_dispute';
@@ -72,23 +79,29 @@ app.post('/api/evidence/upload', async (req, res) => {
       amount: '1.5 ETH'
     };
 
-    // Compute canonical content digest and cid hash used by Merkle helper
-    const canonicalize = (obj) => {
-      if (obj === null || obj === undefined) return 'null';
-      if (typeof obj !== 'object') return JSON.stringify(obj);
-      if (Array.isArray(obj)) return '[' + obj.map(canonicalize).join(',') + ']';
-      const keys = Object.keys(obj).sort();
-      return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
-    };
-
-    const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
-    const canonStr = (typeof evidenceOut === 'string') ? evidenceOut : canonicalize(evidenceOut);
+    // Compute digest for customClause as SHA-256 of JSON.stringify({ customClauses })
     let contentDigest = null;
-    try {
-      contentDigest = keccak256(toUtf8Bytes(canonStr));
-    } catch (err) {
-      // fallback: use keccak over JSON string
-      try { contentDigest = keccak256(toUtf8Bytes(JSON.stringify(evidenceOut))); } catch (e) { contentDigest = null; }
+    if (evidenceOut.type === 'customClause' && evidenceOut.content) {
+      const { webcrypto } = await import('crypto');
+      const encoder = new TextEncoder();
+      const hashBuffer = await webcrypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify({ customClauses: evidenceOut.content })));
+      contentDigest = Buffer.from(hashBuffer).toString('hex');
+    } else {
+      // fallback: keccak256 over canonicalized evidence
+      const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
+      const canonicalize = (obj) => {
+        if (obj === null || obj === undefined) return 'null';
+        if (typeof obj !== 'object') return JSON.stringify(obj);
+        if (Array.isArray(obj)) return '[' + obj.map(canonicalize).join(',') + ']';
+        const keys = Object.keys(obj).sort();
+        return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
+      };
+      const canonStr = (typeof evidenceOut === 'string') ? evidenceOut : canonicalize(evidenceOut);
+      try {
+        contentDigest = keccak256(toUtf8Bytes(canonStr));
+      } catch (err) {
+        try { contentDigest = keccak256(toUtf8Bytes(JSON.stringify(evidenceOut))); } catch (e) { contentDigest = null; }
+      }
     }
 
     // If Helia is available, add evidence to Helia and return real CID
@@ -101,6 +114,7 @@ app.post('/api/evidence/upload', async (req, res) => {
       evidenceStore[cid] = evidenceOut;
 
       // compute cidHash (keccak of CID string)
+      const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
       let cidHash = null;
       try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
       return res.json({ cid, contentDigest, cidHash, evidence: evidenceOut, stored: true, size });
@@ -108,6 +122,7 @@ app.post('/api/evidence/upload', async (req, res) => {
       // Helia not available - fallback to in-memory storage with mock CID
       const cid = 'QmMockEvidence' + Math.floor(Math.random() * 1e16).toString(16);
       if (decoded) evidenceStore[cid] = decoded;
+      const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
       let cidHash = null;
       try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
       return res.json({ cid, contentDigest, cidHash, evidence: evidenceOut, stored: !!decoded, size: decoded ? JSON.stringify(decoded).length : 42 });

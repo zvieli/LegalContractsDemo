@@ -10,18 +10,18 @@ async function getLLMResult(testData) {
 import fs from 'fs';
 
 const cases = [
-  { file: 'server/test/evidence1.json', expected: 'PARTY_A_WINS' },
-  { file: 'server/test/evidence2.json', expected: 'PARTY_B_WINS' },
-  { file: 'server/test/evidence3.json', expected: 'NO_PENALTY' },
-  { file: 'server/test/evidence4.json', expected: 'DRAW' },
-  { file: 'server/test/evidence5.json', expected: 'PARTY_A_WINS' },
-  { file: 'server/test/evidence6.json', expected: 'NO_PENALTY' },
-  { file: 'server/test/evidence7.json', expected: 'DRAW' },
-  { file: 'server/test/evidence8.json', expected: 'PARTY_B_WINS' },
-  { file: 'server/test/evidence9.json', expected: 'NO_PENALTY' },
-  { file: 'server/test/evidence10.json', expected: 'NO_PENALTY' },
-  { file: 'server/test/evidence11.json', expected: 'DRAW' },
-  { file: 'server/test/evidence12.json', expected: 'NO_PENALTY' }
+  { file: 'server/tests/test/evidence1.json', expected: 'PARTY_A_WINS' },
+  { file: 'server/tests/test/evidence2.json', expected: 'PARTY_B_WINS' },
+  { file: 'server/tests/test/evidence3.json', expected: 'NO_PENALTY' },
+  { file: 'server/tests/test/evidence4.json', expected: 'DRAW' },
+  { file: 'server/tests/test/evidence5.json', expected: 'PARTY_A_WINS' },
+  { file: 'server/tests/test/evidence6.json', expected: 'NO_PENALTY' },
+  { file: 'server/tests/test/evidence7.json', expected: 'DRAW' },
+  { file: 'server/tests/test/evidence8.json', expected: 'PARTY_B_WINS' },
+  { file: 'server/tests/test/evidence9.json', expected: 'NO_PENALTY' },
+  { file: 'server/tests/test/evidence10.json', expected: 'NO_PENALTY' },
+  { file: 'server/tests/test/evidence11.json', expected: 'DRAW' },
+  { file: 'server/tests/test/evidence12.json', expected: 'NO_PENALTY' }
 ];
 
 async function runAllCases() {

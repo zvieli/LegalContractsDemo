@@ -95,13 +95,13 @@ export class CCIPEventListener {
 
   async _loadContractABI(contractName) {
     try {
-      // Always use .sol subfolder for CCIP contracts
-      const artifactPath = path.join(process.cwd(), 'artifacts', 'contracts', 'ccip', `${contractName}.sol`, `${contractName}.json`);
+      // Always use Arbitration/ccip subfolder for CCIP contracts
+      const artifactPath = path.join(process.cwd(), 'artifacts', 'contracts', 'Arbitration', 'ccip', `${contractName}.sol`, `${contractName}.json`);
       if (fs.existsSync(artifactPath)) {
         const artifact = JSON.parse(fs.readFileSync(artifactPath, 'utf8'));
         return artifact.abi;
       }
-      console.warn(`⚠️ ABI not found for ${contractName} at ${artifactPath}`);
+      // ABI not found - return null silently
       return null;
 
     } catch (error) {
@@ -354,7 +354,7 @@ export class CCIPEventListener {
     if (!this.arbitrationServiceContract && this.config.arbitrationServiceAddress) {
       try {
         // Load ArbitrationService ABI
-        const abiPath = path.join(process.cwd(), 'artifacts/contracts/ArbitrationService.sol/ArbitrationService.json');
+        const abiPath = path.join(process.cwd(), 'artifacts/contracts/Arbitration/ArbitrationService.sol/ArbitrationService.json');
         const artifactData = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
         
         // Create signer from private key if provided

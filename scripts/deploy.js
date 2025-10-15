@@ -234,7 +234,7 @@ async function main() {
 
   console.log("DEBUG: Setting default arbitration service in factory...");
   try {
-    await contractFactory.setDefaultArbitrationService(arbitrationServiceAddress, ethers.parseEther('0.5'));
+    await contractFactory.setDefaultArbitrationService(arbitrationServiceAddress);
     console.log("✅ Factory configured with ArbitrationService");
   } catch (e) {
     console.warn("⚠️ Could not set arbitration service in factory:", e.message);
