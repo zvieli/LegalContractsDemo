@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 
 function detectRole(address) {
   if (!address) return 'guest';
-  if (address.toLowerCase() === '0xadminaddress') return 'admin';
+  const adminAddress = (import.meta.env?.VITE_PLATFORM_ADMIN || '').toLowerCase();
+  if (address.toLowerCase() === adminAddress) return 'admin';
   if (address.toLowerCase() === '0xsystemaddress') return 'system';
   return 'user';
 }
@@ -80,9 +81,9 @@ export default function WalletConnector({ onWallet }) {
             className="disconnect-btn"
             aria-label="Disconnect wallet"
             disabled={isConnecting}
-            style={{ marginLeft: 12 }}
+            style={{ marginLeft: 12, background: '#fff', color: '#333', border: '1px solid #b3c6ff', borderRadius: 6, padding: '6px 16px', fontWeight: 'bold', cursor: 'pointer' }}
           >
-            <i className="fas fa-sign-out-alt"></i> התנתק
+            <i className="fas fa-sign-out-alt"></i> Disconnect
           </button>
         </div>
       ) : (
@@ -91,6 +92,19 @@ export default function WalletConnector({ onWallet }) {
           className="connect-btn"
           aria-label="Connect wallet"
           disabled={isConnecting}
+          style={{
+            background: '#2a7',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 8,
+            padding: '10px 24px',
+            fontSize: 16,
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
+          }}
         >
           <i className="fas fa-plug"></i>
           {isConnecting ? 'Connecting...' : 'Connect Wallet'}

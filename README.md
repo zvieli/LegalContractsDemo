@@ -23,8 +23,25 @@ Arbitration-driven on-chain contract templates (NDA & Rent). This repository pro
 What you get:
 - `NDATemplate` contract with deposits, breach reporting and arbitrator hooks
 - `EnhancedRentContract` (replaces TemplateRentContract) with AI arbitration, Merkle evidence batching, and deposit capping mechanisms
-- **V7 Backend**: Integrated Ollama LLM arbitration with simulation fallback
+ **V7 Backend**: Integrated Ollama LLM arbitration with simulation fallback
 ## Architecture
+### LLM Arbitration Verdict Format & Flow
+
+**LLM Verdict Format:**
+```
+VERDICT: [PARTY_A_WINS | PARTY_B_WINS | NO_PENALTY | DRAW]
+RATIONALE: [brief explanation]
+CONFIDENCE: [0.0-1.0]
+REIMBURSEMENT: [amount or NONE]
+```
+
+**Arbitration Flow:**
+1. The LLM returns a verdict in the above format to the backend.
+2. The backend sends the verdict to the Oracle (Chainlink Functions).
+3. The Oracle relays the verdict to the smart contract (`ArbitrationService`).
+4. The smart contract enforces the decision (funds transfer, status update).
+5. The frontend displays the verdict, status, and dispute history to the user.
+
 
 	- Evidence validation, time management, and arbitration processing
 

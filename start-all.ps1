@@ -122,7 +122,10 @@ do {
 } while ($true)
 
 
+
 Write-Host "Deploying contracts..." -ForegroundColor Yellow
+# Ensure we are in the project root before deploying
+Set-Location "$PSScriptRoot"
 npx hardhat run scripts/deploy.js --network localhost
 if ($LASTEXITCODE -ne 0) {
     Write-Host "WARNING: Deployment failed (exit code $LASTEXITCODE)" -ForegroundColor Red

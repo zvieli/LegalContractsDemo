@@ -35,7 +35,13 @@ export default function LLMDecisionView({ evidenceText, contractText, disputeId 
       {result && (
         <div>
           <div style={{marginBottom:8}}>
-            <strong>Decision:</strong> {result.decision || result.verdict || '—'}
+            <strong>Verdict:</strong> {result.verdict || result.decision || '—'}
+          </div>
+          <div style={{marginBottom:8}}>
+            <strong>Confidence:</strong> {result.confidence || '—'}
+          </div>
+          <div style={{marginBottom:8}}>
+            <strong>Reimbursement:</strong> {result.reimbursement || '—'}
           </div>
           <div style={{marginBottom:8}}>
             <strong>Rationale:</strong>

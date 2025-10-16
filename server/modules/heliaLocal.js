@@ -1,4 +1,4 @@
-// Robust in-process Helia wrapper. Supports different @helia/unixfs runtime shapes.
+// Robust in-process Helia wrapper. Only Helia is supported; legacy IPFS is not used.
 let heliaInstance = null;
 let unixfsModule = null;
 let initialized = false;

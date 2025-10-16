@@ -38,8 +38,7 @@ router.get('/config', (req, res) => {
     serverPort: parseInt(process.env.SERVER_PORT) || 3002,
     rpcUrl: process.env.RPC_URL || 'http://127.0.0.1:8545',
     chainId: parseInt(process.env.CHAIN_ID) || 31337,
-    mockIpfs: process.env.MOCK_IPFS === 'true',
-    useHelia: process.env.USE_HELIA === '1'
+    useHelia: true
   });
 });
 

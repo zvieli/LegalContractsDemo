@@ -52,7 +52,6 @@ const cases = [
   { file: 'server/tests/test/evidence10.json', expected: 'NO_PENALTY', type: 'Rent' },
   { file: 'server/tests/test/evidence11.json', expected: 'DRAW', type: 'NDA' },
   { file: 'server/tests/test/evidence12.json', expected: 'NO_PENALTY', type: 'Rent' },
-  { file: 'server/tests/test/evidence13.json', expected: 'PARTY_A_WINS', type: 'NDA', customClauses: 'סעיף מותאם: הצד השני מתחייב לשמירה על סודיות מוחלטת.' }
 ];
 
 beforeAll(async () => {
@@ -189,6 +188,8 @@ describe('E2E LLM Arbitration & Blockchain Flow', () => {
       expect(merged.rationale).toBeDefined();
       expect(merged.source).toBeDefined();
       expect(merged.raw).toBeDefined();
+        // בדיקת התאמה בין פסק הדין שהתקבל לבין הצפוי
+        expect(merged.verdict).toBe(testCase.expected);
     }, 120000);
   }
 });

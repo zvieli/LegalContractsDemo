@@ -31,8 +31,8 @@ async function run() {
   console.log('\n3) /api/v7/ccip/status');
   console.log(await check(`${base}/api/v7/ccip/status`));
 
-  console.log('\n4) IPFS /api/v0/version (POST)');
-  console.log(await check(`${ipfs}/api/v0/version`, { method: 'POST' }));
+  console.log('\n4) Helia /api/v0/version (POST)');
+  console.log(await check(`${base}/api/v7/modules`, { method: 'GET' }));
 
   console.log('\nDone');
 }

@@ -8,7 +8,7 @@ import {CCIPArbitrationTypes} from "./CCIPArbitrationTypes.sol";
 
 /**
  * @title CCIPArbitrationSender
- * @notice Sends arbitration requests via CCIP to Oracle network
+ * @notice Sends arbitration requests and decisions via CCIP to Oracle network
  * @dev Based on Chainlink CCIP BasicMessageSender pattern
  */
 contract CCIPArbitrationSender {
@@ -40,6 +40,15 @@ contract CCIPArbitrationSender {
         bytes32 indexed disputeId,
         address indexed contractAddress,
         uint256 caseId
+    );
+
+    event ArbitrationDecisionSent(
+        bytes32 indexed messageId,
+        bytes32 indexed disputeId,
+        address indexed contractAddress,
+        uint256 caseId,
+        bool approved,
+        uint16 confidence
     );
     
     event OracleConfigUpdated(
@@ -86,13 +95,6 @@ contract CCIPArbitrationSender {
 
     /**
      * @notice Send arbitration request via CCIP
-     * @param disputeId Unique dispute identifier
-     * @param contractAddress Contract with the dispute
-     * @param caseId Case ID within the contract
-     * @param evidenceHash Hash of evidence
-     * @param evidenceURI URI to evidence data
-     * @param requestedAmount Amount being disputed
-     * @param payFeesIn How to pay CCIP fees (Native or LINK)
      */
     function sendArbitrationRequest(
         bytes32 disputeId,
@@ -104,7 +106,6 @@ contract CCIPArbitrationSender {
         PayFeesIn payFeesIn
     ) external payable onlyAuthorizedContract returns (bytes32 messageId) {
         
-        // Create arbitration request
         CCIPArbitrationTypes.ArbitrationRequest memory request = 
             CCIPArbitrationTypes.ArbitrationRequest({
                 disputeId: disputeId,
@@ -117,28 +118,24 @@ contract CCIPArbitrationSender {
                 timestamp: block.timestamp
             });
 
-        // Encode request as CCIP message
         CCIPArbitrationTypes.CCIPMessage memory ccipMsg = 
             CCIPArbitrationTypes.CCIPMessage({
                 messageType: CCIPArbitrationTypes.MessageType.REQUEST,
                 data: abi.encode(request)
             });
 
-        // Create CCIP message
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(oracleReceiver),
             data: abi.encode(ccipMsg),
-            tokenAmounts: new Client.EVMTokenAmount[](0), // No token transfer
+            tokenAmounts: new Client.EVMTokenAmount[](0),
             extraArgs: Client._argsToBytes(
-                Client.EVMExtraArgsV1({gasLimit: 300_000}) // Gas for oracle processing
+                Client.EVMExtraArgsV1({gasLimit: 300_000})
             ),
             feeToken: payFeesIn == PayFeesIn.LINK ? address(i_linkToken) : address(0)
         });
 
-        // Calculate fees
         uint256 fees = i_router.getFee(oracleChainSelector, message);
         
-        // Pay fees
         if (payFeesIn == PayFeesIn.LINK) {
             i_linkToken.transferFrom(msg.sender, address(this), fees);
             i_linkToken.approve(address(i_router), fees);
@@ -146,13 +143,11 @@ contract CCIPArbitrationSender {
             require(msg.value >= fees, "Insufficient native for fees");
         }
 
-        // Send message
         messageId = i_router.ccipSend{value: payFeesIn == PayFeesIn.Native ? fees : 0}(
             oracleChainSelector,
             message
         );
 
-        // Store request
         pendingRequests[messageId] = request;
 
         emit ArbitrationRequestSent(messageId, disputeId, contractAddress, caseId);
@@ -161,9 +156,80 @@ contract CCIPArbitrationSender {
     }
 
     /**
+     * @notice Send arbitration decision via CCIP
+     * @dev Mirrors sendArbitrationRequest but for arbitration verdicts
+     */
+    function sendArbitrationDecision(
+    bytes32 disputeId,
+    bool approved,
+    uint256 appliedAmount,
+    address beneficiary,
+    string calldata rationale,
+    bytes32 oracleId,
+    PayFeesIn payFeesIn
+    ) external payable onlyAuthorizedContract returns (bytes32 messageId) {
+        
+        // Build decision payload (only required fields)
+        CCIPArbitrationTypes.ArbitrationDecision memory decision =
+            CCIPArbitrationTypes.ArbitrationDecision({
+                disputeId: disputeId,
+                approved: approved,
+                appliedAmount: appliedAmount,
+                beneficiary: beneficiary,
+                rationale: rationale,
+                oracleId: oracleId,
+                timestamp: block.timestamp
+            });
+
+        // Encode as CCIP message
+        CCIPArbitrationTypes.CCIPMessage memory ccipMsg = 
+            CCIPArbitrationTypes.CCIPMessage({
+                messageType: CCIPArbitrationTypes.MessageType.DECISION,
+                data: abi.encode(decision)
+            });
+
+        // Create CCIP message
+            Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
+                receiver: abi.encode(oracleReceiver),
+                data: abi.encode(ccipMsg),
+                tokenAmounts: new Client.EVMTokenAmount[](0),
+                extraArgs: Client._argsToBytes(
+                    Client.EVMExtraArgsV1({gasLimit: 400_000})
+                ),
+                feeToken: payFeesIn == PayFeesIn.LINK ? address(i_linkToken) : address(0)
+            });
+
+        // Calculate fees
+        uint256 fees = i_router.getFee(oracleChainSelector, message);
+
+        // Pay fees
+        if (payFeesIn == PayFeesIn.LINK) {
+            i_linkToken.transferFrom(msg.sender, address(this), fees);
+            i_linkToken.approve(address(i_router), fees);
+        } else {
+            require(msg.value >= fees, "Insufficient native for fees");
+        }
+
+        // Send via router
+        messageId = i_router.ccipSend{value: payFeesIn == PayFeesIn.Native ? fees : 0}(
+            oracleChainSelector,
+            message
+        );
+
+        emit ArbitrationDecisionSent(
+            messageId,
+            disputeId,
+            beneficiary,
+            appliedAmount,
+            approved,
+            0 // confidence not in struct or event, set to 0 or remove from event if not needed
+        );
+
+        return messageId;
+    }
+
+    /**
      * @notice Update oracle configuration
-     * @param _oracleChainSelector New oracle chain selector
-     * @param _oracleReceiver New oracle receiver address
      */
     function updateOracleConfig(
         uint64 _oracleChainSelector,
@@ -179,8 +245,6 @@ contract CCIPArbitrationSender {
 
     /**
      * @notice Authorize/deauthorize contract to send arbitration requests
-     * @param contractAddr Contract address
-     * @param authorized Whether to authorize or deauthorize
      */
     function setContractAuthorization(
         address contractAddr,
@@ -192,14 +256,12 @@ contract CCIPArbitrationSender {
 
     /**
      * @notice Get fees for sending arbitration request
-     * @param payFeesIn How fees will be paid
      */
     function getArbitrationFees(PayFeesIn payFeesIn) 
         external 
         view 
         returns (uint256) 
     {
-        // Create sample message for fee calculation
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(oracleReceiver),
             data: abi.encode("sample"),
@@ -233,6 +295,5 @@ contract CCIPArbitrationSender {
         require(success, "Transfer failed");
     }
 
-    // Allow contract to receive native tokens for fees
     receive() external payable {}
 }

@@ -1,3 +1,8 @@
+// --- Admin API endpoints for frontend integration ---
+// Place after app initialization
+
+// Check if address is authorized as admin
+
 
 import express from 'express';
 import cors from 'cors';
@@ -10,7 +15,8 @@ import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
 import disputeHistory from './modules/disputeHistory.js';
 import v7TestingRoutes from './routes/v7Testing.js';
-
+import dotenv from 'dotenv';
+dotenv.config();
 // Evidence storage - prefer Helia local node (production) but keep in-memory fallback
 import heliaStore from './modules/heliaStore.js';
 const evidenceStore = {}; // fallback when Helia not available
@@ -18,6 +24,35 @@ const evidenceStore = {}; // fallback when Helia not available
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+// Enable CORS for frontend requests (must be before any route definitions)
+app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+
+// Admin API endpoints for frontend integration
+app.get('/api/v7/admin/authorized', async (req, res) => {
+  const address = (req.query.address || '').toLowerCase();
+  // Support both PLATFORM_ADMIN_ADDRESS and VITE_PLATFORM_ADMIN for compatibility
+  const adminAddress = (process.env.PLATFORM_ADMIN_ADDRESS || process.env.PLATFORM_ADMIN || process.env.VITE_PLATFORM_ADMIN || '').toLowerCase();
+  if (!address) {
+    console.log(`[AdminAuth] Missing address in request. Query:`, req.query);
+    return res.status(400).json({ error: 'Missing address' });
+  }
+  if (!adminAddress) {
+    console.warn(`[AdminAuth] Admin address is not set in environment variables.`);
+  }
+  const isAdmin = address === adminAddress;
+  console.log(`[AdminAuth] address=${address} | adminAddress=${adminAddress} | isAdmin=${isAdmin}`);
+  res.json({ address, isAdmin, adminAddress });
+});
+
+// Get a nonce for admin authentication (simple demo: timestamp-based)
+app.get('/api/v7/admin/nonce', async (req, res) => {
+  const address = (req.query.address || '').toLowerCase();
+  if (!address) return res.status(400).json({ error: 'Missing address' });
+  // For demo, use timestamp as nonce; in production, use secure random
+  const nonce = Date.now().toString();
+  adminNonces[address] = { nonce, expires: Date.now() + 5 * 60 * 1000 };
+  res.json({ address, nonce });
+});
 // Ensure JSON body parsing is enabled before any routes are registered
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -648,15 +683,26 @@ function requireAdmin(req, res, next) {
     // Allow bypass in development if ADMIN_BYPASS=true
     if (process.env.ADMIN_BYPASS === 'true') return next();
 
-    const caller = (req.headers['x-admin-address'] || '').toString().trim();
-    const bearer = (req.headers['authorization'] || '').toString().replace(/^Bearer\s+/i, '').trim();
+    const caller = (req.headers['x-admin-address'] || '').toString().trim().toLowerCase();
+    const bearer = (req.headers['authorization'] || '').toString().replace(/^Bearer\s+/i, '').trim().toLowerCase();
+    const adminAddress = (process.env.PLATFORM_ADMIN_ADDRESS || process.env.PLATFORM_ADMIN || process.env.VITE_PLATFORM_ADMIN || '').toLowerCase();
 
+    // Accept if caller or bearer is verified
     if (caller && verifiedAdmins[caller] && Date.now() < verifiedAdmins[caller].expires) {
       req.admin = { address: caller };
       return next();
     }
-
     if (bearer && verifiedAdmins[bearer] && Date.now() < verifiedAdmins[bearer].expires) {
+      req.admin = { address: bearer };
+      return next();
+    }
+
+    // Accept direct admin address from env
+    if (caller && caller === adminAddress) {
+      req.admin = { address: caller };
+      return next();
+    }
+    if (bearer && bearer === adminAddress) {
       req.admin = { address: bearer };
       return next();
     }
@@ -1329,6 +1375,37 @@ app.use((error, req, res, next) => {
     error: 'Internal server error',
     message: error.message 
   });
+});
+
+// V7 Arbitration Status API
+app.get('/api/v7/arbitration/status', async (req, res) => {
+  try {
+    const status = {
+      service: 'ArbitrationService',
+      version: 'v7',
+      timestamp: new Date().toISOString(),
+      healthy: true,
+      mode: ollamaLLMArbitrator ? 'production' : 'simulation'
+    };
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// V7 Arbitration Decisions History API
+app.get('/api/v7/arbitration/decisions', async (req, res) => {
+  try {
+    const history = disputeHistory.getDisputeHistory ? {} : {}; // Get all cases if possible
+    const decisions = [];
+    
+    // For now, return empty array - will be populated as disputes are resolved
+    // TODO: Implement proper history aggregation across all cases
+    
+    res.json(decisions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // 404 handler (registered last)

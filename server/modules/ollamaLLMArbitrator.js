@@ -4,7 +4,8 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
   // Critical keywords for verdict mapping
   const criticalKeywords = {
     PARTY_A_WINS: [
-      "breach by party B", "liable party B", "penalty owed by party B", "breach of contract by vendor", "supplier failed", "vendor failed", "client wins", "party B at fault"
+      "breach by party B", "liable party B", "penalty owed by party B", "breach of contract by vendor", "supplier failed", "vendor failed", "client wins", "party B at fault",
+      "breaches", "withheld", "non-compliance", "substandard", "incomplete", "failing", "failed"
     ],
     PARTY_B_WINS: [
       "breach by party A", "liable party A", "penalty owed by party A", "breach of contract by client", "client failed", "party A at fault", "contractor wins",
@@ -16,10 +17,12 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
       // acceptance phrases
       "accepted the final deliverables", "client accepted", "no material financial loss", "payment was processed in full", "invoices were paid in full",
       // confirmation/acceptance variants
-      "confirmed acceptance", "client confirmed acceptance", "confirmed in writing", "confirmed in a meeting", "accepted all deliverables", "no payments are withheld", "payment was processed"
+      "confirmed acceptance", "client confirmed acceptance", "confirmed in writing", "confirmed in a meeting", "accepted all deliverables", "no payments are withheld", "payment was processed",
+      "agreed to accept", "no harm", "no penalties necessary", "no penalties specified"
     ],
     DRAW: [
-      "insufficient evidence", "unresolved", "mutually agreed", "partial settlement", "cannot determine", "fragmented", "unclear", "ambiguous", "both parties", "equally responsible"
+      "insufficient evidence", "unresolved", "mutually agreed", "partial settlement", "cannot determine", "fragmented", "unclear", "ambiguous", "both parties", "equally responsible",
+      "incomplete", "inconsistent", "no clear evidence", "cannot be determined"
     ]
   };
 
@@ -54,7 +57,7 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
   const strongCompletion = completionRegex.test(evidence_text || '') || completionRegex.test(rationale || '');
   const exculpatory = exculpatoryRegex.test(evidence_text || '') || exculpatoryRegex.test(rationale || '');
   const accepted = acceptedRegex.test(evidence_text || '') || acceptedRegex.test(rationale || '');
-  const conclusiveCompletion = strongCompletion && exculpatory;
+  const conclusiveCompletion = strongCompletion && exculpatory && !accepted;
   // expose a flag to the merger for strict evidence-based overrides
   const strongCompletionEvidenceFlag = conclusiveCompletion;
   if (conclusiveCompletion) {
@@ -158,7 +161,7 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
   // contains a stray 'both parties' but the evidence strongly supports another outcome).
   let mappedVerdict = undefined;
   let foundKeywords = [];
-    if ((weightedCounts['DRAW'] || 0) > 0 && (weightedCounts['NO_PENALTY'] || 0) > 0 && (weightedCounts['DRAW'] >= weightedCounts['NO_PENALTY'])) {
+    if ((weightedCounts['DRAW'] || 0) > 0 && (weightedCounts['NO_PENALTY'] || 0) > 0 && (weightedCounts['DRAW'] > weightedCounts['NO_PENALTY'])) {
       mappedVerdict = 'DRAW';
       foundKeywords = [ ...(allFound['DRAW'] || []), ...(allFound['NO_PENALTY'] || []) ];
     } else if ((weightedCounts['NO_PENALTY'] || 0) > 0 && (weightedCounts['PARTY_B_WINS'] || 0) > 0) {
@@ -216,11 +219,14 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
       foundKeywords = noPenaltyKeywords;
     }
   } else {
-    // Choose the verdict with the largest number of supporting keywords
+    // Choose the verdict with the largest number of supporting keywords, preferring DRAW when counts are equal
     let best = null;
     let bestCount = 0;
     for (const [v, c] of Object.entries(counts)) {
-      if (c > bestCount) { best = v; bestCount = c; }
+      if (c > bestCount || (c === bestCount && v === 'DRAW')) {
+        best = v;
+        bestCount = c;
+      }
     }
     if (best && bestCount > 0) {
       mappedVerdict = best;
@@ -456,8 +462,28 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
     // Decision logic
     let finalVerdict, finalConfidence, finalSource, finalRationale, finalReimbursement;
 
-    // 1. If LLM verdict is defined and confidence high, take it — but allow a strong NLP to override
-    if (llmResult.verdict && (llmResult.confidence || 0) >= 0.75) {
+    // 1. If NLP verdict is defined and confidence very high, take it
+    if (nlpResult.verdict && (nlpResult.confidence || 0) >= 0.85) {
+      finalVerdict = nlpResult.verdict;
+      finalConfidence = nlpResult.confidence;
+      finalSource = 'NLP_VERY_HIGH_CONFIDENCE';
+      finalRationale = nlpResult.rationale;
+      finalReimbursement = nlpResult.reimbursement || 0;
+    } else if (llmResult.verdict === 'DRAW' && nlpResult.verdict && (nlpResult.confidence || 0) >= 0.5) {
+      // If LLM returns DRAW but NLP has high confidence, prefer NLP
+      finalVerdict = nlpResult.verdict;
+      finalConfidence = nlpResult.confidence;
+      finalSource = 'NLP_OVERRIDE_DRAW';
+      finalRationale = nlpResult.rationale;
+      finalReimbursement = nlpResult.reimbursement || 0;
+    } else if (nlpResult.verdict && (nlpResult.confidence || 0) >= 0.8 && nlpResult.verdict !== 'DRAW') {
+      // General NLP high confidence override
+      finalVerdict = nlpResult.verdict;
+      finalConfidence = nlpResult.confidence;
+      finalSource = 'NLP_HIGH_CONFIDENCE_OVERRIDE';
+      finalRationale = nlpResult.rationale;
+      finalReimbursement = nlpResult.reimbursement || 0;
+    } else if (llmResult.verdict && (llmResult.confidence || 0) >= 0.75) {
       // Special-case override: if LLM says NO_PENALTY but NLP indicates a CONCLUSIVE completion pattern in evidence,
       // allow NLP to override even against high-confidence LLM. This is targeted to avoid regressions: only when
       // the NLP mapping explicitly flagged 'strongCompletionEvidence'.
@@ -510,8 +536,8 @@ function nlpVerdictMapping({ evidence_text, rationale }) {
     }
     // 3. If both verdicts exist but disagree, analyze rationale and confidence
     else if (llmResult.verdict && nlpResult.verdict && llmResult.verdict !== nlpResult.verdict) {
-      // If rationale contains DRAW/NO_PENALTY keywords, override
-      if (rationaleFound.length > 0) {
+      // If rationale contains DRAW/NO_PENALTY keywords and NLP confidence is low, override
+      if (rationaleFound.length > 0 && (nlpResult.confidence || 0) < 0.8) {
         // If rationale contains both 'insufficient' and 'no penalty' prefer DRAW
         if (rationaleText.includes('insufficient') && (rationaleText.includes('no penalty') || rationaleText.includes('no reimbursement'))) {
           finalVerdict = 'DRAW';
@@ -810,7 +836,7 @@ async function processV7ArbitrationWithOllama(payload = {}) {
   const contract_text = payload.contract_text || payload.contractText || payload.contract || 'GENERIC CONTRACT FOR TESTING';
     const dispute_id = payload.dispute_id || payload.disputeId || payload.caseId || 'unknown';
 
-    const prompt = `EVIDENCE:\n${evidence_text}\nCONTRACT:\n${contract_text}\nDISPUTE_ID: ${dispute_id}\n\nYou are an arbitrator. Analyze the evidence and contract dispute above. Provide your decision in EXACTLY this format:\n\nVERDICT: [PARTY_A_WINS or PARTY_B_WINS or NO_PENALTY or DRAW]\nRATIONALE: [brief explanation]\nCONFIDENCE: [0.0-1.0 or percentage]\nREIMBURSEMENT: [amount or NONE]`;
+    const prompt = `EVIDENCE:\n${evidence_text}\nCONTRACT:\n${contract_text}\nDISPUTE_ID: ${dispute_id}\n\nYou are an arbitrator. In this dispute, PARTY_A is the client/claimant who initiated the contract, and PARTY_B is the contractor/supplier who was hired to perform the work. Analyze the evidence and contract dispute above. Determine if PARTY_A wins (breach by PARTY_B), PARTY_B wins (breach by PARTY_A), NO_PENALTY (no breach or mutual agreement), or DRAW (insufficient evidence). Key guidelines: - PARTY_A_WINS if PARTY_B breached the contract causing material harm to PARTY_A. - NO_PENALTY if deliverables were accepted and no material financial loss occurred. - PARTY_B_WINS if PARTY_A breached. - DRAW if evidence is insufficient or ambiguous. Provide your decision in EXACTLY this format:\n\nVERDICT: [PARTY_A_WINS or PARTY_B_WINS or NO_PENALTY or DRAW]\nRATIONALE: [brief explanation]\nCONFIDENCE: [0.0-1.0 or percentage]\nREIMBURSEMENT: [amount or NONE]`;
 
     const raw = await callOllama(prompt, 200000, false, 400);
     const responseText = raw.response || '';

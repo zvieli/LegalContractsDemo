@@ -124,6 +124,28 @@ async function main() {
   console.log("✅ Arbitrator deployed to:", arbitratorAddress);
   console.log("DEBUG: Arbitrator deployed.");
 
+  // === Deploy EnhancedRentContract ===
+  console.log("DEBUG: Deploying EnhancedRentContract...");
+  const EnhancedRentContract = await ethers.getContractFactory("EnhancedRentContract");
+  // Use deployer as landlord, tenant as tenant, and reasonable defaults for other params
+  const rentAmount = ethers.parseEther("1.0");
+  const priceFeed = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
+  const dueDate = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 days from now
+  const propertyId = 1;
+  const enhancedRentContract = await EnhancedRentContract.deploy(
+    deployer.address, // landlord
+    tenant.address,   // tenant
+    rentAmount,
+    priceFeed,
+    dueDate,
+    propertyId,
+    arbitrationServiceAddress,
+    merkleAddress
+  );
+  await enhancedRentContract.waitForDeployment();
+  const enhancedRentContractAddress = await enhancedRentContract.getAddress();
+  console.log("✅ EnhancedRentContract deployed to:", enhancedRentContractAddress);
+
   // === CCIP Oracle Arbitration Integration ===
   console.log("DEBUG: Deploying CCIP Oracle Arbitration system...");
   
@@ -341,7 +363,8 @@ async function main() {
       MerkleEvidenceManager: merkleAddress,
       ArbitrationService: arbitrationServiceAddress,
       RecipientKeyRegistry: keyRegistryAddress,
-      Arbitrator: arbitratorAddress
+      Arbitrator: arbitratorAddress,
+      EnhancedRentContract: enhancedRentContractAddress
     },
     ccip: {
       enabled: ccipSenderAddress && ccipReceiverAddress,

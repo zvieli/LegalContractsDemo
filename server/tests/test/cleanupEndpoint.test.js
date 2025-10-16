@@ -22,10 +22,10 @@ afterAll(async () => {
 
 describe('/api/dev/cleanup-evidence', () => {
   it('accepts cids array and returns results', async () => {
-    // Mock heliaStore.removeEvidenceFromHelia to avoid network operations
-  const heliaStore = await import('../modules/heliaStore.js');
-  // ES modules export getters that are read-only; use spyOn to mock behavior
-  const spy = vi.spyOn(heliaStore, 'removeEvidenceFromHelia').mockImplementation(async (cid) => ({ removed: true }));
+    // Mock heliaStore.removeEvidenceFromHelia to avoid network operations (Helia only)
+    const heliaStore = await import('../modules/heliaStore.js');
+    // ES modules export getters that are read-only; use spyOn to mock behavior
+    const spy = vi.spyOn(heliaStore, 'removeEvidenceFromHelia').mockImplementation(async (cid) => ({ removed: true }));
 
     const res = await fetch(`${baseUrl}/api/dev/cleanup-evidence`, {
       method: 'POST',

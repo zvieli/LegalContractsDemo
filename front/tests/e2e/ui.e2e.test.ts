@@ -185,3 +185,150 @@ test('Full E2E with MetaMask Helper', async () => {
   await expect(row.locator('td[data-testid="filename"]')).not.toBeEmpty();
   await expect(row.locator('td[data-testid="cid"]')).not.toBeEmpty();
 });
+
+test('should display LLM arbitration decisions', async () => {
+  const page = await metamask.context.newPage();
+  
+  // Navigate to arbitration page for a test dispute
+  await page.goto('http://localhost:5173/arbitration/test-dispute-789');
+  await page.waitForLoadState('networkidle');
+
+  // Connect wallet if needed
+  await metamask.connect();
+  const connectButton = page.locator('button:has-text("Connect Wallet")');
+  if (await connectButton.isVisible()) {
+    await connectButton.click();
+    await page.waitForTimeout(2000);
+  }
+
+  // Check for LLM decision display
+  const decisionView = page.locator('[data-testid="llm-decision-view"], .llm-decision-view');
+  await expect(decisionView).toBeVisible();
+
+  // Verify decision content structure
+  const verdictElement = decisionView.locator('[data-testid="verdict"], .verdict');
+  const reasoningElement = decisionView.locator('[data-testid="reasoning"], .reasoning');
+  const confidenceElement = decisionView.locator('[data-testid="confidence"], .confidence');
+
+  // At least one of these should be visible
+  const hasVerdict = await verdictElement.isVisible().catch(() => false);
+  const hasReasoning = await reasoningElement.isVisible().catch(() => false);
+  const hasConfidence = await confidenceElement.isVisible().catch(() => false);
+
+  expect(hasVerdict || hasReasoning || hasConfidence).toBe(true);
+
+  // If verdict is displayed, verify it's valid
+  if (hasVerdict) {
+    const verdictText = await verdictElement.textContent();
+    const validVerdicts = ['PARTY_A_WINS', 'PARTY_B_WINS', 'NO_PENALTY', 'DRAW'];
+    expect(validVerdicts.some(v => verdictText?.includes(v))).toBe(true);
+  }
+});
+
+test('should sync with backend arbitration status', async () => {
+  const page = await metamask.context.newPage();
+  
+  // Navigate to arbitration dashboard
+  await page.goto('http://localhost:5173/arbitration');
+  await page.waitForLoadState('networkidle');
+
+  // Connect wallet if needed
+  await metamask.connect();
+  const connectButton = page.locator('button:has-text("Connect Wallet")');
+  if (await connectButton.isVisible()) {
+    await connectButton.click();
+    await page.waitForTimeout(2000);
+  }
+
+  // Check arbitration status display
+  const statusContainer = page.locator('[data-testid="arbitration-status-container"], .arbitration-status');
+  await expect(statusContainer).toBeVisible();
+
+  // Verify status indicators
+  const statusIndicators = [
+    'pending',
+    'processing', 
+    'completed',
+    'failed'
+  ];
+
+  let foundStatus = false;
+  for (const status of statusIndicators) {
+    const statusElement = statusContainer.locator(`[data-status="${status}"], .status-${status}`);
+    if (await statusElement.isVisible().catch(() => false)) {
+      foundStatus = true;
+      break;
+    }
+  }
+  expect(foundStatus).toBe(true);
+
+  // Check decisions history
+  const historyContainer = page.locator('[data-testid="decisions-history"], .decisions-history');
+  await expect(historyContainer).toBeVisible();
+
+  // Verify history has entries or shows empty state appropriately
+  const historyEntries = historyContainer.locator('.decision-entry, tr, .history-item');
+  const entryCount = await historyEntries.count();
+  
+  if (entryCount > 0) {
+    // If there are entries, verify they have required fields
+    const firstEntry = historyEntries.first();
+    const disputeId = await firstEntry.locator('[data-testid="dispute-id"], .dispute-id').textContent();
+    expect(disputeId).toBeTruthy();
+  }
+});
+
+test('should validate contract events in UI', async () => {
+  const page = await metamask.context.newPage();
+  
+  // Navigate to contract management page
+  await page.goto('http://localhost:5173/contracts');
+  await page.waitForLoadState('networkidle');
+
+  // Connect wallet if needed
+  await metamask.connect();
+  const connectButton = page.locator('button:has-text("Connect Wallet")');
+  if (await connectButton.isVisible()) {
+    await connectButton.click();
+    await page.waitForTimeout(2000);
+  }
+
+  // Check for contract event display
+  const eventsContainer = page.locator('[data-testid="contract-events"], .contract-events');
+  await expect(eventsContainer).toBeVisible();
+
+  // Verify expected event types are displayed
+  const eventTypes = [
+    'DisputeAppliedCapped',
+    'ResolutionApplied', 
+    'BreachReported',
+    'EvidenceSubmitted'
+  ];
+
+  let foundEvent = false;
+  for (const eventType of eventTypes) {
+    const eventElement = eventsContainer.locator(`[data-event-type="${eventType}"], .event-${eventType.toLowerCase()}`);
+    if (await eventElement.isVisible().catch(() => false)) {
+      foundEvent = true;
+      
+      // Verify event has required data
+      const eventData = await eventElement.locator('[data-testid="event-data"], .event-data').textContent();
+      expect(eventData).toBeTruthy();
+      break;
+    }
+  }
+
+  // If no specific events found, at least verify events container has content
+  if (!foundEvent) {
+    const eventContent = await eventsContainer.textContent();
+    expect(eventContent?.trim().length).toBeGreaterThan(0);
+  }
+
+  // Check dispute status display
+  const disputeStatus = page.locator('[data-testid="dispute-status"], .dispute-status');
+  if (await disputeStatus.isVisible().catch(() => false)) {
+    const statusText = await disputeStatus.textContent();
+    const validStatuses = ['active', 'resolved', 'pending', 'closed'];
+    expect(validStatuses.some(s => statusText?.toLowerCase().includes(s))).toBe(true);
+  }
+});

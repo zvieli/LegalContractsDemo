@@ -54,14 +54,20 @@ contract CCIPArbitrationReceiver {
         bytes32 indexed disputeId,
         uint64 indexed sourceChainSelector,
         bool approved,
-        uint256 appliedAmount
+        uint256 appliedAmount,
+        address beneficiary,
+        string rationale,
+        bytes32 oracleId,
+        uint256 timestamp
     );
-    
+
     event ArbitrationExecuted(
         bytes32 indexed disputeId,
         address indexed targetContract,
         uint256 indexed caseId,
-        bool success
+        bool approved,
+        uint256 appliedAmount,
+        address beneficiary
     );
     
     event SourceChainAuthorized(uint64 chainSelector, bool authorized);
@@ -148,7 +154,11 @@ contract CCIPArbitrationReceiver {
             decision.disputeId,
             sourceChainSelector,
             decision.approved,
-            decision.appliedAmount
+            decision.appliedAmount,
+            decision.beneficiary,
+            decision.rationale,
+            decision.oracleId,
+            decision.timestamp
         );
 
         // Execute arbitration via ArbitrationService
@@ -205,8 +215,10 @@ contract CCIPArbitrationReceiver {
         emit ArbitrationExecuted(
             decision.disputeId,
             address(0), // Would be decoded from disputeId
-            0,          // Would be decoded from disputeId  
-            true        // Assume success for now
+            0,          // Would be decoded from disputeId
+            decision.approved,
+            decision.appliedAmount,
+            decision.beneficiary
         );
 
         // TODO: Implement proper contract address and caseId extraction

@@ -70,8 +70,9 @@ export default function Admin() {
             // fallback to authorized check
             const res = await apiFetch(`/api/v7/admin/authorized?address=${encodeURIComponent(addr)}`);
             const j = await res.json();
-            setAuthorized(!!j.authorized);
-            setLogs(l => [[new Date().toISOString(), `Auth check for ${addr}: ${j.authorized}`], ...l]);
+            setAuthorized(!!j.isAdmin);
+            setAdminStatus(j);
+            setLogs(l => [[new Date().toISOString(), `Auth check for ${addr}: isAdmin=${j.isAdmin}, adminAddress=${j.adminAddress}`], ...l]);
             return;
           }
 
@@ -292,9 +293,12 @@ export default function Admin() {
       }
       // include admin address so backend can verify
       opts.headers = opts.headers || {};
-      if (address) opts.headers['x-admin-address'] = address;
-  const res = await apiFetch(ep.path, opts);
-  const txt = await res.text();
+      if (address) {
+        opts.headers['x-admin-address'] = address;
+        opts.headers['Authorization'] = `Bearer ${address}`;
+      }
+      const res = await apiFetch(ep.path, opts);
+      const txt = await res.text();
       setLogs(l => [[new Date().toISOString(), `${ep.path} -> ${res.status} ${res.statusText}`], [new Date().toISOString(), txt], ...l]);
     } catch (err) {
       setLogs(l => [[new Date().toISOString(), `ERROR calling ${ep.path}: ${err.message}`], ...l]);

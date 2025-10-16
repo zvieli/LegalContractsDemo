@@ -132,8 +132,8 @@ export async function checkArbitratorAPIHealth() {
 
 export async function extractEvidenceFromCID(evidenceCID) {
   try {
-    // In production, this would fetch from IPFS/Helia
-    // For development, we'll generate representative text
+  // In production, this would fetch from Helia
+  // For development, we'll generate representative text
     
     if (!evidenceCID || typeof evidenceCID !== 'string') {
       return 'No evidence provided';
@@ -156,9 +156,9 @@ ${mockEvidenceTemplates[template]}
 
 Details:
 - Submitted at: ${new Date().toISOString()}
-- Content type: Verified IPFS content
+- Content type: Verified Helia content
 - Integrity: Hash verified
-- Accessibility: Content accessible via IPFS network
+- Accessibility: Content accessible via Helia node
 
 This evidence is submitted in support of the dispute claim and contains relevant documentation to support the party's position in the arbitration process.
     `.trim();

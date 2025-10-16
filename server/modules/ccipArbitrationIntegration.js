@@ -65,6 +65,10 @@ export class CCIPArbitrationIntegration {
           ccipSenderABI,
           this.signer
         );
+        // Check for sendArbitrationDecision method
+        if (!ccipSenderABI.some(e => e.type === 'function' && e.name === 'sendArbitrationDecision')) {
+          console.warn('⚠️ ABI for CCIPArbitrationSender does not include sendArbitrationDecision. Check contract deployment and ABI file.');
+        }
       }
 
       if (this.config.ccipReceiverAddress && ccipReceiverABI) {
@@ -166,11 +170,32 @@ export class CCIPArbitrationIntegration {
 
       // Listen for ArbitrationDecisionReceived (if it exists)
       if (availableEvents.includes('ArbitrationDecisionReceived')) {
-        this.contracts.ccipReceiver.on('ArbitrationDecisionReceived', async (requestId, decision, event) => {
-          console.log('📨 CCIP Arbitration Decision Received:');
-          console.log(`  Request ID: ${requestId}`);
-          console.log(`  Decision: ${decision}`);
-        });
+        this.contracts.ccipReceiver.on(
+          'ArbitrationDecisionReceived',
+          async (
+            messageId,
+            disputeId,
+            sourceChainSelector,
+            approved,
+            appliedAmount,
+            beneficiary,
+            rationale,
+            oracleId,
+            timestamp,
+            event
+          ) => {
+            console.log('📨 CCIP Arbitration Decision Received:');
+            console.log(`  Message ID: ${messageId}`);
+            console.log(`  Dispute ID: ${disputeId}`);
+            console.log(`  Source Chain Selector: ${sourceChainSelector}`);
+            console.log(`  Approved: ${approved}`);
+            console.log(`  Applied Amount: ${appliedAmount}`);
+            console.log(`  Beneficiary: ${beneficiary}`);
+            console.log(`  Rationale: ${rationale}`);
+            console.log(`  Oracle ID: ${oracleId}`);
+            console.log(`  Timestamp: ${timestamp}`);
+          }
+        );
         console.log('👂 Listening for ArbitrationDecisionReceived events');
       }
 
@@ -195,15 +220,31 @@ export class CCIPArbitrationIntegration {
     try {
       console.log(`🤖 Processing CCIP arbitration for request ${requestId}...`);
 
+      // If disputeData is not a Buffer or hex string, serialize it as ABI-encoded bytes
+      let encodedDisputeData;
+      if (typeof disputeData === 'object' && disputeData !== null && !Buffer.isBuffer(disputeData)) {
+        encodedDisputeData = ethers.AbiCoder.defaultAbiCoder().encode(
+          ['string', 'string', 'string', 'string'],
+          [
+            disputeData.disputeType || 'test_dispute',
+            disputeData.evidenceDescription || 'Test evidence for CCIP integration',
+            disputeData.requestedAmount || '1.0',
+            disputeData.additionalContext || JSON.stringify({ test: true })
+          ]
+        );
+      } else {
+        encodedDisputeData = disputeData;
+      }
+
       // Parse dispute data
-      const parsedData = this.parseDisputeData(disputeData);
-      
+      const parsedData = this.parseDisputeData(encodedDisputeData);
+
       // Call LLM arbitration
       const arbitrationResult = await this.callLLMArbitration(parsedData);
-      
+
       // Send result back via CCIP
       await this.sendCCIPDecision(requestId, sourceChain, contractAddress, arbitrationResult);
-      
+
       console.log(`✅ CCIP arbitration completed for request ${requestId}`);
     } catch (error) {
       console.error(`❌ CCIP arbitration failed for request ${requestId}:`, error.message);
@@ -243,7 +284,7 @@ export class CCIPArbitrationIntegration {
     try {
       // Import LLM arbitrator
       const { processV7ArbitrationWithOllama } = await import('./ollamaLLMArbitrator.js');
-      
+
       // Prepare arbitration request
       const arbitrationRequest = {
         contract_text: `CCIP Cross-Chain Arbitration Request
@@ -255,25 +296,23 @@ export class CCIPArbitrationIntegration {
         requested_amount: parseFloat(disputeData.requestedAmount) || 0
       };
 
-      // Process with LLM
+      // Always call LLM unless an actual error occurs
       const result = await processV7ArbitrationWithOllama(arbitrationRequest);
-      
+
       return {
-        verdict: result.final_verdict || 'DRAW',
-        reimbursementAmount: result.reimbursement_amount_dai || 0,
-        reasoning: result.rationale_summary || 'CCIP arbitration completed',
+        verdict: result.final_verdict || result.decision || 'DRAW',
+        reimbursementAmount: result.reimbursement_amount_dai || result.reimbursement || 0,
+        reasoning: result.rationale_summary || result.reasoning || 'CCIP arbitration completed',
         confidence: result.confidence || 85
       };
     } catch (error) {
       console.error('❌ LLM arbitration failed:', error.message);
-      
-      // Fallback to simulation
+      // Only fallback to simulation if LLM call fails
       const { processV7Arbitration } = await import('./llmArbitrationSimulator.js');
       const result = await processV7Arbitration({
         contract_text: `CCIP Fallback Arbitration`,
         evidence_text: disputeData.evidenceDescription
       });
-      
       return {
         verdict: result.final_verdict || 'DRAW',
         reimbursementAmount: result.reimbursement_amount_dai || 0,
@@ -292,14 +331,23 @@ export class CCIPArbitrationIntegration {
     }
 
     try {
+      // Convert confidence to integer (multiply by 100, round)
+      let confidenceInt = 0;
+      if (typeof decision.confidence === 'number') {
+        confidenceInt = Math.round(decision.confidence * 100);
+      } else if (typeof decision.confidence === 'string') {
+        const num = parseFloat(decision.confidence);
+        confidenceInt = isNaN(num) ? 0 : Math.round(num * 100);
+      }
+
       // Encode the decision data
       const decisionData = ethers.AbiCoder.defaultAbiCoder().encode(
-        ['string', 'uint256', 'string', 'uint8'],
+        ['string', 'uint256', 'string', 'uint16'],
         [
           decision.verdict,
           ethers.parseEther(decision.reimbursementAmount.toString()),
           decision.reasoning,
-          decision.confidence
+          confidenceInt
         ]
       );
 
@@ -315,7 +363,7 @@ export class CCIPArbitrationIntegration {
       console.log(`📡 CCIP decision sent. TX: ${tx.hash}`);
       await tx.wait();
       console.log(`✅ CCIP decision confirmed for request ${requestId}`);
-      
+
       return true;
     } catch (error) {
       console.error('❌ Failed to send CCIP decision:', error.message);
