@@ -1,19 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useEthers } from '../../contexts/EthersContext';
+import { ContractService } from '../../services/contractService';
 import './CreateChoice.css';
 
 function CreateChoice() {
   const [selected, setSelected] = useState(null);
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  // Note: account is not available in this lightweight page, so we rely on injected global
-  // EthersContext would be more reliable, but to keep changes minimal we read from window.ethereum
-  let isAdmin = false;
-  try {
-    const accounts = (typeof window !== 'undefined' && window.ethereum && window.ethereum.selectedAddress) ? [window.ethereum.selectedAddress] : [];
-    const acct = accounts && accounts.length ? accounts[0] : null;
-    isAdmin = platformAdmin && acct && acct.toLowerCase() === platformAdmin.toLowerCase();
-  } catch (_) {
-    isAdmin = false;
-  }
+  const { account, signer, chainId } = useEthers();
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        setIsAdmin(owner && account.toLowerCase() === owner.toLowerCase());
+      } catch { setIsAdmin(false); }
+    }
+    checkAdmin();
+  }, [account, signer, chainId]);
 
   const contractTypes = [
     {

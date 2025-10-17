@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { ContractService } from '../../services/contractService';
+import { useEthers } from '../../contexts/EthersContext';
+import * as Contracts from '../../utils/contracts';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import { ArbitrationService } from '../../services/arbitrationService';
 // Evidence workflow: the contract stores only a keccak256 digest of an
@@ -42,6 +43,9 @@ function EvidencePanel({ initialEvidenceRef }) {
 }
 
 function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onResolved }) {
+  const { contracts: globalContracts } = useEthers();
+  // Resolve contract address: prefer prop, else latest/first from globalContracts
+  const resolvedAddress = contractAddress || (Array.isArray(globalContracts) && globalContracts.length > 0 ? globalContracts[globalContracts.length - 1] : null);
   const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   const [disputeInfo, setDisputeInfo] = useState(null);
   const [disputeAmountEth, setDisputeAmountEth] = useState('');
@@ -65,8 +69,8 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
   const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
 
   // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
-  const key1 = `incomingDispute:${contractAddress}`;
-  const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+  const key1 = `incomingDispute:${resolvedAddress}`;
+  const key2 = `incomingDispute:${String(resolvedAddress).toLowerCase()}`;
   let js = null;
   try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
   if (!js) {
@@ -74,7 +78,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
       const sess = sessionStorage.getItem('incomingDispute');
       if (sess) {
         const o = JSON.parse(sess);
-        if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) js = sess;
+  if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(resolvedAddress).toLowerCase()) js = sess;
       }
     } catch (_) { js = js; }
   }
@@ -88,9 +92,9 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
   // Helper to refresh dispute-related state without reloading the page
   const refreshDisputeState = async () => {
     try {
-      if (!contractAddress || !signer) return;
+      if (!resolvedAddress || !signer) return;
       const svc = new ContractService(signer, chainId);
-      const rent = await svc.getRentContract(contractAddress);
+      const rent = await svc.getRentContract(resolvedAddress);
       const count = Number(await rent.getDisputesCount().catch(() => 0));
       if (count > 0) {
         for (let i = count - 1; i >= 0; i--) {
@@ -127,9 +131,9 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
     let mounted = true;
     (async () => {
       try {
-        if (!isOpen || !contractAddress || !signer) return;
-        const svc = new ContractService(signer, chainId);
-        const ok = await svc.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
+  if (!isOpen || !resolvedAddress || !signer) return;
+  const svc = new ContractService(signer, chainId);
+  const ok = await svc.isAuthorizedArbitratorForContract(resolvedAddress).catch(() => false);
         if (mounted) setIsAuthorizedArbitrator(!!ok);
       } catch (e) {
         if (mounted) setIsAuthorizedArbitrator(false);
@@ -186,7 +190,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
           setEvidenceProgress({ stage: 'preparing', status: 'pending' });
           // Delegate preparation and encoding to the useEvidenceFlow hook. Pass plaintext rationale
           // and let the hook handle encryption (if requested) and base64 encoding.
-          const result = await uploadAndSubmit(rationale, { reporterAddress: account || undefined, contractAddress, note: 'resolution rationale', encryptToAdminPubKey: adminPub, timestamp: Date.now(), onProgress: (s) => {
+          const result = await uploadAndSubmit(rationale, { reporterAddress: account || undefined, contractAddress: resolvedAddress, note: 'resolution rationale', encryptToAdminPubKey: adminPub, timestamp: Date.now(), onProgress: (s) => {
               try {
                 // Map hook stages to structured progress
                 switch (s.stage) {
@@ -261,13 +265,13 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
           try {
             // create instance via ContractService helper
             const svcInst = await (async () => {
-              try { return await svc2.getRentContract(contractAddress).catch(() => null); } catch (_) { return null; }
+              try { return await svc2.getRentContract(resolvedAddress).catch(() => null); } catch (_) { return null; }
             })();
             // Instead of relying on target, create a direct ArbitrationService contract to read owner/factory
               try {
                 // Use the frontend static ABI helper to create the contract instance (avoids dynamic ABI imports)
                 const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, signer.provider || signer);
-                const ownerAddr = await arbRead.owner().catch(() => null);
+                const ownerAddr = await arbRead.factoryOwner().catch(() => null);
                 const factoryAddr = await arbRead.factory().catch(() => null);
                 const me = (await signer.getAddress?.()).toLowerCase();
                 const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
@@ -290,11 +294,11 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
             try {
               forwardWei = forwardEth && Number(forwardEth) > 0 ? ethers.parseEther(String(forwardEth)) : 0n;
             } catch (_) { forwardWei = 0n; }
-            await svc2.applyResolutionToTargetViaService(arbAddr, contractAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
+            await svc2.applyResolutionToTargetViaService(arbAddr, resolvedAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
             } else {
             // Otherwise treat as cancellation finalize and forward early-termination fee if required
             const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
-            await svc2.finalizeCancellationViaService(arbAddr, contractAddress, feeToSend);
+            await svc2.finalizeCancellationViaService(arbAddr, resolvedAddress, feeToSend);
           }
           } else {
             // Evidence flow already finalized on-chain via uploadAndSubmit (submitToContract). Skip duplicate finalize.

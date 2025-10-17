@@ -1,23 +1,38 @@
 import React, { useState, useEffect } from 'react';
+import { ContractService } from '../../../services/contractService';
+import { useEthers } from '../../../contexts/EthersContext';
 
-function detectRole(address) {
-  if (!address) return 'guest';
-  const adminAddress = (import.meta.env?.VITE_PLATFORM_ADMIN || '').toLowerCase();
-  if (address.toLowerCase() === adminAddress) return 'admin';
-  if (address.toLowerCase() === '0xsystemaddress') return 'system';
-  return 'user';
+function useAdminRole(account, signer, chainId) {
+  const [role, setRole] = useState('guest');
+  useEffect(() => {
+    async function checkRole() {
+      if (!account) { setRole('guest'); return; }
+      try {
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        if (owner && account.toLowerCase() === owner.toLowerCase()) setRole('admin');
+        else if (account.toLowerCase() === '0xsystemaddress') setRole('system');
+        else setRole('user');
+      } catch { setRole('user'); }
+    }
+    checkRole();
+  }, [account, signer, chainId]);
+  return role;
 }
 
 function formatAddress(address) {
   return address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '';
 }
 
+
 export default function WalletConnector({ onWallet }) {
-  const [address, setAddress] = useState(null);
-  const [role, setRole] = useState('guest');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const { account, signer, chainId } = useEthers();
+  const role = useAdminRole(account, signer, chainId);
 
   async function connectWallet() {
     setLoading(true);
@@ -26,10 +41,7 @@ export default function WalletConnector({ onWallet }) {
     try {
       if (window.ethereum) {
         const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        const addr = accounts[0];
-        setAddress(addr);
-        setRole(detectRole(addr));
-        if (onWallet) onWallet(addr);
+        if (onWallet) onWallet(accounts[0]);
       } else {
         setError('לא נמצא ספק Ethereum (כמו MetaMask)');
       }
@@ -42,20 +54,9 @@ export default function WalletConnector({ onWallet }) {
   }
 
   function disconnectWallet() {
-    setAddress(null);
-    setRole('guest');
     if (onWallet) onWallet(null);
   }
 
-  // אם כבר יש ארנק מחובר
-  useEffect(() => {
-    if (window.ethereum && window.ethereum.selectedAddress) {
-      const addr = window.ethereum.selectedAddress;
-      setAddress(addr);
-      setRole(detectRole(addr));
-      if (onWallet) onWallet(addr);
-    }
-  }, [onWallet]);
 
   if (loading) {
     return (
@@ -67,11 +68,11 @@ export default function WalletConnector({ onWallet }) {
 
   return (
     <div className="wallet-connector" style={{ marginBottom: 18 }}>
-      {address ? (
+      {account ? (
         <div className="connected-wallet" style={{ display: 'flex', alignItems: 'center' }}>
           <span className="wallet-address" style={{ fontWeight: 'bold', color: '#2a7' }}>
             <i className="fas fa-wallet" style={{ marginRight: 6 }}></i>
-            {formatAddress(address)}
+            {formatAddress(account)}
           </span>
           <span className="wallet-role" style={{ marginLeft: 12, color: '#888' }}>
             Role: <strong>{role}</strong>

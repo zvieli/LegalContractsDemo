@@ -2025,6 +2025,7 @@ async ndaDeactivate(contractAddress, reason) {
 }
 
 async signRent(contractAddress) {
+  console.log('signRent: contractAddress =', contractAddress);
     try {
       const rent = await this.getEnhancedRentContract(contractAddress);
       const myAddr = (await this.signer.getAddress()).toLowerCase();
@@ -2064,9 +2065,10 @@ async signRent(contractAddress) {
         rentAmount: BigInt(rentAmount),
         dueDate: BigInt(dueDate)
       };
-      const signature = await this.signer.signTypedData(domain, types, value);
-      const tx = await rent.signRent(signature);
-      return await tx.wait();
+  const signature = await this.signer.signTypedData(domain, types, value);
+  console.log("Signing rent on contract address:", rent.target || rent.address || contractAddress);
+  const tx = await rent.signRent(signature);
+  return await tx.wait();
     } catch (error) {
       console.error('Error signing Rent contract:', error);
       const reason = error?.reason || error?.message || '';

@@ -92,10 +92,12 @@ contract ContractFactory {
         factoryOwner = msg.sender;
     }
 
+
     modifier onlyOwner() {
         require(msg.sender == factoryOwner, "Only owner");
         _;
     }
+
 
     function setDefaultArbitrationService(address _arbitrationService) external onlyOwner {
         require(_arbitrationService != address(0), "Zero address arbitration service");

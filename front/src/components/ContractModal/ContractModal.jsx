@@ -1,3 +1,6 @@
+
+      // ---- Rent EIP712 signing wrapper ----
+    
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
@@ -19,7 +22,7 @@ import { IN_E2E } from '../../utils/env';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const contractInstanceRef = useRef(null);
-  const { signer, chainId, account, provider } = useEthers();
+  const { signer, chainId, account, provider, contracts: globalContracts } = useEthers();
   const [contractDetails, setContractDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -130,13 +133,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     // Resolve a stable target address for E2E and normal flows. In Playwright
     // tests we may receive the selected contract via window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT
     // instead of the `contractAddress` prop due to timing, so prefer that when
-    // present. Only load when we have a concrete address to avoid null/undefined
-    // being passed into ethers.Contract constructors (which caused E2E crashes).
-    const resolvedAddress = contractAddress || (typeof window !== 'undefined' && window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT) || null;
+    // present. If no prop or E2E override, use the latest/first from globalContracts.
+    let resolvedAddress = contractAddress
+      || (typeof window !== 'undefined' && window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT)
+      || (Array.isArray(globalContracts) && globalContracts.length > 0 ? globalContracts[globalContracts.length - 1] : null)
+      || null;
     if (isOpen && resolvedAddress && signer) {
       loadContractData(resolvedAddress);
     }
-  }, [isOpen, contractAddress, signer]);
+  }, [isOpen, contractAddress, signer, globalContracts]);
 
   // Expose a small test helper for E2E: programmatically open the dispute form when modal is mounted.
   // These helpers are intended for local testing only and are gated behind the
@@ -236,10 +241,20 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       try {
         details = await contractService.getEnhancedRentContractDetails(targetAddress, { silent: true });
         contractInstance = await contractService.getEnhancedRentContract(targetAddress);
-      } catch (_) {
-        details = await contractService.getNDAContractDetails(targetAddress, { silent: true });
-        contractInstance = await contractService.getNDAContract(targetAddress);
+        console.debug('loadContractData: loaded EnhancedRentContractDetails', { targetAddress, details });
+      } catch (errRent) {
+        console.debug('loadContractData: failed to load as Rent, trying NDA', { targetAddress, errRent });
+        try {
+          details = await contractService.getNDAContractDetails(targetAddress, { silent: true });
+          contractInstance = await contractService.getNDAContract(targetAddress);
+          console.debug('loadContractData: loaded NDAContractDetails', { targetAddress, details });
+        } catch (errNda) {
+          console.error('loadContractData: failed to load contract details as Rent or NDA', { targetAddress, errRent, errNda });
+          details = null;
+        }
       }
+      // Log the details before setting state
+      console.debug('loadContractData: setting contractDetails', { targetAddress, details });
       setContractDetails(details);
       contractInstanceRef.current = contractInstance;
   // detect per-contract appeal in localStorage (try multiple key variants) or sessionStorage fallback
@@ -375,7 +390,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         } catch (_) {
           latestBlock = 0;
         }
-  const fromBlock = latestBlock > 500 ? latestBlock - 500 : 0;
+        const fromBlock = latestBlock > 500 ? latestBlock - 500 : 0;
         // required ETH for current period
         try {
           const req = await rentContract.getRentInEth();
@@ -385,9 +400,23 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           setRequiredEthWei(null);
           setRequiredEth(null);
         }
-  const paymentEvents = await rentContract.queryFilter(rentContract.filters.RentPaid(), fromBlock, 'latest');
-  // include security deposit events (debtor deposits for case) so deposits show in payment history
-  const depositEvents = await rentContract.queryFilter(rentContract.filters.SecurityDepositPaid?.(), fromBlock, 'latest');
+        // Add debug logs before/after each queryFilter
+        let paymentEvents = [];
+        let depositEvents = [];
+        try {
+          console.debug('queryFilter: RentPaid', {fromBlock, latestBlock, address: rentContract.target});
+          paymentEvents = await rentContract.queryFilter(rentContract.filters.RentPaid(), fromBlock, 'latest');
+          console.debug('queryFilter: RentPaid result', {count: paymentEvents.length});
+        } catch (e) {
+          console.error('queryFilter: RentPaid FAILED', e);
+        }
+        try {
+          console.debug('queryFilter: SecurityDepositPaid', {fromBlock, latestBlock, address: rentContract.target});
+          depositEvents = await rentContract.queryFilter(rentContract.filters.SecurityDepositPaid?.(), fromBlock, 'latest');
+          console.debug('queryFilter: SecurityDepositPaid result', {count: depositEvents.length});
+        } catch (e) {
+          console.error('queryFilter: SecurityDepositPaid FAILED', e);
+        }
         const transactions = await Promise.all(paymentEvents.map(async (event) => {
           const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
           return {
@@ -397,7 +426,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             payer: event.args.tenant
           };
         }));
-
         const depositTxs = await Promise.all(depositEvents.map(async (event) => {
           const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
           return {
@@ -1372,19 +1400,42 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   };
 
   // ---- Rent EIP712 signing wrapper ----
-  const handleRentSign = async () => {
-    try {
-      setRentSigning(true);
-      const svc = new ContractService(signer, chainId);
-      await svc.signRent(contractAddress);
-      await loadContractData();
-    } catch (e) {
-      const reason = e?.reason || e?.message || 'Failed to sign';
-      alert(`Sign failed: ${reason}`);
-    } finally {
-      setRentSigning(false);
-    }
-  };
+ const handleRentSign = async () => {
+  // Guard: prevent signing if contractDetails not loaded or missing fields
+  if (!contractDetails || !contractDetails.landlord || !contractDetails.tenant || typeof contractDetails.active === 'undefined' || !contractDetails.signedBy) {
+    alert('Contract details not loaded yet. Please wait and try again.');
+    return;
+  }
+
+  // DEBUG: Log landlord, tenant, msg.sender, active state
+  try {
+    const rentDetails = contractDetails;
+    const signerAddr = await signer.getAddress();
+    console.log('DEBUG signRent:', {
+      landlord: rentDetails.landlord,
+      tenant: rentDetails.tenant,
+      msgSender: signerAddr,
+      active: rentDetails.active,
+      alreadySigned: rentDetails.signedBy?.[signerAddr.toLowerCase()] || false
+    });
+  } catch (e) {
+    console.warn('DEBUG signRent: failed to log context', e);
+  }
+
+  // Execute signing
+  try {
+    setRentSigning(true);
+    const svc = new ContractService(signer, chainId);
+    await svc.signRent(contractAddress);
+    await loadContractData();
+  } catch (e) {
+    const reason = e?.reason || e?.message || 'Failed to sign';
+    alert(`Sign failed: ${reason}`);
+  } finally {
+    setRentSigning(false);
+  }
+};
+
 
   // Render part: insert Show Appeal button near the dispute controls
 

@@ -35,7 +35,7 @@ export async function idbGet(key) {
   if (typeof indexedDB !== 'undefined') {
     return new Promise((resolve, reject) => {
       try {
-  const req = indexedDB.open('arbitrust-idb', 1);
+        const req = indexedDB.open('arbitrust-idb', 1);
         req.onupgradeneeded = () => {
           req.result.createObjectStore('store');
         };
@@ -61,4 +61,20 @@ export async function idbGet(key) {
   }
 }
 
-export default { idbPut, idbGet };
+// מנקה את כל ה-IndexedDB (arbitrust-idb) ואת localStorage וה-sessionStorage
+export function idbClear() {
+  // Clear localStorage and sessionStorage
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+  } catch (e) {}
+  // Delete arbitrust-idb database
+  if (typeof indexedDB !== 'undefined') {
+    try {
+      indexedDB.deleteDatabase('arbitrust-idb');
+    } catch (e) {}
+  }
+  return true;
+}
+
+export default { idbPut, idbGet, idbClear };

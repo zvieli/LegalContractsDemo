@@ -1,55 +1,59 @@
 import { useState, useEffect } from 'react';
 import { useEthers } from '../../../contexts/EthersContext';
+import { ContractService } from '../../../services/contractService';
 import './Header.css';
 import WalletConnector from './WalletConnector';
 function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { account } = useEthers();
+  const { account, signer, chainId } = useEthers();
+  const [isAdmin, setIsAdmin] = useState(false);
   const [showArbitration, setShowArbitration] = useState(false);
   const [showPlatform, setShowPlatform] = useState(false);
 
   useEffect(() => {
-    // Config-driven: only show Arbitration and Platform to the configured platform admin
-    const admin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-    try {
-      if (!admin) {
-        // No admin configured: hide admin pages by default
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) {
+          setIsAdmin(false);
+          setShowArbitration(false);
+          setShowPlatform(false);
+          return;
+        }
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        if (owner && account.toLowerCase() === owner.toLowerCase()) {
+          setIsAdmin(true);
+          setShowArbitration(true);
+          setShowPlatform(true);
+        } else {
+          setIsAdmin(false);
+          setShowArbitration(false);
+          setShowPlatform(false);
+        }
+      } catch {
+        setIsAdmin(false);
         setShowArbitration(false);
         setShowPlatform(false);
-        return;
       }
-      if (!account) {
-        // if not connected, allow nav presence so admin can land and connect (show links)
-        setShowArbitration(true);
-        setShowPlatform(true);
-        return;
-      }
-      const isAdmin = account.toLowerCase() === admin.toLowerCase();
-      setShowArbitration(isAdmin);
-      setShowPlatform(isAdmin);
-    } catch (_) {
-      setShowArbitration(false);
-      setShowPlatform(false);
     }
-  }, [account]);
+    checkAdmin();
+  }, [account, signer, chainId]);
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
 
-  // If platform admin is connected, hide 'Create Contract' for fairness
-  const admin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdminAccount = admin && account && account.toLowerCase() === admin.toLowerCase();
-
   const navItems = [
     { label: 'Home', path: '/', icon: 'fas fa-home' },
-    !isAdminAccount ? { label: 'Create Contract', path: '/create', icon: 'fas fa-plus' } : null,
+    !isAdmin ? { label: 'Create Contract', path: '/create', icon: 'fas fa-plus' } : null,
     { label: 'My Contracts', path: '/dashboard', icon: 'fas fa-file-contract' },
     { label: 'About', path: '/about', icon: 'fas fa-info-circle' }
   ].filter(Boolean);
 
-  // Render Admin link only for the configured admin account
-  if (isAdminAccount) {
+  // Render Admin link only for the on-chain admin account
+  if (isAdmin) {
     navItems.push({ label: 'Admin', path: '/admin', icon: 'fas fa-cogs' });
   }
 

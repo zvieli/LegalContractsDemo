@@ -5,11 +5,25 @@ import EvidenceSubmit from '../../components/EvidenceSubmit/EvidenceSubmit';
 import AdminDashboard from '../AdminDashboard/AdminDashboard';
 
 import { useEthers } from '../../contexts/EthersContext';
+import { useState, useEffect } from 'react';
+import { ContractService } from '../../services/contractService';
 
 function Home() {
-  const { account } = useEthers();
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+  const { account, signer, chainId } = useEthers();
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        setIsAdmin(owner && account.toLowerCase() === owner.toLowerCase());
+      } catch { setIsAdmin(false); }
+    }
+    checkAdmin();
+  }, [account, signer, chainId]);
   const features = [
     {
       icon: 'fas fa-robot',

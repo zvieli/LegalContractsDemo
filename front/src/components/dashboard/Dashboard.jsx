@@ -42,8 +42,24 @@ function Dashboard() {
     }
   }, [isConnected, account, signer, chainId]);
 
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // On-chain admin detection: fetch factoryOwner from ContractFactory
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        console.debug('Admin check: account', account, 'factoryOwner', owner);
+        if (owner && account.toLowerCase() === owner.toLowerCase()) setIsAdmin(true);
+        else setIsAdmin(false);
+      } catch (e) { console.warn('Admin check failed', e); setIsAdmin(false); }
+    }
+    checkAdmin();
+  }, [account, signer, chainId]);
 
   // האזנה לאירועי יצירת חוזים
   const setupEventListeners = async () => {
@@ -136,11 +152,8 @@ function Dashboard() {
     try {
       setLoading(true);
       const contractService = new ContractService(signer, chainId);
-      // If connected account is platform admin, show platform-wide counts (read-only)
-      const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-      const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
-
-      if (isAdmin) {
+  // If connected account is on-chain admin, show platform-wide counts (read-only)
+  if (isAdmin) {
         try {
           const factory = await contractService.getFactoryContract();
           // For admin/platform-wide read-only stats use the local JSON-RPC provider
@@ -169,10 +182,10 @@ function Dashboard() {
           } catch (pfErr) {
             console.warn('Admin preflight debug failed', pfErr);
           }
-          const total = Number(localFactory ? await localFactory.getAllContractsCount() : 0);
+          const total = Number(localFactory ? await localFactory.getTotalContractsCount() : 0);
           // Fetch a manageable page of contracts to compute active/pending/value
           const pageSize = Math.min(total, 50);
-          let page = pageSize > 0 && localFactory ? await localFactory.getAllContractsPaged(0, pageSize) : [];
+          let page = localFactory ? await localFactory.getAllContracts() : [];
           // Normalize and dedupe the returned page (remove falsy entries, lowercase, unique)
           try {
             const normalized = (page || []).map(a => a && String(a).toLowerCase()).filter(Boolean);

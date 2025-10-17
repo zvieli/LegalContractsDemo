@@ -1,11 +1,26 @@
 import './Footer.css';
 import { useEthers } from '../../../contexts/EthersContext';
+import { useState, useEffect } from 'react';
+import { ContractService } from '../../../services/contractService';
 
 function Footer() {
   const currentYear = new Date().getFullYear();
-  const { account } = useEthers();
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+  const { account, signer, chainId } = useEthers();
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        if (owner && account.toLowerCase() === owner.toLowerCase()) setIsAdmin(true);
+        else setIsAdmin(false);
+      } catch (e) { setIsAdmin(false); }
+    }
+    checkAdmin();
+  }, [account, signer, chainId]);
 
   return (
     <footer className="footer">

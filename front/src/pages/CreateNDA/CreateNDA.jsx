@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import { uploadCustomClausesToHelia } from '../../utils/heliaClient';
@@ -7,8 +7,20 @@ import '../../styles/notAllowed.css';
 
 function CreateNDA() {
   const { isConnected, signer, chainId, account } = useEthers();
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        setIsAdmin(owner && account.toLowerCase() === owner.toLowerCase());
+      } catch { setIsAdmin(false); }
+    }
+    checkAdmin();
+  }, [account, signer, chainId]);
   const [formData, setFormData] = useState({
     partyB: '',
     expiryDate: '',

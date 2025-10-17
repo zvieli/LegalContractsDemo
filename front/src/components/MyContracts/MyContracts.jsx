@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
-import { ContractService } from '../../services/contractService';
+import * as Contracts from '../../utils/contracts';
 import { ContractServiceV7 } from '../../services/contractServiceV7';
 import * as ethers from 'ethers';
 import { createContractInstanceAsync } from '../../utils/contracts';
@@ -9,7 +9,7 @@ import ContractModal from '../ContractModal/ContractModal';
 import { IN_E2E } from '../../utils/env';
 
 export default function MyContracts() {
-  const { signer, chainId, account, isConnected } = useEthers();
+  const { signer, chainId, account, isConnected, contracts: globalContracts } = useEthers();
   const [contracts, setContracts] = useState([]); // raw addresses
   const [details, setDetails] = useState({}); // address -> detail object
   const [loading, setLoading] = useState(false);
@@ -21,202 +21,11 @@ export default function MyContracts() {
    const [v7Service, setV7Service] = useState(null); // V7 service instance
 
   useEffect(() => {
-    if (!isConnected) return;
-    let mounted = true;
-    const svc = new ContractService(signer, chainId);
-     const v7Svc = new ContractServiceV7(signer, chainId);
-     setV7Service(v7Svc);
+    // (see below for the correct useEffect implementation)
+    // No cleanup needed; removed undefined mounted variable
+    return undefined;
+  }, [isConnected, signer, chainId, account, globalContracts]);
 
-    (async () => {
-  try { console.debug('MYCONTRACTS: effect start; IN_E2E=', IN_E2E, 'window.playwright_open_dispute=', (typeof window !== 'undefined' && !!window.playwright_open_dispute)); } catch (e) {}
-      try {
-        setLoading(true);
-        const addr = account;
-  const factory = await svc.getFactoryContract();
-  try { console.debug('MYCONTRACTS: factory keys', factory ? Object.keys(factory).slice(0,20) : 'no-factory'); } catch (e) {}
-  try { console.debug('MYCONTRACTS: createContractInstanceAsync present?', typeof createContractInstanceAsync === 'function'); } catch (e) {}
-  try { console.debug('MYCONTRACTS: window.__ABIS__ keys', (typeof window !== 'undefined' && window.__ABIS__) ? Object.keys(window.__ABIS__) : null); } catch (e) {}
-
-        // If platform admin, fetch a page of ALL contracts using a local JSON-RPC provider
-        const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-        const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
-  let list = [];
-  let fetchSource = 'unknown';
-        if (isAdmin) {
-          try {
-            const factoryAddr = factory.target || factory.address || null;
-                const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-                // Ensure the provider is responsive before calling contract getters
-                try {
-                  await rpc.getBlockNumber();
-                  console.debug('MYCONTRACTS: local RPC provider ready');
-                } catch (provErr) {
-                  console.debug('MYCONTRACTS: local RPC provider not ready', String(provErr));
-                }
-              if (factoryAddr) {
-                const localFactory = await createContractInstanceAsync('ContractFactory', factoryAddr, rpc);
-                const total = Number(await localFactory.getAllContractsCount().catch(() => 0));
-                // fetch the newest contracts (last page) so admin view shows recent items
-                const pageSize = Math.min(total, 1000);
-                const start = total > pageSize ? total - pageSize : 0;
-                console.debug('MYCONTRACTS: admin branch total', total, 'pageSize', pageSize, 'start', start);
-                list = pageSize > 0 ? await localFactory.getAllContractsPaged(start, pageSize).catch(() => []) : [];
-                fetchSource = 'admin-local-all-paged-newest';
-              }
-          } catch (e) {
-            console.warn('Admin branch failed to read all contracts via RPC:', e);
-            list = [];
-          }
-        } else {
-          // Regular user: get contracts created by address AND contracts where user participates
-          try {
-            // 1) Contracts I created
-            const created = await svc.getUserContracts(addr);
-            // 2) Contracts where I participate (as landlord/tenant/party)
-            const participating = await svc.getContractsByParticipant(addr);
-            // Union & dedupe
-            const userContracts = Array.from(new Set([...(created || []), ...(participating || [])]));
-            list = userContracts;
-            fetchSource = 'created-and-participating';
-            console.debug('MYCONTRACTS: fetched contracts - created:', created?.length || 0, 'participating:', participating?.length || 0, 'total unique:', list.length);
-          } catch (e) {
-            console.debug('MYCONTRACTS: error fetching contracts by participant, falling back to creator-only', String(e));
-            // Fallback to old E2E behavior for compatibility
-            const runtimeHasPlaywrightHelper = (typeof window !== 'undefined' && !!window.playwright_open_dispute);
-            const e2e = IN_E2E || runtimeHasPlaywrightHelper;
-            if (e2e) {
-                try {
-                  // Use a direct JsonRpcProvider to query the node for the full list.
-                  // This avoids injected-provider limitations in the browser during E2E.
-                  console.debug('MYCONTRACTS: E2E mode detected, querying local RPC for full creator list');
-                  const factoryAddr = factory.target || factory.address || null;
-                  console.debug('MYCONTRACTS: factoryAddr resolved to', factoryAddr);
-                  if (factoryAddr) {
-                    const rpcUrl = 'http://127.0.0.1:8545';
-                    const rpc = new ethers.JsonRpcProvider(rpcUrl);
-                    // Give the provider a quick readiness check so subsequent calls
-                    // like getContractsByCreator don't immediately fail due to a
-                    // not-yet-initialized connection in some environments.
-                    try {
-                      await rpc.getBlockNumber();
-                      console.debug('MYCONTRACTS: created local JsonRpcProvider with endpoint', rpcUrl, 'provider ready');
-                    } catch (provErr) {
-                      console.debug('MYCONTRACTS: created local JsonRpcProvider with endpoint', rpcUrl, 'but provider not ready', String(provErr));
-                    }
-                    const localFactory = await createContractInstanceAsync('ContractFactory', factoryAddr, rpc);
-                    try {
-                      console.debug('MYCONTRACTS: calling localFactory.getContractsByCreator via local RPC');
-                      const fullRaw = await localFactory.getContractsByCreator(addr).catch((err) => {
-                        console.debug('MYCONTRACTS: localFactory.getContractsByCreator threw', String(err));
-                        return null;
-                      });
-                      console.debug('MYCONTRACTS: localFactory.getContractsByCreator raw type', Object.prototype.toString.call(fullRaw), 'lengthProp', fullRaw && fullRaw.length);
-                      // Convert array-like / Proxy results into a real Array for robust checks
-                      let full = null;
-                      if (Array.isArray(fullRaw)) {
-                        full = fullRaw;
-                      } else if (fullRaw && typeof fullRaw.length === 'number') {
-                        try {
-                          const tmp = [];
-                          for (let i = 0; i < fullRaw.length; i++) tmp.push(fullRaw[i]);
-                          full = tmp;
-                          console.debug('MYCONTRACTS: converted array-like result to real Array length', full.length);
-                        } catch (convErr) {
-                          console.debug('MYCONTRACTS: failed to convert array-like result', String(convErr));
-                          full = null;
-                        }
-                      }
-                      if (Array.isArray(full) && full.length > 0) {
-                        list = full;
-                        fetchSource = 'local-rpc-full';
-                        console.debug('MYCONTRACTS: local RPC returned full list length', full.length, 'first/last', full[0], full[full.length-1]);
-                      } else {
-                        // fallback to paged read against the page factory instance
-                        console.debug('MYCONTRACTS: local RPC returned empty or non-array; falling back to paged read');
-                        console.debug('MYCONTRACTS: page-factory provider info', factory ? (factory.provider ? factory.provider : 'no-provider') : 'no-factory');
-                        list = await factory.getContractsByCreatorPaged(addr, 0, 1000);
-                        fetchSource = 'fallback-paged';
-                        try { console.debug('MYCONTRACTS: fallback paged read returned type', Object.prototype.toString.call(list), 'length', Array.isArray(list) ? list.length : 'n/a'); } catch (e) {}
-                      }
-                    } catch (innerErr) {
-                      console.debug('MYCONTRACTS: error calling localFactory.getContractsByCreator', String(innerErr));
-                      console.debug('MYCONTRACTS: falling back to paged read against page factory');
-                      list = await factory.getContractsByCreatorPaged(addr, 0, 1000);
-                      fetchSource = 'fallback-paged-exception';
-                    }
-                  } else {
-                    console.debug('MYCONTRACTS: no factoryAddr found; falling back to paged read');
-                    list = await factory.getContractsByCreatorPaged(addr, 0, 1000);
-                    fetchSource = 'no-factory-paged';
-                  }
-                } catch (e) {
-                  console.debug('MYCONTRACTS: local RPC full-get failed, falling back to paged read', String(e));
-                  try { list = await factory.getContractsByCreatorPaged(addr, 0, 1000); fetchSource = 'fallback-paged-final'; } catch (e2) { console.debug('MYCONTRACTS: paged read also failed', String(e2)); list = []; }
-                }
-            } else {
-              const pageSize = 50;
-              try { console.debug('MYCONTRACTS: fetching contractsByCreatorPaged pageSize', pageSize); } catch (e) {}
-              list = await factory.getContractsByCreatorPaged(addr, 0, pageSize);
-              fetchSource = 'paged-default';
-            }
-          }
-        }
-  if (!mounted) return;
-        // DEBUG: surface fetched list for E2E diagnostics
-  try { console.debug('MYCONTRACTS: fetched list length', Array.isArray(list) ? list.length : 0, 'sample', (list || []).slice(0,5), 'source', fetchSource); } catch (e) {}
-        // If the local RPC returned nothing during E2E runs, the test harness
-        // may have injected a known-contract list for the page to consume.
-        try {
-          if ((!list || list.length === 0) && typeof window !== 'undefined' && Array.isArray(window.__PLAYWRIGHT_KNOWN_CONTRACTS) && window.__PLAYWRIGHT_KNOWN_CONTRACTS.length > 0) {
-            console.debug('MYCONTRACTS: using window.__PLAYWRIGHT_KNOWN_CONTRACTS fallback', window.__PLAYWRIGHT_KNOWN_CONTRACTS.slice(0,5));
-            list = window.__PLAYWRIGHT_KNOWN_CONTRACTS.slice(0);
-            fetchSource = 'playwright-known';
-          }
-        } catch (e) {}
-
-        // Normalize addresses to plain checksum strings (some provider/ethers.Result values are Proxy objects)
-        const normalizedList = (list || []).map(item => {
-          try { return ethers.getAddress(String(item)); } catch (e) { return String(item); }
-        });
-        try { console.debug('MYCONTRACTS: normalized list sample', normalizedList.slice(0,5)); } catch (e) {}
-        setContracts(normalizedList || []);
-
-        // Fetch details for each contract (best-effort): try Rent then NDA
-        const detMap = {};
-        for (const cRaw of normalizedList || []) {
-          const c = String(cRaw);
-          try {
-            // try as Rent
-            const r = await svc.getRentContractDetails(c).catch(() => null);
-            if (r) {
-              detMap[c] = r;
-              continue;
-            }
-            const n = await svc.getNDAContractDetails(c).catch(() => null);
-            if (n) {
-              detMap[c] = n;
-              continue;
-            }
-            // fallback: simple address-only object
-            detMap[c] = { address: c, type: 'Unknown' };
-          } catch (err) {
-            detMap[c] = { address: c, type: 'Unknown' };
-          }
-        }
-        if (mounted) {
-          // DEBUG: surface details map keys for E2E diagnostics
-          try { console.debug('MYCONTRACTS: details keys', Object.keys(detMap).slice(0,10)); } catch (e) {}
-          setDetails(detMap);
-        }
-      } catch (err) {
-        console.error('Error loading contracts:', err);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-
-    return () => { mounted = false; };
-  }, [isConnected, signer, chainId, account]);
 
     // Load V7 arbitration requests
     useEffect(() => {
@@ -243,8 +52,22 @@ export default function MyContracts() {
     }, [signer, v7Service]);
 
   // If user isn't connected, show the previous placeholder UX (static preview)
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+  // On-chain admin detection: fetch factoryOwner from ContractFactory
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
+        const contractService = new Contracts.ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        if (owner && account.toLowerCase() === owner.toLowerCase()) setIsAdmin(true);
+        else setIsAdmin(false);
+      } catch (e) { setIsAdmin(false); }
+    }
+    checkAdmin();
+  }, [account, signer, chainId]);
 
   // If user isn't connected, show placeholder. If user is admin, don't show fabricated samples.
   if (!isConnected) {

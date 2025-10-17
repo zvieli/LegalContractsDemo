@@ -6,9 +6,21 @@ import './CreateRent.css';
 import '../../styles/notAllowed.css';
 
 function CreateRent() {
-  const { account, signer, isConnected, chainId, connectWallet } = useEthers();
-  const platformAdmin = import.meta.env?.VITE_PLATFORM_ADMIN || null;
-  const isAdmin = platformAdmin && account && account.toLowerCase() === platformAdmin.toLowerCase();
+  const { account, signer, isConnected, chainId, connectWallet, setLatestContractAddress, addContract } = useEthers();
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    async function checkAdmin() {
+      try {
+        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
+        const contractService = new ContractService(signer, chainId);
+        const factory = await contractService.getFactoryContract();
+        let owner = null;
+        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        setIsAdmin(owner && account.toLowerCase() === owner.toLowerCase());
+      } catch { setIsAdmin(false); }
+    }
+    checkAdmin();
+  }, [account, signer, chainId]);
   const [loading, setLoading] = useState(false);
   // Canonical ETH/USD feed addresses (Chainlink)
   const FEEDS = {
@@ -224,11 +236,9 @@ function CreateRent() {
 
       if (result.contractAddress) {
         alert(`✅ Rent contract created successfully!\nContract Address: ${result.contractAddress}`);
-
-        // keep the created contract address so the user can immediately Approve / Pay
         setCreatedContractAddress(result.contractAddress);
-
-        // reset some form fields but keep network/payment selection so user can approve/pay
+        if (setLatestContractAddress) setLatestContractAddress(result.contractAddress);
+        if (addContract) addContract(result.contractAddress);
         setFormData((prev) => ({
           ...prev,
           tenantAddress: '',
