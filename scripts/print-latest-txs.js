@@ -8,7 +8,7 @@ async function main() {
   const provider = ethers.provider;
   const latestBlock = await provider.getBlock("latest");
   console.log(`Latest block: ${latestBlock.number}`);
-  for (let i = latestBlock.number; i > latestBlock.number - 30; i--) {
+  for (let i = latestBlock.number; i > latestBlock.number - 5; i--) {
     const block = await provider.getBlock(i);
     if (block && block.transactions.length > 0) {
       console.log(`\nBlock ${i} - ${block.transactions.length} txs:`);

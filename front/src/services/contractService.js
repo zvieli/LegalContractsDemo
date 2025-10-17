@@ -6,7 +6,7 @@ import { IN_E2E } from '../utils/env';
 
 
 /**
- * Subscribe to contract events (e.g., RentContractCreated, DisputeReported, ResolutionApplied)
+* Subscribe to contract events (e.g., EnhancedRentContractCreated, DisputeReported, ResolutionApplied)
  * Usage: contractService.subscribeToEvents(contractAddress, eventName, callback)
  * Automatically uses ethers.js provider for local/Chainlink events.
  */
@@ -14,7 +14,8 @@ import { IN_E2E } from '../utils/env';
 export function subscribeToEvents(contractAddress, abi, eventName, callback, options = {}) {
   // Create a contract instance with the provider (not signer, for event listening)
   const { ethers } = require('ethers');
-  const provider = options.provider || new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+  const providerUrl = (import.meta.env && import.meta.env.VITE_RPC_URL) ? import.meta.env.VITE_RPC_URL : 'http://127.0.0.1:8545';
+  const provider = options.provider || new ethers.JsonRpcProvider(providerUrl);
   const contract = new ethers.Contract(contractAddress, abi, provider);
   // Remove previous listeners for this event to avoid duplicates
   contract.removeAllListeners(eventName);
@@ -27,8 +28,8 @@ export function subscribeToEvents(contractAddress, abi, eventName, callback, opt
 }
 
   /**
-   * Example: Subscribe to RentContractCreated events from the factory
-   * Usage: contractService.subscribeToEvents(factoryAddress, factoryAbi, 'RentContractCreated', (data) => { ... })
+  * Example: Subscribe to EnhancedRentContractCreated events from the factory
+  * Usage: contractService.subscribeToEvents(factoryAddress, factoryAbi, 'EnhancedRentContractCreated', (data) => { ... })
    */
   // You can add more event-specific helpers here as needed
 
@@ -316,7 +317,7 @@ export class ContractService {
             throw primaryErr;
           }
         }
-        console.log(`[DEBUG] getCodeSafe: Attempt ${attempt} for address ${addr} on chainId ${this.chainId} returned:`, code);
+  // console.log(`[DEBUG] getCodeSafe: Attempt ${attempt} for address ${addr} on chainId ${this.chainId} returned:`, code); // TEMP: silenced for production
         // If the provider returns an empty code ("0x") while we're targeting a
         // local chain, try the local JSON-RPC directly. This handles the common
         // dev case where MetaMask (the injected provider) is pointed at a
@@ -325,9 +326,10 @@ export class ContractService {
         const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
         if (isLocal && code === '0x') {
           try {
-            const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      const providerUrl = (import.meta.env && import.meta.env.VITE_RPC_URL) ? import.meta.env.VITE_RPC_URL : 'http://127.0.0.1:8545';
+      const rpc = new ethers.JsonRpcProvider(providerUrl);
             const fallbackCode = await rpc.getCode(addr);
-            console.log(`[DEBUG] getCodeSafe: Fallback local RPC for address ${addr} returned:`, fallbackCode);
+            // console.log(`[DEBUG] getCodeSafe: Fallback local RPC for address ${addr} returned:`, fallbackCode); // TEMP: silenced for production
             if (fallbackCode && fallbackCode !== '0x') return fallbackCode;
           } catch (rpcErr) {
             // ignore and fall through to returning the original empty code
@@ -345,7 +347,8 @@ export class ContractService {
         if (isLocal && (/invalid block tag/i.test(msg) || /Internal JSON-RPC error/i.test(msg) || isBrokenCircuit)) {
           console.warn('Provider.getCode failed on injected provider; falling back to http://127.0.0.1:8545', { error: e });
           try {
-            const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+            const providerUrl = (import.meta.env && import.meta.env.VITE_RPC_URL) ? import.meta.env.VITE_RPC_URL : 'http://127.0.0.1:8545';
+            const rpc = new ethers.JsonRpcProvider(providerUrl);
             return await rpc.getCode(address);
           } catch (rpcErr) {
             // If fallback also fails, surface the original error for clearer diagnosis.
@@ -365,14 +368,14 @@ export class ContractService {
     const contract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
     // Lightweight sanity check to catch wrong/stale addresses on localhost
     const code = await this.getCodeSafe(factoryAddress);
-    console.log(`[DEBUG] getFactoryContract: getCodeSafe for factoryAddress ${factoryAddress} returned:`, code);
+  // console.log(`[DEBUG] getFactoryContract: getCodeSafe for factoryAddress ${factoryAddress} returned:`, code); // TEMP: silenced for production
     if (!code || code === '0x') {
       throw new Error(`No contract code at ${factoryAddress}. Is the node running and deployed and is your wallet connected to the same network?`);
     }
     return contract;
   }
 
-  async createRentContract(params) {
+  async createEnhancedRentContract(params) {
     try {
       // ולידציה לכתובות כדי למנוע ניסיון לפתור ENS
       if (!params.tenant.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
@@ -400,7 +403,7 @@ export class ContractService {
         console.warn('Could not determine provider network:', err);
       }
       if (Number(net.chainId) !== Number(this.chainId)) {
-        throw new Error(`Connected wallet network mismatch: provider chainId=${net.chainId} but expected=${this.chainId}. Please switch your wallet to the correct network.`);
+  throw new Error(`Connected wallet network mismatch: provider chainId=${net.chainId} but expected=${this.chainId}. Please switch your wallet to the correct network.`);
       }
 
       // Quick balance preflight: prevent send attempts when the signer has no ETH
@@ -485,7 +488,7 @@ export class ContractService {
       try {
         const signerAddr = await this.signer.getAddress().catch(() => null);
         const factoryAddr = factoryContract.target || factoryContract.address || null;
-        console.debug('Preparing factory.createRentContract', { factoryAddr: factoryContract.target || factoryContract.address, signerAddr, expectedChainId: this.chainId });
+  console.debug('Preparing factory.createEnhancedRentContract', { factoryAddr: factoryContract.target || factoryContract.address, signerAddr, expectedChainId: this.chainId });
 
         // If an injected wallet is present, surface its selected account and chainId
         try {
@@ -560,7 +563,7 @@ export class ContractService {
         }
 
         const propertyId = Number(params.propertyId || 0);
-        console.debug('Sending createRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, dueDate, propertyId, factory: factoryContract.target || factoryContract.address });
+  console.debug('Sending createEnhancedRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, dueDate, propertyId, factory: factoryContract.target || factoryContract.address });
         // If an initial evidence reference is provided (e.g., Helia CID or payload string), compute/use it and call the factory overload that accepts a string CID.
         let initialEvidenceRef = null;
         if (params.initialEvidenceDigest) {
@@ -575,7 +578,7 @@ export class ContractService {
 
         if (initialEvidenceRef) {
           // Call new overload that accepts a string URI for initial evidence
-          tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256,string)'](
+          tx = await factoryContract['createEnhancedRentContract(address,uint256,address,uint256,uint256,string)'](
             params.tenant,
             rentAmountWei,
             params.priceFeed,
@@ -584,8 +587,8 @@ export class ContractService {
             initialEvidenceRef
           );
         } else {
-          // Call overloaded factory method that accepts dueDate: createRentContract(address,uint256,address,uint256,uint256)
-          tx = await factoryContract['createRentContract(address,uint256,address,uint256,uint256)'](
+          // Call overloaded factory method that accepts dueDate: createEnhancedRentContract(address,uint256,address,uint256,uint256)
+          tx = await factoryContract['createEnhancedRentContract(address,uint256,address,uint256,uint256)'](
             params.tenant,
             rentAmountWei,
             params.priceFeed,
@@ -596,7 +599,7 @@ export class ContractService {
       } catch (sendErr) {
         // Try to surface the underlying RPC payload and give actionable guidance
         try {
-          console.error('Factory createRentContract failed:', sendErr);
+          console.error('Factory createEnhancedRentContract failed:', sendErr);
           // Some providers surface the raw RPC payload under sendErr.payload
           if (sendErr?.payload) {
             console.error('Underlying RPC payload:', sendErr.payload);
@@ -617,7 +620,7 @@ export class ContractService {
       for (const log of receipt.logs) {
         try {
           const parsedLog = factoryContract.interface.parseLog(log);
-          if (parsedLog && parsedLog.name === 'RentContractCreated') {
+          if (parsedLog && parsedLog.name === 'EnhancedRentContractCreated') {
             contractAddress = parsedLog.args[0];
             break;
           }
@@ -641,13 +644,13 @@ export class ContractService {
     }
   }
 
-  async getRentContract(contractAddress) {
+  async getEnhancedRentContract(contractAddress) {
     try {
       if (!contractAddress || typeof contractAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
-        console.warn('getRentContract called with invalid contractAddress:', contractAddress);
+  console.warn('getEnhancedRentContract called with invalid contractAddress:', contractAddress);
         return null;
       }
-      return await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+  return await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
       throw error;
@@ -657,7 +660,7 @@ export class ContractService {
   // Withdraw any pull-payments credited to caller on a Rent contract
   async withdrawRentPayments(contractAddress) {
     try {
-      const rentContract = await this.getRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContract(contractAddress);
       const tx = await rentContract.withdrawPayments();
       const receipt = await tx.wait();
       return receipt;
@@ -670,7 +673,7 @@ export class ContractService {
   // Read the pull-based withdrawable balance for an account on a Rent contract
   async getWithdrawable(contractAddress, account) {
     try {
-      const rentContract = await this.getRentContract(contractAddress);
+  const rentContract = await this.getEnhancedRentContract(contractAddress);
       const w = await rentContract.withdrawable(account);
       return BigInt(w || 0n);
     } catch (error) {
@@ -684,7 +687,7 @@ export class ContractService {
   // Templates may implement different names for this field; try common variants
   async getDisputeBond(contractAddress, caseId) {
     try {
-      const rent = await this.getRentContract(contractAddress);
+      const rent = await this.getEnhancedRentContract(contractAddress);
       const candidates = ['getDisputeBond', 'disputeBond', 'reporterBond', 'bondOf', 'caseReporterBond'];
       for (const name of candidates) {
         try {
@@ -710,7 +713,7 @@ export class ContractService {
    */
   async getDisputeMeta(contractAddress, caseId) {
     try {
-      const rent = await this.getRentContract(contractAddress);
+  const rent = await this.getEnhancedRentContract(contractAddress);
       const res = await rent.getDisputeMeta(Number(caseId));
       // res is [classification, rationale]
       return { classification: res[0] || '', rationale: res[1] || '' };
@@ -729,7 +732,7 @@ export class ContractService {
     }
   }
 
-  async getRentContractDetails(contractAddress, options = {}) {
+  async getEnhancedRentContractDetails(contractAddress, options = {}) {
     const { silent = false } = options || {};
     try {
       // Ensure the address is a contract before calling views
@@ -737,11 +740,11 @@ export class ContractService {
       if (!code || code === '0x') {
         throw new Error(`Address ${contractAddress} has no contract code`);
       }
-      const rentContract = await this.getRentContract(contractAddress);
+  const rentContract = await this.getEnhancedRentContract(contractAddress);
   // ...existing code...
       // If key functions are missing, return null so callers can try NDA parsing instead.
       if (typeof rentContract.rentAmount !== 'function' || typeof rentContract.landlord !== 'function' || typeof rentContract.tenant !== 'function') {
-        if (!silent) console.debug('getRentContractDetails: contract ABI mismatch, not a Rent contract', contractAddress);
+  if (!silent) console.debug('getEnhancedRentContractDetails: contract ABI mismatch, not an EnhancedRent contract', contractAddress);
         return null;
       }
       
@@ -756,7 +759,7 @@ export class ContractService {
       // If landlord/tenant are not valid addresses, this is likely not a Rent contract
       const isAddress = (a) => typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a);
       if (!isAddress(landlord) || !isAddress(tenant)) {
-        if (!silent) console.debug('getRentContractDetails: landlord/tenant not valid addresses, treating as not a Rent contract', { landlord, tenant, contractAddress });
+  if (!silent) console.debug('getEnhancedRentContractDetails: landlord/tenant not valid addresses, treating as not an EnhancedRent contract', { landlord, tenant, contractAddress });
         return null;
       }
       // Cancellation policy and state (best-effort, older ABIs may not have these)
@@ -871,7 +874,7 @@ export class ContractService {
           // Try Rent
           let matched = false;
           try {
-            const rent = await this.getRentContract(addr);
+            const rent = await this.getEnhancedRentContract(addr);
             const [landlord, tenant] = await Promise.all([
               rent.landlord(),
               rent.tenant()
@@ -904,7 +907,7 @@ export class ContractService {
 
   async payRent(contractAddress, amount) {
     try {
-      const rentContract = await this.getRentContract(contractAddress);
+  const rentContract = await this.getEnhancedRentContract(contractAddress);
       // Preflight: ensure connected signer is the tenant
       try {
         const [chainTenant, current] = await Promise.all([
@@ -1424,7 +1427,7 @@ export class ContractService {
   async depositForCase(contractAddress, caseId, amountWei = 0n) {
     try {
       if (!contractAddress) throw new Error('contractAddress required');
-      const rent = await this.getRentContract(contractAddress);
+      const rent = await this.getEnhancedRentContract(contractAddress);
       const value = typeof amountWei === 'bigint' ? amountWei : BigInt(amountWei || 0);
       if (value <= 0n) throw new Error('deposit amount must be > 0');
       const tx = await rent.depositForCase(Number(caseId), { value });
@@ -1459,7 +1462,7 @@ export class ContractService {
       try {
         // Try as Rent first
         try {
-          const rent = await this.getRentContract(contractAddress);
+          const rent = await this.getEnhancedRentContract(contractAddress);
           const svc = await rent.arbitrationService();
           if (svc && svc !== ethers.ZeroAddress) {
             const svcInst = await createContractInstanceAsync('ArbitrationService', svc, this.signer);
@@ -1492,7 +1495,7 @@ export class ContractService {
   // ============ Cancellation Policy and Flow ============
   async setCancellationPolicy(contractAddress, { noticePeriodSec, feeBps, requireMutual }) {
     try {
-      const rentContract = await this.getRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContract(contractAddress);
       const tx = await rentContract.setCancellationPolicy(
         Number(noticePeriodSec || 0),
         Number(feeBps || 0),
@@ -1507,7 +1510,7 @@ export class ContractService {
 
   async initiateCancellation(contractAddress) {
     try {
-      const rentContract = await this.getRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContract(contractAddress);
 
       // Preflight checks to provide friendlier errors and avoid RPC estimateGas revert
       try {
@@ -1649,7 +1652,7 @@ export class ContractService {
 
   async approveCancellation(contractAddress) {
     try {
-      const rentContract = await this.getRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContract(contractAddress);
       const tx = await rentContract.approveCancellation();
       return await tx.wait();
     } catch (error) {
@@ -1660,7 +1663,7 @@ export class ContractService {
 
   async finalizeCancellation(contractAddress, { feeValueEth } = {}) {
     try {
-      const rentContract = await this.getRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContract(contractAddress);
       const overrides = {};
       if (feeValueEth && Number(feeValueEth) > 0) {
         overrides.value = ethers.parseEther(String(feeValueEth));
@@ -2023,7 +2026,7 @@ async ndaDeactivate(contractAddress, reason) {
 
 async signRent(contractAddress) {
     try {
-      const rent = await this.getRentContract(contractAddress);
+      const rent = await this.getEnhancedRentContract(contractAddress);
       const myAddr = (await this.signer.getAddress()).toLowerCase();
       const landlord = (await rent.landlord()).toLowerCase();
       const tenant = (await rent.tenant()).toLowerCase();

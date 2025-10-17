@@ -1,7 +1,5 @@
-console.log('App loaded');
 import { getContractAddress } from './utils/contracts';
 getContractAddress(31337, 'ContractFactory').then(addr => {
-  console.log('Test getContractAddress:', addr);
 });
 import './utils/fetchLogger';
 import Header from './components/common/Header/Header';
@@ -22,7 +20,6 @@ function App() {
   import('./utils/contracts').then(mod => {
     if (mod.getContractAddress) {
       mod.getContractAddress(31337, 'ContractFactory').then(addr => {
-        console.log('Test getContractAddress:', addr);
       });
     }
   });

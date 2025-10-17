@@ -220,7 +220,7 @@ function CreateRent() {
         network: formData.network
       };
 
-      const result = await contractService.createRentContract(params);
+  const result = await contractService.createEnhancedRentContract(params);
 
       if (result.contractAddress) {
         alert(`✅ Rent contract created successfully!\nContract Address: ${result.contractAddress}`);

@@ -13,7 +13,7 @@ function makeDefaultProvider() {
   }
   // Fallback to localhost JSON-RPC if available
   try {
-    return new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      return new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'http://127.0.0.1:8545');
   } catch (e) {
     return null;
   }

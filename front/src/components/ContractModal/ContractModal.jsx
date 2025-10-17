@@ -234,8 +234,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       let details;
       let contractInstance = null;
       try {
-        details = await contractService.getRentContractDetails(targetAddress, { silent: true });
-        contractInstance = await contractService.getRentContract(targetAddress);
+        details = await contractService.getEnhancedRentContractDetails(targetAddress, { silent: true });
+        contractInstance = await contractService.getEnhancedRentContract(targetAddress);
       } catch (_) {
         details = await contractService.getNDAContractDetails(targetAddress, { silent: true });
         contractInstance = await contractService.getNDAContract(targetAddress);
@@ -266,7 +266,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             try {
               const svc = new ContractService(signer, chainId);
               // Attempt to find most recent resolved dispute meta if any
-              const rent = await svc.getRentContract(targetAddress);
+              const rent = await svc.getEnhancedRentContract (targetAddress);
               const count = Number(await rent.getDisputesCount().catch(() => 0));
               let foundMeta = null;
               for (let i = count - 1; i >= 0; i--) {
@@ -367,7 +367,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       
       // Load history/policy based on type
         if (details?.type === 'Rental') {
-        const rentContract = await contractService.getRentContract(targetAddress);
+        const rentContract = await contractService.getEnhancedRentContract (targetAddress);
         // Get latest block number for limiting event queries
         let latestBlock = 0;
         try {
@@ -375,7 +375,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         } catch (_) {
           latestBlock = 0;
         }
-        const fromBlock = latestBlock > 10000 ? latestBlock - 10000 : 0;
+  const fromBlock = latestBlock > 500 ? latestBlock - 500 : 0;
         // required ETH for current period
         try {
           const req = await rentContract.getRentInEth();
@@ -555,7 +555,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         // Load cancellation events timeline (best-effort)
         const evts = [];
         try {
-          const rentContract = await contractService.getRentContract(contractAddress);
+          const rentContract = await contractService.getEnhancedRentContract (contractAddress);
           const initiated = await rentContract.queryFilter(rentContract.filters.CancellationInitiated?.());
           for (const e of initiated) {
             const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
@@ -563,7 +563,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           }
         } catch (_) {}
         try {
-          const rentContract = await contractService.getRentContract(contractAddress);
+          const rentContract = await contractService.getEnhancedRentContract (contractAddress);
           const approved = await rentContract.queryFilter(rentContract.filters.CancellationApproved?.());
           for (const e of approved) {
             const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
@@ -571,7 +571,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           }
         } catch (_) {}
         try {
-          const rentContract = await contractService.getRentContract(contractAddress);
+          const rentContract = await contractService.getEnhancedRentContract (contractAddress);
           const finalized = await rentContract.queryFilter(rentContract.filters.CancellationFinalized?.());
           for (const e of finalized) {
             const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
@@ -606,7 +606,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     const setup = async () => {
       try {
         const svc = new ContractService(signer, chainId);
-        inst = await svc.getRentContract(contractAddress).catch(() => null);
+        inst = await svc.getEnhancedRentContract (contractAddress).catch(() => null);
         if (!inst) return;
         const refresh = () => loadContractData();
         inst.on && inst.on('CancellationInitiated', refresh);
@@ -728,7 +728,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       await service.withdrawRentPayments(contractAddress);
       alert('Withdraw successful');
       // refresh withdrawable amount
-      const rentContract = await service.getRentContract(contractAddress);
+      const rentContract = await service.getEnhancedRentContract (contractAddress);
       const w = await rentContract.withdrawable(account);
       setWithdrawableAmt(ethers.formatEther(w || 0n));
     } catch (e) {
@@ -756,7 +756,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       }
 
       const contractService = new ContractService(signer, chainId);
-      const rentContract = await contractService.getRentContract(contractAddress);
+      const rentContract = await contractService.getEnhancedRentContract (contractAddress);
       
   const tx = await rentContract.cancelContract();
       const receipt = await tx.wait();
@@ -894,17 +894,6 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
     } finally { setActionLoading(false); }
   };
 
-  const handleNdaVote = async (caseId, approve) => {
-    try {
-      setActionLoading(true);
-      const service = new ContractService(signer, chainId);
-      await service.ndaVoteOnBreach(contractAddress, caseId, approve);
-      alert('Vote submitted');
-      await loadContractData();
-    } catch (e) {
-      alert(`Vote failed: ${e?.reason || e?.message}`);
-    } finally { setActionLoading(false); }
-  };
 
   const handleNdaDeactivate = async () => {
     try {
@@ -1008,7 +997,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
       // Resolve contract details to choose the appropriate template method
       const resolveDetails = async () => {
         if (!contractDetails || (contractDetails.address && String(contractDetails.address).toLowerCase() !== String(targetAddress).toLowerCase())) {
-          let fetched = await svc.getRentContractDetails(targetAddress, { silent: true }).catch(() => null);
+          let fetched = await svc.getEnhancedRentContractDetails(targetAddress, { silent: true }).catch(() => null);
           if (!fetched) fetched = await svc.getNDAContractDetails(targetAddress, { silent: true }).catch(() => null);
           if (fetched) setContractDetails(fetched);
           return fetched;
@@ -1975,14 +1964,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                           Submit Report
                         </button>
                       </div>
-                        <div className="detail-item" style={{display:'flex', gap:'8px', alignItems:'center'}}>
-                        <input className="text-input" placeholder="Case ID" id="nda-caseid" />
-                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails?.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, true)}>Vote Approve</button>
-                        <button className="btn-action" disabled={actionLoading || !!(contractDetails?.arbitrationService && contractDetails?.arbitrationService !== ethers.ZeroAddress)} onClick={() => handleNdaVote(document.getElementById('nda-caseid').value, false)}>Vote Reject</button>
-                      </div>
-                      {contractDetails?.arbitrationService && contractDetails.arbitrationService !== ethers.ZeroAddress && (
-                        <small className="muted">Voting disabled (an on-chain ArbitrationService is configured for this NDA).</small>
-                      )}
+                        {/* Manual NDA voting removed: always requires ArbitrationService */}
                       <div className="detail-item" style={{display:'flex', flexDirection:'column', gap:'6px'}}>
                         <label className="label">Create Dispute (Arbitrator)</label>
                         <input className="text-input" type="number" placeholder="Case ID" value={createDisputeCaseId} onChange={e => setCreateDisputeCaseId(e.target.value)} />

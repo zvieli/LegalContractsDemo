@@ -28,7 +28,7 @@ function Arbitration() {
           return;
         }
     // Use the local JSON-RPC provider for admin-wide reads
-    const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      const rpc = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'http://127.0.0.1:8545');
     // load factory address from frontend artifact
   // Prefer to read local deployment metadata if available (via helper)
   const local = await getLocalDeploymentAddresses();
@@ -48,7 +48,7 @@ function Arbitration() {
         for (const addr of unique) {
           try {
             // create rent contract instance using ABI loader
-            const inst = await createContractInstanceAsync('TemplateRentContract', addr, rpc);
+            const inst = await createContractInstanceAsync('EnhancedRentContract', addr, rpc);
             // best-effort read cancelRequested
             const code = await rpc.getCode(addr);
             if (!code || code === '0x') continue;
@@ -85,7 +85,7 @@ function Arbitration() {
         setLoading(false);
         return;
       }
-      const rpc = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+        const rpc = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'http://127.0.0.1:8545');
       // Prefer to read local deployment metadata if available via helper
   // getLocalDeploymentAddresses/getContractAddress from utils (ensure runtime artifacts are used)
   // (these helpers are async-safe)
@@ -105,7 +105,7 @@ function Arbitration() {
       const results = [];
     for (const addr of unique) {
         try {
-          const inst = await createContractInstanceAsync('TemplateRentContract', addr, rpc);
+          const inst = await createContractInstanceAsync('EnhancedRentContract', addr, rpc);
           const code = await rpc.getCode(addr);
           if (!code || code === '0x') continue;
           const cancelRequested = await inst.cancelRequested().catch(() => false);

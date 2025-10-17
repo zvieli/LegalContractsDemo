@@ -139,14 +139,17 @@ export async function buildEncryptedEnvelope(contentObj, recipientsPublicKeys = 
     ciphertextB64 = Buffer.from(ct).toString('base64');
     tagB64 = Buffer.from(tag).toString('base64');
   } else {
-  // Node fallback
-  // ESM: import crypto dynamically if needed
-  const cryptoModule = await import('crypto');
-  const cipher = cryptoModule.createCipheriv('aes-256-gcm', Buffer.from(symKey), Buffer.from(iv));
-  const ct = Buffer.concat([cipher.update(jsonCanon, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  ciphertextB64 = ct.toString('base64');
-  tagB64 = tag.toString('base64');
+    // Node fallback - only import crypto in Node.js environments
+    if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+      const cryptoModule = await import('crypto');
+      const cipher = cryptoModule.createCipheriv('aes-256-gcm', Buffer.from(symKey), Buffer.from(iv));
+      const ct = Buffer.concat([cipher.update(jsonCanon, 'utf8'), cipher.final()]);
+      const tag = cipher.getAuthTag();
+      ciphertextB64 = ct.toString('base64');
+      tagB64 = tag.toString('base64');
+    } else {
+      throw new Error('AES-GCM encryption not available in this environment. Browser Web Crypto API required.');
+    }
   }
   // Encrypt symmetric key per recipient using ECIES browser helper (best effort)
   const encryptedRecipients = [];

@@ -66,6 +66,11 @@ export const getContractABI = (contractName) => {
   } catch (_) {}
 
   switch (contractName) {
+    case 'EnhancedRentContract':
+      if (window.__ABIS__ && window.__ABIS__.EnhancedRentContract && window.__ABIS__.EnhancedRentContract.abi) return window.__ABIS__.EnhancedRentContract.abi;
+      // fallback to local variable if loaded
+      if (typeof EnhancedRentContractABI !== 'undefined' && EnhancedRentContractABI && EnhancedRentContractABI.abi) return EnhancedRentContractABI.abi;
+      throw new Error('EnhancedRentContract ABI not available. Ensure frontend ABIs are generated in front/src/utils/contracts/.');
     case 'ContractFactory':
       if (ContractFactoryABI && ContractFactoryABI.abi) return ContractFactoryABI.abi;
       throw new Error('ContractFactory ABI not available. Ensure frontend ABIs are generated in front/src/utils/contracts/.');

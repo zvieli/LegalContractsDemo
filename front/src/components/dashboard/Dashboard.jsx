@@ -52,7 +52,7 @@ function Dashboard() {
     const factoryContractBase = await contractService.getFactoryContract();
     const factoryContract = await createContractInstanceAsync('ContractFactory', factoryContractBase.address || factoryContractBase.target || factoryContractBase, signer.provider || signer);
 
-  factoryContract.on('RentContractCreated', (contractAddress, landlord, tenant) => {
+  factoryContract.on('EnhancedRentContractCreated', (contractAddress, landlord, tenant) => {
         addNotification({
           type: 'success',
           title: 'New Rental Contract Created',
@@ -73,7 +73,7 @@ function Dashboard() {
       });
 
       // Also listen for cancellation-related events on any newly created rent contract
-      factoryContract.on('RentContractCreated', async (contractAddress) => {
+  factoryContract.on('EnhancedRentContractCreated', async (contractAddress) => {
         // Attach listeners for newly created contract so dashboard refreshes
         try {
           attachListenersToAddresses([String(contractAddress)]);
@@ -185,7 +185,7 @@ function Dashboard() {
           console.debug('Admin branch: raw page addresses', page);
           const contractDetails = await Promise.all(page.map(async (addr) => {
             try {
-              const rent = await contractService.getRentContractDetails(addr, { silent: true }).catch(() => null);
+              const rent = await contractService.getEnhancedRentContractDetails(addr, { silent: true }).catch(() => null);
               if (rent) return { ...rent, type: 'Rental' };
               const nda = await contractService.getNDAContractDetails(addr, { silent: true }).catch(() => null);
               if (nda) return { ...nda, type: 'NDA' };
@@ -237,7 +237,7 @@ function Dashboard() {
             userContracts.map(async (contractAddress) => {
               try {
                 try {
-                  const details = await contractService.getRentContractDetails(contractAddress, { silent: true });
+                  const details = await contractService.getEnhancedRentContractDetails(contractAddress, { silent: true });
                   return { ...details, type: 'Rental' };
                 } catch {
                   const details = await contractService.getNDAContractDetails(contractAddress, { silent: true });

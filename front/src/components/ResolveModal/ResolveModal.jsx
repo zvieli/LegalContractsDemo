@@ -41,25 +41,46 @@ function EvidencePanel({ initialEvidenceRef }) {
   );
 }
 
+function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onResolved }) {
+  const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
+  const [disputeInfo, setDisputeInfo] = useState(null);
+  const [disputeAmountEth, setDisputeAmountEth] = useState('');
+  const [landlordDepositEth, setLandlordDepositEth] = useState('');
+  const [tenantDepositEth, setTenantDepositEth] = useState('');
+  const [debtorDepositEth, setDebtorDepositEth] = useState('');
+  const [debtorDepositWei, setDebtorDepositWei] = useState(0n);
+  const [decision, setDecision] = useState('');
+  const [requiredFeeEth, setRequiredFeeEth] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [appealLocal, setAppealLocal] = useState(null);
+  const [depositConfirmOpen, setDepositConfirmOpen] = useState(false);
+  const [depositConfirmAmount, setDepositConfirmAmount] = useState('');
+  const [depositConfirmAction, setDepositConfirmAction] = useState(null);
+  const [depositConfirmBusy, setDepositConfirmBusy] = useState(false);
+  const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
+  const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
+  const [adminDecrypted, setAdminDecrypted] = useState('');
+  const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
+  const [adminAutoTried, setAdminAutoTried] = useState(false);
+  const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
 
-
-    // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
-    const key1 = `incomingDispute:${contractAddress}`;
-    const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
-    let js = null;
-    try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
-    if (!js) {
-      try {
-        const sess = sessionStorage.getItem('incomingDispute');
-        if (sess) {
-          const o = JSON.parse(sess);
-          if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) js = sess;
-        }
-      } catch (_) { js = js; }
-    }
-    if (js) {
-      try { setAppealLocal(JSON.parse(js)); } catch { setAppealLocal(null); }
-    } else setAppealLocal(null);
+  // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
+  const key1 = `incomingDispute:${contractAddress}`;
+  const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+  let js = null;
+  try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
+  if (!js) {
+    try {
+      const sess = sessionStorage.getItem('incomingDispute');
+      if (sess) {
+        const o = JSON.parse(sess);
+        if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) js = sess;
+      }
+    } catch (_) { js = js; }
+  }
+  if (js) {
+    try { setAppealLocal(JSON.parse(js)); } catch { setAppealLocal(null); }
+  } else setAppealLocal(null);
 
 
 
@@ -693,5 +714,7 @@ function EvidencePanel({ initialEvidenceRef }) {
         <ConfirmPayModal open={depositConfirmOpen} title="Confirm deposit" amountEth={depositConfirmAmount} details={`This will deposit funds for case ${disputeInfo?.caseId || ''}.`} onConfirm={async () => { if (depositConfirmAction) await depositConfirmAction(); setDepositConfirmOpen(false); }} onCancel={() => setDepositConfirmOpen(false)} busy={depositConfirmBusy} />
       </div>
     );
+}
 
-      
+export { EvidencePanel };
+export default ResolveModal;
