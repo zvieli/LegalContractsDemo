@@ -99,6 +99,7 @@ export function EthersProvider({ children }) {
     refresh();
   };
 
+
   const connectWallet = async () => {
     if (isConnecting) return;
     if (!window.ethereum) throw new Error('MetaMask extension not found');
@@ -109,14 +110,28 @@ export function EthersProvider({ children }) {
 
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       const web3Provider = new ethers.BrowserProvider(window.ethereum);
-      const web3Signer = await web3Provider.getSigner(accounts[0]);
-      const network = await web3Provider.getNetwork();
-
-      setProvider(web3Provider);
-      setSigner(web3Signer);
-      setAccount(accounts[0]);
-      setChainId(Number(network.chainId));
-      setIsConnected(true);
+      let net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
+      const isLocalEnv = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+      if (isLocalEnv || Number(net.chainId) === 31337) {
+        const localProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+        setProvider(localProvider);
+        if (accounts.length > 0) {
+          const localSigner = await localProvider.getSigner(accounts[0]);
+          setSigner(localSigner);
+          setAccount(accounts[0]);
+          setChainId(31337);
+          setIsConnected(true);
+        }
+      } else {
+        setProvider(web3Provider);
+        if (accounts.length > 0) {
+          const web3Signer = await web3Provider.getSigner(accounts[0]);
+          setSigner(web3Signer);
+          setAccount(accounts[0]);
+          setChainId(Number(net.chainId));
+          setIsConnected(true);
+        }
+      }
     } finally {
       setLoading(false);
       setIsConnecting(false);
@@ -140,17 +155,34 @@ export function EthersProvider({ children }) {
   const refresh = async () => {
     if (!window.ethereum) return;
     const web3Provider = new ethers.BrowserProvider(window.ethereum);
-    setProvider(web3Provider);
+    let net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
+    const isLocalEnv = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
     const accounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
-    if (accounts[0]) {
-      setSigner(await web3Provider.getSigner(accounts[0]));
-      setAccount(accounts[0]);
-      setChainId((await web3Provider.getNetwork()).chainId);
-      setIsConnected(true);
+    if (isLocalEnv || Number(net.chainId) === 31337) {
+      const localProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      setProvider(localProvider);
+      if (accounts[0]) {
+        setSigner(await localProvider.getSigner(accounts[0]));
+        setAccount(accounts[0]);
+        setChainId(31337);
+        setIsConnected(true);
+      } else {
+        setSigner(null);
+        setAccount(null);
+        setIsConnected(false);
+      }
     } else {
-      setSigner(null);
-      setAccount(null);
-      setIsConnected(false);
+      setProvider(web3Provider);
+      if (accounts[0]) {
+        setSigner(await web3Provider.getSigner(accounts[0]));
+        setAccount(accounts[0]);
+        setChainId(Number(net.chainId));
+        setIsConnected(true);
+      } else {
+        setSigner(null);
+        setAccount(null);
+        setIsConnected(false);
+      }
     }
   };
 
@@ -173,7 +205,7 @@ export function EthersProvider({ children }) {
   };
 
   // Debug helper
-  if (typeof window !== 'undefined' && import.meta.env?.DEV) {
+  if (typeof window !== 'undefined') {
     window.__APP_ETHERS__ = value;
   }
 

@@ -12,10 +12,11 @@ import { IN_E2E } from '../utils/env';
  */
 
 export function subscribeToEvents(contractAddress, abi, eventName, callback, options = {}) {
-  // Create a contract instance with the provider (not signer, for event listening)
-  const { ethers } = require('ethers');
-  const providerUrl = (import.meta.env && import.meta.env.VITE_RPC_URL) ? import.meta.env.VITE_RPC_URL : 'http://127.0.0.1:8545';
-  const provider = options.provider || new ethers.JsonRpcProvider(providerUrl);
+  // Require a provider to be passed in options
+  if (!options.provider) {
+    throw new Error('subscribeToEvents: provider must be passed in options.provider (from EthersContext)');
+  }
+  const provider = options.provider;
   const contract = new ethers.Contract(contractAddress, abi, provider);
   // Remove previous listeners for this event to avoid duplicates
   contract.removeAllListeners(eventName);
@@ -326,9 +327,7 @@ export class ContractService {
         const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
         if (isLocal && code === '0x') {
           try {
-      const providerUrl = (import.meta.env && import.meta.env.VITE_RPC_URL) ? import.meta.env.VITE_RPC_URL : 'http://127.0.0.1:8545';
-      const rpc = new ethers.JsonRpcProvider(providerUrl);
-            const fallbackCode = await rpc.getCode(addr);
+  throw new Error('getCodeSafe: provider fallback not allowed. Pass the correct provider from EthersContext.');
             // console.log(`[DEBUG] getCodeSafe: Fallback local RPC for address ${addr} returned:`, fallbackCode); // TEMP: silenced for production
             if (fallbackCode && fallbackCode !== '0x') return fallbackCode;
           } catch (rpcErr) {
@@ -346,14 +345,7 @@ export class ContractService {
         // fall back to a direct JSON-RPC provider on 127.0.0.1:8545 which is commonly used for Hardhat/localhost.
         if (isLocal && (/invalid block tag/i.test(msg) || /Internal JSON-RPC error/i.test(msg) || isBrokenCircuit)) {
           console.warn('Provider.getCode failed on injected provider; falling back to http://127.0.0.1:8545', { error: e });
-          try {
-            const providerUrl = (import.meta.env && import.meta.env.VITE_RPC_URL) ? import.meta.env.VITE_RPC_URL : 'http://127.0.0.1:8545';
-            const rpc = new ethers.JsonRpcProvider(providerUrl);
-            return await rpc.getCode(address);
-          } catch (rpcErr) {
-            // If fallback also fails, surface the original error for clearer diagnosis.
-            console.warn('Fallback JSON-RPC getCode failed', { rpcErr });
-          }
+          throw new Error('getCodeSafe: provider fallback not allowed. Pass the correct provider from EthersContext.');
         }
         throw e;
       }
@@ -1603,7 +1595,7 @@ export class ContractService {
             if (injected && injected !== currentSignerAddr) {
               // attempt to refresh signer from the existing provider
               try {
-                const provider = this.signer.provider || (new ethers.BrowserProvider(window.ethereum));
+                const provider = this.signer.provider;
                 const refreshed = provider.getSigner(injectedAccounts[0]);
                 // validate
                 const refreshedAddr = (await refreshed.getAddress().catch(() => null) || '').toLowerCase();

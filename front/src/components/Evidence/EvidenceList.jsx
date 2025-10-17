@@ -6,6 +6,7 @@ import { getHelia } from '../../utils/heliaClient.js';
 import EvidenceBadgeLegend from './EvidenceBadgeLegend.jsx';
 import BatchDashboardAdvanced from '../Dashboard/BatchDashboardAdvanced.jsx';
 import { subscribeToEvents } from '../../services/contractService.js';
+import { useEthers } from '../../contexts/EthersContext';
 // ...existing code...
 
 function LiveEvents({ chainEvents }) {
@@ -27,6 +28,7 @@ function LiveEvents({ chainEvents }) {
 }
 
 export default function EvidenceList({ evidence, caseId, extraHeaderActions = null }) {
+  const { provider } = useEthers();
   // Helia client
   const [heliaClient, setHeliaClient] = useState(null);
   useEffect(() => {
@@ -47,27 +49,29 @@ export default function EvidenceList({ evidence, caseId, extraHeaderActions = nu
 
   // Subscribe to contract events
   useEffect(() => {
-    if (!caseId || !evidence?.[0]?.contractAddress) return;
+    if (!caseId || !evidence?.[0]?.contractAddress || !provider) return;
     const contractAddress = evidence[0].contractAddress;
 
     const disputeListener = subscribeToEvents(
       contractAddress,
-// ...existing code...
+      // ...existing code...
       'DisputeReported',
-      data => setChainEvents(evts => [{ type:'DisputeReported', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))])
+      data => setChainEvents(evts => [{ type:'DisputeReported', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]),
+      { provider }
     );
 
     const resolutionListener = subscribeToEvents(
       contractAddress,
-// ...existing code...
+      // ...existing code...
       'ResolutionApplied',
-      data => setChainEvents(evts => [{ type:'ResolutionApplied', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))])
+      data => setChainEvents(evts => [{ type:'ResolutionApplied', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]),
+      { provider }
     );
 
     eventSubRef.current = [disputeListener, resolutionListener];
 
     return () => eventSubRef.current.forEach(l => l?.removeAllListeners?.());
-  }, [caseId, evidence]);
+  }, [caseId, evidence, provider]);
 
   // Auto-clear "new" highlight
   useEffect(() => {
