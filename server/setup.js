@@ -98,7 +98,7 @@ The V7 Backend provides enhanced evidence management, LLM arbitration integratio
 
 ## Key Features
 
-- **Evidence Validation**: IPFS/Helia-based evidence validation with CID support
+- **Evidence Validation**: Helia-based evidence validation with CID support
 - **LLM Arbitration**: Integration with Python FastAPI LLM service
 - **Time Management**: Late fee calculation and payment scheduling
 - **API Endpoints**: RESTful API for frontend integration
@@ -170,7 +170,7 @@ npm run dev
 server/
 ├── index.js              # Main server file
 ├── modules/
-│   ├── evidenceValidator.js    # IPFS evidence validation
+│   ├── evidenceValidator.js    # Helia evidence validation
 │   ├── llmArbitration.js       # LLM arbitration logic
 │   ├── timeManagement.js       # Time and fee calculations
 │   └── arbitratorAPI.js        # LLM API integration
@@ -211,7 +211,7 @@ pm2 start index.js --name "arbitrust-v7"
 ## Troubleshooting
 
 - **LLM API not responding**: Check if FastAPI service is running on port 8000
-- **Evidence validation fails**: Verify IPFS gateway accessibility
+- **Evidence validation fails**: Verify Helia gateway accessibility
 - **Time calculations incorrect**: Check system timezone and NTP sync
 
 ## Support

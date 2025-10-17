@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // smoke-check.js
-// Simple Node script using global fetch to check V7 endpoints and local IPFS API.
+// Simple Node script using global fetch to check V7 endpoints and local Helia API.
 // Node 18+ required (global fetch available).
 
 const base = process.env.V7_URL || 'http://localhost:3001';
-const ipfs = process.env.IPFS_URL || 'http://127.0.0.1:5001';
+const helia = process.env.HELIA_URL || 'http://127.0.0.1:9090';
 
 async function check(url, opts = {}) {
   try {

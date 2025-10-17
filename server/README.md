@@ -172,20 +172,21 @@ SERVER_PORT=3001
 LLM_ARBITRATOR_URL=http://localhost:8000
 LLM_ARBITRATOR_TIMEOUT=30000
 
-# IPFS/Helia
-IPFS_GATEWAY_URL=https://ipfs.io/ipfs/
-IPFS_TIMEOUT=10000
 
-# Dev / IPFS control
+# Helia
+HELIA_GATEWAY_URL=https://helia.io/api/
+HELIA_TIMEOUT=10000
+
+# Dev / Helia control
 # If true, the server will accept a dev-only endpoint to remove evidence created during tests.
 # WARNING: set ALLOW_DEV_CLEANUP=true only in isolated dev environments.
 ALLOW_DEV_CLEANUP=false
 
-# When false, the start script will not automatically spawn an external `ipfs daemon`.
-# If true (default), start-v7 will attempt to auto-start an external ipfs daemon when none is found.
-IPFS_AUTO_START=true
+# When false, the start script will not automatically spawn an external `helia daemon`.
+# If true (default), start-v7 will attempt to auto-start an external helia daemon when none is found.
+HELIA_AUTO_START=true
 
-# If true, start-v7 will try to start an in-process Helia node when no external IPFS/Helia API is reachable.
+# If true, start-v7 will try to start an in-process Helia node when no external Helia API is reachable.
 # This is now the default behavior for local dev (START_INPROC_HELIA=true).
 START_INPROC_HELIA=true
 

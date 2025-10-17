@@ -289,7 +289,7 @@ Two related evidence anchoring entrypoints exist on the rent template (and may b
 	- Stores ONLY `cidDigest = keccak256(utf8Bytes(cid))`.
 	- Emits `EvidenceSubmitted(caseId, cidDigest, submitter, cid)`.
 	- Lowest gas cost (single SSTORE for the duplicate-prevention bitmap/mapping).
-	- Suitable when the off-chain object is content-addressed (e.g., IPFS CID already binds content) and you only need duplicate prevention + a stable reference.
+	- Suitable when the off-chain object is content-addressed (e.g., Helia CID already binds content) and you only need duplicate prevention + a stable reference.
 
 - `submitEvidenceWithDigest(caseId, cid, contentDigest)`
 	- Stores both `cidDigest` (for duplicate prevention) AND a caller‑provided `contentDigest` (a keccak256 hash of a canonicalized JSON payload or other deterministic representation).
@@ -313,7 +313,7 @@ Store only the 32-byte digest(s) on-chain; do NOT store raw ciphertext, large JS
 ### Verifying on the client / admin side
 
 1. Fetch the evidence record (CID + stored digests) via events (`EvidenceSubmitted` or `EvidenceSubmittedDigest`).
-2. Retrieve the off-chain object (Helia/IPFS, HTTPS, etc.).
+2. Retrieve the off-chain object (Helia, HTTPS, etc.).
 3. Canonicalize (exact same algorithm) and recompute contentDigest.
 4. Compare with the on-chain `contentDigest` (when using the extended method). If mismatch → treat as tampered / invalid.
 5. Optionally recompute `cidDigest` from the original CID string and ensure it matches what was emitted.

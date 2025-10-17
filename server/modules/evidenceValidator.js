@@ -8,7 +8,7 @@ import heliaStore from './heliaStore.js';
 
 
 
-export async function validateIPFSEvidence(cid) {
+export async function validateHeliaEvidence(cid) {
   try {
     // Basic CID format validation
     if (!cid || typeof cid !== 'string') {
@@ -42,14 +42,14 @@ export async function validateIPFSEvidence(cid) {
     }
     
   } catch (error) {
-    console.error('Error validating IPFS evidence:', error);
+  console.error('Error validating Helia evidence:', error);
     return false;
   }
 }
 
 
 
-async function mockIPFSValidation(cid) {
+async function mockHeliaValidation(cid) {
   // Simulate network delay
   await new Promise(resolve => setTimeout(resolve, 100 + Math.random() * 200));
   

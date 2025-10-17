@@ -98,7 +98,7 @@ router.get('/modules', (req, res) => {
     ccipEventListener: true,
     ollamaLLM: true,
     evidenceValidator: true,
-    ipfsClient: true,
+  heliaClient: true,
     merkleEvidence: true,
     arbitrationService: true
   });

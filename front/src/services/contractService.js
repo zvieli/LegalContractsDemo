@@ -149,8 +149,8 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
       let text = '';
       try { text = await res.clone().text().catch(() => ''); } catch (cloneErr) { text = '<clone failed>'; }
       console.log && console.log('E2EDBG: evidence POST response', 'status=', res.status, 'bodyPreview=', String(text).slice(0, 1000));
-    }
-  } catch (e) { try { console.error && console.error('E2EDBG: response logging failed', String(e)); } catch (_) {} }
+      }
+    } catch (e) { try { console.error && console.error('E2EDBG: response logging failed', String(e)); } catch (_) {} }
   // If the server rejects a submitted wrapper and returns adminPublicKey, re-encrypt locally and retry once
   if (!res.ok) {
     // Try to parse JSON body for adminPublicKey and log the failure for E2E traces
@@ -190,12 +190,12 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
     throw new Error('evidence endpoint returned ' + res.status + ' ' + text);
   }
   const body = await res.json();
-  // Prefer ipfsUri when available (new architecture). Fall back to digest for compatibility.
-  const returnedUri = body && body.ipfsUri ? body.ipfsUri : null;
+  // Prefer heliaUri when available (new architecture). Fall back to digest for compatibility.
+  const returnedUri = body && body.heliaUri ? body.heliaUri : null;
   const returnedDigest = body && body.digest ? body.digest : digest;
   try { if (IN_E2E) console.log && console.log('E2EDBG: evidence endpoint returned', returnedUri || returnedDigest, body && body.path); } catch (e) {}
 
-  // Report on-chain: prefer passing the URI (ipfs://...) when provided, else pass the digest for backward compatibility
+  // Report on-chain: prefer passing the URI (helia://...) when provided, else pass the digest for backward compatibility
   const toSend = returnedUri ? returnedUri : returnedDigest;
   await contract.reportDispute(id, toSend, overrides);
   return toSend;
@@ -211,13 +211,13 @@ export class ContractService {
   /**
    * Upload evidence payload to configured evidence endpoint (if available).
    * Returns an evidence reference suitable for on-chain reporting:
-   * - Prefer an IPFS URI (string like 'ipfs://<cid>') when backend returns one.
+  * - Prefer a Helia URI (string like 'helia://<cid>') when backend returns one.
    * - Otherwise return a bytes32 digest (0x...) for backward compatibility.
    */
   async uploadEvidence(payloadStr) {
     try {
       const payload = payloadStr ? String(payloadStr) : '';
-        const runtimeEndpoint = getEvidenceEndpoint(); 
+      const runtimeEndpoint = getEvidenceEndpoint(); 
       const runtimeAdmin = getAdminPub();
       const requireUpload = getRequireEvidenceUpload();
       // If no endpoint or admin key, just compute digest locally
@@ -269,11 +269,11 @@ export class ContractService {
         throw new Error('evidence endpoint returned ' + res.status + ' ' + txt);
       }
 
-  const body = await res.json();
-  // Prefer ipfsUri when available
-  const returnedUri = body && body.ipfsUri ? body.ipfsUri : null;
-  const returnedDigest = body && body.digest ? body.digest : digest;
-  return returnedUri ? returnedUri : returnedDigest;
+      const body = await res.json();
+      // Prefer heliaCid when available
+      const returnedCid = body && body.heliaCid ? body.heliaCid : null;
+      const returnedDigest = body && body.digest ? body.digest : digest;
+      return returnedCid ? returnedCid : returnedDigest;
     } catch (e) {
       // bubble up
       throw e;
@@ -362,7 +362,7 @@ export class ContractService {
     if (!factoryAddress) {
       throw new Error('Factory contract not deployed on this network');
     }
-  const contract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
+    const contract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
     // Lightweight sanity check to catch wrong/stale addresses on localhost
     const code = await this.getCodeSafe(factoryAddress);
     console.log(`[DEBUG] getFactoryContract: getCodeSafe for factoryAddress ${factoryAddress} returned:`, code);
@@ -398,7 +398,6 @@ export class ContractService {
         net = await this.signer.provider.getNetwork();
       } catch (err) {
         console.warn('Could not determine provider network:', err);
-        throw new Error('Could not determine connected wallet network. Ensure your wallet is connected and try again.');
       }
       if (Number(net.chainId) !== Number(this.chainId)) {
         throw new Error(`Connected wallet network mismatch: provider chainId=${net.chainId} but expected=${this.chainId}. Please switch your wallet to the correct network.`);
@@ -486,7 +485,7 @@ export class ContractService {
       try {
         const signerAddr = await this.signer.getAddress().catch(() => null);
         const factoryAddr = factoryContract.target || factoryContract.address || null;
-        console.debug('Preparing factory.createRentContract', { factoryAddr, signerAddr, expectedChainId: this.chainId });
+        console.debug('Preparing factory.createRentContract', { factoryAddr: factoryContract.target || factoryContract.address, signerAddr, expectedChainId: this.chainId });
 
         // If an injected wallet is present, surface its selected account and chainId
         try {
@@ -542,7 +541,7 @@ export class ContractService {
           }
         } else {
           // Propagate original checksum error off local chain.
-            throw ckErr;
+          throw ckErr;
         }
       }
 
@@ -562,7 +561,7 @@ export class ContractService {
 
         const propertyId = Number(params.propertyId || 0);
         console.debug('Sending createRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, dueDate, propertyId, factory: factoryContract.target || factoryContract.address });
-        // If an initial evidence reference is provided (e.g., ipfs://... or payload string), compute/use it and call the factory overload that accepts a string URI.
+        // If an initial evidence reference is provided (e.g., Helia CID or payload string), compute/use it and call the factory overload that accepts a string CID.
         let initialEvidenceRef = null;
         if (params.initialEvidenceDigest) {
           const val = String(params.initialEvidenceDigest);
@@ -632,7 +631,6 @@ export class ContractService {
         contractAddress,
         success: !!contractAddress
       };
-
     } catch (error) {
       console.error('Error creating rent contract:', error);
       // Normalize common provider error
@@ -649,52 +647,10 @@ export class ContractService {
         console.warn('getRentContract called with invalid contractAddress:', contractAddress);
         return null;
       }
-  return await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+      return await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
     } catch (error) {
       console.error('Error getting rent contract:', error);
       throw error;
-    }
-  }
-
-  // Read withdrawable amount for an account from a Rent contract (best-effort)
-  async getWithdrawable(contractAddress, account) {
-    try {
-      const rent = await this.getRentContract(contractAddress);
-      const w = await rent.withdrawable(account);
-      return BigInt(w || 0);
-    } catch (e) {
-      // Fallback: attempt low-level call with signature
-      try {
-  const rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
-        const data = rent.interface.encodeFunctionData('withdrawable', [account]);
-        const res = await this.signer.provider.call({ to: contractAddress, data });
-        const decoded = rent.interface.decodeFunctionResult('withdrawable', res);
-        return BigInt(decoded[0] || 0);
-      } catch (err) {
-        console.warn('Could not read withdrawable for', account, err);
-        return 0n;
-      }
-    }
-  }
-
-  // Read the reporter bond for a dispute case (best-effort)
-  async getDisputeBond(contractAddress, caseId) {
-    try {
-      const rent = await this.getRentContract(contractAddress);
-      const b = await rent.getDisputeBond(caseId);
-      return BigInt(b || 0);
-    } catch (e) {
-      // fallback: try alternative getter name
-      try {
-  const rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
-        const data = rent.interface.encodeFunctionData('getDisputeBond', [caseId]);
-        const res = await this.signer.provider.call({ to: contractAddress, data });
-        const decoded = rent.interface.decodeFunctionResult('getDisputeBond', res);
-        return BigInt(decoded[0] || 0);
-      } catch (err) {
-        console.warn('Could not read dispute bond for', contractAddress, caseId, err);
-        return 0n;
-      }
     }
   }
 
@@ -1378,7 +1334,7 @@ export class ContractService {
                       if (resp && resp.ok) {
                         try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'ok' }); } catch (_) {}
                         const json = await resp.json();
-                        if (json && json.ipfsUri) evidenceArg = String(json.ipfsUri);
+                        if (json && json.heliaCid) evidenceArg = String(json.heliaCid);
                         else if (json && json.digest) evidenceArg = String(json.digest);
                         else if (json && json.digestNo0x) evidenceArg = '0x' + String(json.digestNo0x);
                         else evidenceArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
@@ -1397,7 +1353,7 @@ export class ContractService {
                   }
                 } else if (resp && resp.ok) {
                   const json = await resp.json();
-                  if (json && json.ipfsUri) evidenceArg = String(json.ipfsUri);
+                  if (json && json.heliaCid) evidenceArg = String(json.heliaCid);
                   else if (json && json.digest) evidenceArg = String(json.digest);
                   else if (json && json.digestNo0x) evidenceArg = '0x' + String(json.digestNo0x);
                   else evidenceArg = digest;

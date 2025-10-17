@@ -1,7 +1,5 @@
-# ArbiTrust V7 - Technical E2E Test Documentation
 ## Developer's Guide to Test Implementation and Architecture
 
----
 
 ## 🛠️ Test Infrastructure Setup
 
@@ -40,7 +38,6 @@ export default {
 }
 ```
 
----
 
 ## 📁 Test Structure Analysis
 
@@ -71,11 +68,6 @@ const signature = await signer.signTypedData(domain, types, value);
 ```
 
 **Test Cases:**
-- **CASE 1:** Evidence Type Validation
-- **CASE 2:** Error Handling for Type Mismatches  
-- **CASE 3:** Network Request Validation
-- **CASE 4:** Evidence Payload Structure
-- **CASE 5:** Backend Integration (skipped - requires external service)
 
 #### 2. **Time-Dependent Tests** (`time-dependent.e2e.spec.ts`)
 ```typescript
@@ -104,7 +96,6 @@ const viewports = [
 ];
 ```
 
----
 
 ## 🔧 Technical Implementation Details
 
@@ -162,7 +153,6 @@ try {
 }
 ```
 
----
 
 ## 📊 Test Metrics and Performance
 
@@ -176,12 +166,7 @@ try {
 | Validation | 0.08s | 100% | Stable |
 
 ### Resource Usage
-- **Memory Peak:** ~150MB during test execution
-- **Network Calls:** 12-15 per test (local blockchain)
-- **File I/O:** Screenshots and logs (~2MB total)
-- **CPU Usage:** Low (single-threaded execution)
 
----
 
 ## 🧪 Test Patterns and Best Practices
 
@@ -223,7 +208,6 @@ const balanceAfter = await provider.getBalance(address);
 expect(balanceAfter).toEqual(balanceBefore + expectedChange);
 ```
 
----
 
 ## 🔍 Debugging and Troubleshooting
 
@@ -268,7 +252,6 @@ npx playwright show-report
 npx hardhat console --network localhost
 ```
 
----
 
 ## 📝 Adding New Tests
 
@@ -305,12 +288,7 @@ test.describe('Your Test Category', () => {
 ```
 
 ### Test Naming Conventions
-- **File names:** `feature.category.e2e.spec.ts`
-- **Test descriptions:** Clear, descriptive names
-- **Console output:** Use emojis for visual clarity
-- **Data-testids:** Descriptive, kebab-case naming
 
----
 
 ## 🚀 Continuous Integration Setup
 
@@ -351,7 +329,6 @@ jobs:
           path: playwright-report/
 ```
 
----
 
 ## 📈 Future Enhancements
 
@@ -369,7 +346,6 @@ jobs:
 3. **Document breaking changes** thoroughly
 4. **Version test suites** alongside application versions
 
----
 
 **Maintained by:** ArbiTrust V7 Development Team  
 **Last Updated:** October 3, 2025  

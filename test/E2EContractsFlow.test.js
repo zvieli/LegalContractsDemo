@@ -282,7 +282,7 @@ describe('E2E Contracts Flow', function () {
     // Landlord reports dispute for property damage
     const disputeType = 0; // Damage
     const requestedAmount = ethers.parseEther('0.3');
-    const evidenceUri = 'ipfs://QmEvidence123';
+  const evidenceUri = 'helia://QmEvidence123';
     
     // Calculate required bond (0.5% of requested amount or minimum 0.001 ether)
     const percentageBond = (requestedAmount * 50n) / 10000n; // 0.5%
@@ -652,19 +652,19 @@ describe('E2E Contracts Flow', function () {
 
     // Test 1: Non-party cannot report dispute
     await expect(
-      edgeRentContract.connect(partyA).reportDispute(0, ethers.parseEther('0.1'), 'ipfs://test', { value: ethers.parseEther('0.001') })
+  edgeRentContract.connect(partyA).reportDispute(0, ethers.parseEther('0.1'), 'helia://test', { value: ethers.parseEther('0.001') })
     ).to.be.revertedWithCustomError(edgeRentContract, 'NotParty');
     
     // Test 2: Cannot report dispute with zero amount for damage claims
     await expect(
-      edgeRentContract.connect(landlord).reportDispute(0, 0, 'ipfs://test', { value: ethers.parseEther('0.001') })
+  edgeRentContract.connect(landlord).reportDispute(0, 0, 'helia://test', { value: ethers.parseEther('0.001') })
     ).to.be.revertedWithCustomError(edgeRentContract, 'AmountTooLow');
     
     // Test 3: Insufficient bond should revert
     const requestedAmount = ethers.parseEther('0.3');
     const insufficientBond = ethers.parseEther('0.0001'); // Too low
     await expect(
-      edgeRentContract.connect(landlord).reportDispute(0, requestedAmount, 'ipfs://test', { value: insufficientBond })
+  edgeRentContract.connect(landlord).reportDispute(0, requestedAmount, 'helia://test', { value: insufficientBond })
     ).to.be.revertedWithCustomError(edgeRentContract, 'InsufficientFee');
     
     // Test 4: Valid dispute reporting
@@ -673,7 +673,7 @@ describe('E2E Contracts Flow', function () {
     const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
     
     const disputeTx = await edgeRentContract.connect(landlord).reportDispute(
-      0, requestedAmount, 'ipfs://test', { value: requiredBond }
+  0, requestedAmount, 'helia://test', { value: requiredBond }
     );
     const disputeReceipt = await disputeTx.wait();
     const disputeEvents = disputeReceipt.logs.map(log => {
@@ -758,7 +758,7 @@ describe('E2E Contracts Flow', function () {
 
     // Now try to report dispute on inactive contract - should fail
     await expect(
-      cancelRentContract.connect(landlord).reportDispute(0, ethers.parseEther('0.1'), 'ipfs://test', { value: ethers.parseEther('0.001') })
+  cancelRentContract.connect(landlord).reportDispute(0, ethers.parseEther('0.1'), 'helia://test', { value: ethers.parseEther('0.001') })
     ).to.be.revertedWithCustomError(cancelRentContract, 'NotActive');
   });
 });
@@ -961,7 +961,7 @@ describe('E2E Contracts Flow', function () {
         partyB.address,
         requestedPenalty,
         ethers.ZeroHash, // evidenceHash
-        'ipfs://breach-evidence',
+  'helia://breach-evidence',
         { value: ethers.parseEther('0.001') } // bond
       );
       const breachReceipt = await breachTx.wait();
@@ -1024,7 +1024,7 @@ describe('E2E Contracts Flow', function () {
         partyB.address,
         requestedPenalty,
         ethers.ZeroHash,
-        'ipfs://breach-evidence',
+  'helia://breach-evidence',
         { value: ethers.parseEther('0.001') }
       );
       const breachReceipt = await breachTx.wait();
@@ -1137,7 +1137,7 @@ describe('E2E Contracts Flow', function () {
       const offender = partyA.address;
       const requestedPenalty = ethers.parseEther('0.05');
       const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('Breach evidence'));
-      const evidenceURI = 'ipfs://breach123';
+  const evidenceURI = 'helia://breach123';
       const disputeFee = await eventsNDAContract.disputeFee();
       
       const breachTx = await eventsNDAContract.connect(partyB).reportBreach(
@@ -1252,7 +1252,7 @@ describe('E2E Contracts Flow', function () {
           partyB.address, 
           ethers.parseEther('0.01'), 
           ethers.keccak256(ethers.toUtf8Bytes('test')), 
-          'ipfs://test'
+          'helia://test'
         )
       ).to.be.revertedWith('Only party');
       
@@ -1262,7 +1262,7 @@ describe('E2E Contracts Flow', function () {
           partyA.address, 
           ethers.parseEther('0.01'), 
           ethers.keccak256(ethers.toUtf8Bytes('test')), 
-          'ipfs://test'
+          'helia://test'
         )
       ).to.be.revertedWith('Cannot accuse self');
       
@@ -1272,7 +1272,7 @@ describe('E2E Contracts Flow', function () {
           partyB.address, 
           0, 
           ethers.keccak256(ethers.toUtf8Bytes('test')), 
-          'ipfs://test'
+          'helia://test'
         )
       ).to.be.revertedWith('Requested penalty must be > 0');
       
@@ -1282,7 +1282,7 @@ describe('E2E Contracts Flow', function () {
         partyB.address,
         validPenalty,
         ethers.keccak256(ethers.toUtf8Bytes('valid breach')),
-        'ipfs://valid-breach',
+  'helia://valid-breach',
         { value: ethers.parseEther('0.001') }
       );
       const validBreachReceipt = await validBreachTx.wait();
@@ -1341,7 +1341,7 @@ describe('E2E Contracts Flow', function () {
           partyB.address, 
           ethers.parseEther('0.01'), 
           ethers.keccak256(ethers.toUtf8Bytes('test')), 
-          'ipfs://test'
+          'helia://test'
         )
       ).to.be.revertedWith('Must be active');
       
@@ -1387,7 +1387,7 @@ describe('Backend Integration', function () {
     // expect(res.body.cases).to.be.an('array');
   });
 
-  it('should validate evidence digest against IPFS', async function () {
+  it('should validate evidence digest against Helia', async function () {
     // TODO: Simulate evidence digest validation
     // Example:
     // const res = await api.post('/api/evidence/validate').send({ digest: '...' });
@@ -1410,6 +1410,6 @@ describe('Backend Integration', function () {
     // const res = await api.post('/api/helia/upload').send({ content: customClauses });
     // expect(res.status).to.equal(200);
     // expect(res.body.cid).to.be.a('string');
-    // Optionally: fetch from Helia/IPFS and verify content matches
+  // Optionally: fetch from Helia and verify content matches
   });
 });

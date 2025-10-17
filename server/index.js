@@ -169,16 +169,16 @@ app.post('/api/evidence/upload', async (req, res) => {
 // Evidence validation endpoint for tests
 app.get('/api/evidence/validate/:cid', async (req, res) => {
   const { cid } = req.params;
-  try {
-    // Try Helia validation first
     try {
-      const ok = await import('./modules/evidenceValidator.js').then(m => m.validateIPFSEvidence(cid));
-      return res.status(200).json({ valid: !!ok, accessible: !!ok, cid });
-    } catch (heliaErr) {
-      // fallback: if present in evidenceStore, assume accessible
-      const present = !!evidenceStore[cid];
-      return res.status(200).json({ valid: present, accessible: present, cid });
-    }
+      // Use Helia validation only
+      try {
+        const ok = await import('./modules/evidenceValidator.js').then(m => m.validateHeliaEvidence(cid));
+        return res.status(200).json({ valid: !!ok, accessible: !!ok, cid });
+      } catch (heliaErr) {
+        // fallback: if present in evidenceStore, assume accessible
+        const present = !!evidenceStore[cid];
+        return res.status(200).json({ valid: present, accessible: present, cid });
+      }
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -349,11 +349,8 @@ app.post('/api/arbitrate-batch', async (req, res) => {
 // 🔧 Environment Mode Configuration
 const isDevelopment = process.env.NODE_ENV === 'development';
 const isProduction = process.env.NODE_ENV === 'production';
-const mockIPFS = process.env.MOCK_IPFS === 'true';
-
 console.log('🔧 Environment Check:');
 console.log(`  NODE_ENV: ${process.env.NODE_ENV}`);
-console.log(`  MOCK_IPFS: ${process.env.MOCK_IPFS}`);
 
 // Dev-only cleanup endpoint: remove evidence created during tests/dev runs
 app.post('/api/dev/cleanup-evidence', async (req, res) => {
@@ -387,149 +384,6 @@ app.post('/api/dev/cleanup-evidence', async (req, res) => {
 });
 console.log(`  isDevelopment: ${isDevelopment}`);
 console.log(`  isProduction: ${isProduction}`);
-console.log(`  mockIPFS: ${mockIPFS}`);
-
-// IPFS Daemon Management
-let ipfsDaemonProcess = null;
-const execAsync = promisify(exec);
-
-// 🏭 IPFS Daemon Auto-Start for Production Mode
-async function startIPFSDaemon() {
-  if (isDevelopment) {
-    console.log('🔧 Development Mode: Skipping IPFS daemon auto-start');
-    return true;
-  }
-
-  try {
-    console.log('🔄 Production Mode: Checking IPFS daemon status...');
-    
-    // Check if IPFS daemon is already running
-    try {
-      const response = await fetch('http://127.0.0.1:5001/api/v0/version', {
-        method: 'POST',
-        timeout: 3000
-      });
-      if (response.ok) {
-        console.log('✅ IPFS daemon already running');
-        return true;
-      }
-      if (response.status === 403) {
-        console.log('🔧 IPFS daemon running but CORS not configured - will configure it');
-        await configureIPFSCORS();
-        return true;
-      }
-    } catch (error) {
-      console.log('📡 IPFS daemon not running, starting...');
-    }
-
-    // Initialize IPFS if needed
-    await initializeIPFS();
-
-    // Start IPFS daemon
-    console.log('🚀 Starting IPFS daemon...');
-    ipfsDaemonProcess = spawn('ipfs', ['daemon'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false
-    });
-
-    // Wait for daemon to be ready
-    let isReady = false;
-    let attempts = 0;
-    const maxAttempts = 30; // 30 seconds timeout
-
-    while (!isReady && attempts < maxAttempts) {
-      try {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-        const response = await fetch('http://127.0.0.1:5001/api/v0/version', {
-          method: 'POST',
-          timeout: 2000
-        });
-        if (response.ok) {
-          isReady = true;
-          console.log('✅ IPFS daemon ready');
-        }
-      } catch (error) {
-        attempts++;
-        console.log(`⏳ Waiting for IPFS daemon... (${attempts}/${maxAttempts})`);
-      }
-    }
-
-    if (!isReady) {
-      throw new Error('IPFS daemon failed to start within 30 seconds');
-    }
-
-    // Handle daemon process events
-    ipfsDaemonProcess.on('error', (error) => {
-      console.error('❌ IPFS daemon error:', error.message);
-    });
-
-    ipfsDaemonProcess.on('exit', (code) => {
-      console.log(`🔴 IPFS daemon exited with code ${code}`);
-      ipfsDaemonProcess = null;
-    });
-
-    return true;
-
-  } catch (error) {
-    console.error('❌ Failed to start IPFS daemon:', error.message);
-    console.error('💡 Please ensure IPFS is installed: https://docs.ipfs.tech/install/');
-    console.error('💡 Or run manually: ipfs daemon');
-    return false;
-  }
-}
-
-async function stopIPFSDaemon() {
-  if (ipfsDaemonProcess) {
-    console.log('🔴 Stopping IPFS daemon...');
-    ipfsDaemonProcess.kill('SIGTERM');
-    ipfsDaemonProcess = null;
-  }
-}
-
-// Initialize IPFS repository if needed
-async function initializeIPFS() {
-  try {
-    console.log('🔧 Checking IPFS initialization...');
-    const { stdout } = await execAsync('ipfs id');
-    console.log('✅ IPFS already initialized');
-    return true;
-  } catch (error) {
-    console.log('🔧 Initializing IPFS repository...');
-    try {
-      await execAsync('ipfs init');
-      console.log('✅ IPFS initialized successfully');
-      await configureIPFSCORS();
-      return true;
-    } catch (initError) {
-      console.error('❌ Failed to initialize IPFS:', initError.message);
-      return false;
-    }
-  }
-}
-
-// Configure IPFS CORS settings
-async function configureIPFSCORS() {
-  try {
-    console.log('🔧 Configuring IPFS CORS settings...');
-    
-    const corsCommands = [
-      'ipfs config --json API.HTTPHeaders.Access-Control-Allow-Origin "[\"*\"]"',
-      'ipfs config --json API.HTTPHeaders.Access-Control-Allow-Methods "[\"GET\", \"POST\", \"PUT\", \"DELETE\"]"',
-      'ipfs config --json API.HTTPHeaders.Access-Control-Allow-Headers "[\"Authorization\", \"Content-Type\"]"'
-    ];
-    
-    for (const cmd of corsCommands) {
-      await execAsync(cmd);
-    }
-    
-    console.log('✅ IPFS CORS configured successfully');
-    return true;
-  } catch (error) {
-    console.error('⚠️ Failed to configure IPFS CORS:', error.message);
-    console.log('💡 IPFS will work but may have CORS issues');
-    return false;
-  }
-}
 
 // Environment logging
 if (isDevelopment) {
@@ -538,7 +392,7 @@ if (isDevelopment) {
   console.log(`🏭 Production Mode: ENABLED - Using Helia local node`);
   console.log(`🔗 Helia Endpoint: http://127.0.0.1:5001`);
 } else {
-  console.log(`⚪ Default Mode: Using legacy validation`);
+  console.log(`⚪ Default Mode: Using Helia validation`);
 }
 
 // V7 Modules
@@ -548,10 +402,10 @@ app.get('/api/v7/modules', async (req, res) => {
     ccipEventListener: true,
     ollamaLLM: true,
     evidenceValidator: true,
-    ipfsClient: true
+    heliaClient: true
   });
 });
-import { validateIPFSEvidence } from './modules/evidenceValidator.js';
+import { validateHeliaEvidence } from './modules/evidenceValidator.js';
 import { triggerLLMArbitration, handleLLMResponse } from './modules/llmArbitration.js';
 import { calculateLateFee, getTimeBasedData } from './modules/timeManagement.js';
 import { llmArbitrationSimulator, processV7Arbitration } from './modules/llmArbitrationSimulator.js';
@@ -627,7 +481,7 @@ async function fetchEvidenceFromHelia(cid) {
   try {
     console.log(`🔗 Production Mode: Fetching CID ${cid} from Helia node...`);
 
-    // IPFS API requires POST method for /cat; accept any content type
+  // Helia API requires POST method for /cat; accept any content type
     const response = await fetch(`${HELIA_LOCAL_API}/api/v0/cat?arg=${cid}`, {
       method: 'POST',
       headers: {
@@ -636,7 +490,7 @@ async function fetchEvidenceFromHelia(cid) {
     });
 
     if (!response.ok) {
-      throw new Error(`Helia IPFS fetch failed: ${response.status} ${response.statusText}`);
+  throw new Error(`Helia fetch failed: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.text();
@@ -1267,26 +1121,22 @@ app.listen(PORT, async () => {
   console.log(`🚀 ArbiTrust V7 Server running on port ${PORT}`);
   console.log(`📡 Health check: http://localhost:${PORT}/api/v7/arbitration/health`);
   
-  // 🏭 Auto-start IPFS daemon for production mode
+  // 🏭 Helia node is used for evidence storage in production mode
   if (isProduction) {
-    const ipfsReady = await startIPFSDaemon();
-    if (!ipfsReady) {
-      console.warn('⚠️ IPFS daemon failed to start - production features may be limited');
-      console.warn('💡 Run manually: ipfs daemon');
-    }
+    console.log('🏭 Production Mode: Helia local node (127.0.0.1:5001)');
   }
   
   // Environment-specific initialization
   if (isDevelopment) {
     console.log('🔧 Development Mode Configuration:');
     console.log('   • Evidence: Validation disabled');
-    console.log('   • IPFS: Daemon auto-start disabled');
+    console.log('   • Helia: Local node not required');
     console.log(`📝 Development info available at: http://localhost:${PORT}/api/v7/debug/development-info`);
   } else if (isProduction) {
     console.log('🏭 Production Mode Configuration:');
     console.log('   • Evidence: Helia local node (127.0.0.1:5001)');
-    console.log('   • Validation: Real IPFS CID validation');
-    console.log('   • IPFS: Auto-started daemon');
+    console.log('   • Validation: Real Helia CID validation');
+    console.log('   • Helia: Local node required');
     console.log(`🔗 Test Helia: curl http://127.0.0.1:5001/api/v0/version`);
   } else {
     console.log('⚪ Legacy Mode: Using original evidence validation');
@@ -1347,9 +1197,9 @@ app.get('/api/v7/ccip/status', async (req, res) => {
     console.log('   • Evidence validation disabled');
     console.log('   • Use production mode for full features');
   } else if (isProduction) {
-    console.log('   Production Mode - Use real IPFS CIDs:');
-    console.log('   • IPFS daemon: Auto-started');
-    console.log('   • Upload evidence: ipfs add <file>');
+    console.log('   Production Mode - Use real Helia CIDs:');
+    console.log('   • Helia local node: Required and must be running');
+    console.log('   • Upload evidence: Use API or Helia tools');
     console.log('   • Use returned CID in API calls');
   }
   console.log('');
@@ -1358,13 +1208,13 @@ app.get('/api/v7/ccip/status', async (req, res) => {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\n🔄 Shutting down ArbiTrust V7 Server...');
-  await stopIPFSDaemon();
+  // No Helia daemon to stop; Helia node is managed externally
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log('\n🔄 Shutting down ArbiTrust V7 Server...');
-  await stopIPFSDaemon();
+  // No IPFS daemon to stop; Helia node is managed externally
   process.exit(0);
 });
 
@@ -1423,7 +1273,6 @@ app.use((req, res) => {
       'GET /api/v7/arbitration/health',
       'GET /api/v7/debug/evidence/:cid',
       'GET /api/v7/debug/development-info',
-      'POST /api/v7/debug/ipfs/restart',
       'GET /api/v7/debug/time/:timestamp'
     ]
   });

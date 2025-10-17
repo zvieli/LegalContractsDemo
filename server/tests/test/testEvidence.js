@@ -1,7 +1,7 @@
 
 
 
-import { validateIPFSEvidence, getEvidenceMetadata, generateEvidenceDigest } from '../modules/evidenceValidator.js';
+import { validateHeliaEvidence, getEvidenceMetadata, generateEvidenceDigest } from '../modules/evidenceValidator.js';
 
 async function testEvidenceValidation() {
   console.log('🧪 Testing Evidence Validation Module...\n');
@@ -25,13 +25,13 @@ async function testEvidenceValidation() {
   
   console.log('Testing valid CIDs:');
   for (const cid of validCIDs) {
-    const isValid = await validateIPFSEvidence(cid);
+    const isValid = await validateHeliaEvidence(cid);
     console.log(`  ${cid}: ${isValid ? '✅ VALID' : '❌ INVALID'}`);
   }
   
   console.log('\nTesting invalid CIDs:');
   for (const cid of invalidCIDs) {
-    const isValid = await validateIPFSEvidence(cid);
+    const isValid = await validateHeliaEvidence(cid);
     console.log(`  ${cid || 'null'}: ${isValid ? '✅ VALID' : '❌ INVALID'}`);
   }
   

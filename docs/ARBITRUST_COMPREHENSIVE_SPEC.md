@@ -105,7 +105,7 @@ server/
 ├── modules/
 │   ├── ollamaLLMArbitrator.js  # אינטגרציה ישירה עם Ollama
 │   ├── llmArbitrationSimulator.js # מצב סימולציה
-│   ├── evidenceValidator.js    # אימות ראיות IPFS/Helia
+│   ├── evidenceValidator.js    # אימות ראיות Helia
 │   ├── timeManagement.js       # ניהול זמן ועמלות
 │   └── v7Integration.js        # שכבת אינטגרציה מלאה
 └── test/                       # בדיקות יחידה

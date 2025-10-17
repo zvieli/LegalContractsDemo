@@ -57,7 +57,7 @@ describe('CCIP Arbitration End-to-End', () => {
     const disputeId = ethers.keccak256(ethers.toUtf8Bytes('test-dispute-ccip-e2e'));
     const caseId = 1;
     const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('test evidence'));
-    const evidenceURI = 'ipfs://test-evidence-uri';
+  const evidenceCID = 'helia-cid-test-evidence';
     const requestedAmount = ethers.parseEther('1.0');
     const payFeesIn = 0; // Native
 
@@ -67,7 +67,7 @@ describe('CCIP Arbitration End-to-End', () => {
       enhancedRentContract.target,
       caseId,
       evidenceHash,
-      evidenceURI,
+      evidenceCID,
       requestedAmount,
       payFeesIn,
       { value: ethers.parseEther('0.01') }

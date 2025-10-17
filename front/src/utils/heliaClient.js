@@ -2,20 +2,20 @@ import { createHelia } from 'helia'
 import { unixfs } from '@helia/unixfs'
 
 /**
- * העלאת סעיפים מותאמים אישית ל-IPFS/Helia והחזרת ה-hash
+ * העלאת סעיפים מותאמים אישית ל-Helia והחזרת ה-hash
  * @param {string} clauses - טקסט של סעיפי חוזה מותאמים אישית
  * @returns {Promise<string|null>} CID string או null במקרה של שגיאה
  */
-export async function uploadCustomClausesToIPFS(clauses) {
+export async function uploadCustomClausesToHelia(clauses) {
   if (!clauses || typeof clauses !== 'string' || clauses.trim() === '') return null
 
   try {
     const cid = await addJson({ customClauses: clauses })
-    const cidStr = cid.toString().replace(/^ipfs:\/\//, '') // להחזיר רק את ה-hash הנקי
+  const cidStr = cid.toString(); // להחזיר רק את ה-hash הנקי
     console.log('📦 Uploaded custom clauses CID:', cidStr)
     return cidStr
   } catch (e) {
-    console.error('❌ Failed to upload custom clauses to IPFS:', e)
+  console.error('❌ Failed to upload custom clauses to Helia:', e)
     return null
   }
 }
@@ -39,7 +39,7 @@ export async function getUnixFs() {
   return _fs
 }
 
-/** העלאת JSON ל-IPFS והחזרת CID */
+/** העלאת JSON ל-Helia והחזרת CID */
 export async function addJson(obj) {
   const fs = await getUnixFs()
   const bytes = new TextEncoder().encode(typeof obj === 'string' ? obj : JSON.stringify(obj))
@@ -47,7 +47,7 @@ export async function addJson(obj) {
   return cid.toString()
 }
 
-/** קריאת JSON מתוך IPFS לפי CID */
+/** קריאת JSON מתוך Helia לפי CID */
 export async function catJson(cid) {
   try {
     const fs = await getUnixFs()
@@ -59,12 +59,12 @@ export async function catJson(cid) {
     }
     return JSON.parse(data)
   } catch (e) {
-    console.error('⚠️ Failed to read JSON from IPFS:', e)
+  console.error('⚠️ Failed to read JSON from Helia:', e)
     return null
   }
 }
 
-/** העלאת bytes גולמיים ל-IPFS */
+/** העלאת bytes גולמיים ל-Helia */
 export async function addBytesToHelia(bytes) {
   const fs = await getUnixFs()
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
@@ -72,7 +72,7 @@ export async function addBytesToHelia(bytes) {
   return cid.toString()
 }
 
-/** קריאת bytes גולמיים מ-IPFS לפי CID */
+/** קריאת bytes גולמיים מ-Helia לפי CID */
 export async function catBytes(cid, maxBytes = 10_000_000) {
   const fs = await getUnixFs()
   const chunks = []

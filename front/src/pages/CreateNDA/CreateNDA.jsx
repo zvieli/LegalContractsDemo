@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
-import { uploadCustomClausesToIPFS } from '../../utils/heliaClient';
+import { uploadCustomClausesToHelia } from '../../utils/heliaClient';
 import './CreateNDA.css';
 import '../../styles/notAllowed.css';
 
@@ -52,12 +52,12 @@ function CreateNDA() {
         return;
       }
 
-      // Upload custom clauses to IPFS/Helia if provided
+      // Upload custom clauses to Helia if provided
       let customClausesHash = '';
       if (formData.customClauses && formData.customClauses.trim() !== '') {
-        customClausesHash = await uploadCustomClausesToIPFS(formData.customClauses);
+        customClausesHash = await uploadCustomClausesToHelia(formData.customClauses);
         if (!customClausesHash) {
-          alert('Failed to upload custom clauses to IPFS. Please try again or check your connection.');
+          alert('Failed to upload custom clauses to Helia. Please try again or check your connection.');
           return;
         }
       }

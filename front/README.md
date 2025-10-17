@@ -8,15 +8,15 @@ The frontend provides a unified interface for contract interaction, evidence sub
 
 ## Architecture
 - **ABIs/Artifacts**: Auto-copied from contract deployments for direct interaction.
-- **Evidence Flow**: Evidence is canonicalized, hashed, and submitted as digests. Full content is stored on IPFS/Helia. Verification via CID and digest is supported with a "Verify on IPFS" button.
+- **Evidence Flow**: Evidence is canonicalized, hashed, and submitted as digests. Full content is stored on Helia. Verification via CID and digest is supported with a "Verify on Helia" button.
 - **ArbitrationView.jsx**: Centralizes all frontend logic, including role-based UI, evidence modal, dispute history, system health, and evidence verification.
-- **EvidenceDigestItem**: Standalone component for verifying CID existence on IPFS.
+- **EvidenceDigestItem**: Standalone component for verifying CID existence on Helia.
 - **LLMDecisionView.jsx**: Displays backend LLM decision/rationale.
 - **WalletConnector.jsx**: Handles wallet connection and role detection.
 
 ## Integration Points
 - Chainlink/CCIP event feeds
-- Helia/IPFS evidence verification
+- Helia evidence verification
 - LLM backend decision display
 - Dispute history and notifications
 - Wallet/permissions and role-based UI
@@ -32,7 +32,7 @@ The frontend provides a unified interface for contract interaction, evidence sub
 
 ## MVP Status
 - All major integration points are implemented and tested.
-- "Verify on IPFS" button is available in production.
+- "Verify on Helia" button is available in production.
 ```
 npm install
 npm run dev

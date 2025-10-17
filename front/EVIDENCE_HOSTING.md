@@ -3,7 +3,7 @@ Evidence hosting & admin fetch (Option A)
 This project follows Option A for evidence handling:
 
 - Clients encrypt evidence off-chain (e.g. ECIES/EthCrypto JSON) to the platform admin's public key.
-- The client (or a dev helper) stores the ciphertext JSON off-chain on an HTTP(S) service reachable by the platform arbitrator/admin.
+- The client (or a dev helper) stores the ciphertext JSON off-chain on a Helia node or HTTP(S) service reachable by the platform arbitrator/admin.
 - The frontend computes the canonical digest: keccak256(UTF-8(ciphertextString)) and submits that 32-byte digest (0x...) on-chain. The contracts store only the 32-byte digest.
 
 Filename and fetch convention (recommended for local dev):

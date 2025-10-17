@@ -63,24 +63,7 @@ try {
 
 Write-Host ""
 
-Write-Host "Installing dependencies..." -ForegroundColor Cyan
 
-function Safe-NpmInstall {
-    param([string]$Path)
-    Write-Host "Installing dependencies in $Path..." -ForegroundColor Yellow
-    Push-Location $Path
-    npm install
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "WARNING: npm install failed in $Path (exit code $LASTEXITCODE)" -ForegroundColor Red
-    } else {
-        Write-Host "npm install succeeded in $Path" -ForegroundColor Green
-    }
-    Pop-Location
-}
-
-Safe-NpmInstall "."
-Safe-NpmInstall "server"
-Safe-NpmInstall "front"
 
 Write-Host ""
 Write-Host "Starting services..." -ForegroundColor Cyan

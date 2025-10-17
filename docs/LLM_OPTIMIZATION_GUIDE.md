@@ -2,24 +2,12 @@
 
 ## Summary
 Optimized Ollama LLM settings for ArbiTrust V7 achieving consistent ~86s processing times with validated results.
-
-## Performance Results
-- **Before Optimization**: ~200s processing time with inconsistent results
 - **After Optimization**: ~86s processing time with validated, consistent decisions
 - **Validation Rate**: 100% (all responses pass schema validation)
-- **Consistency**: Full logical consistency between verdict and rationale
-
-## Optimal Environment Settings
 
 ### Core Performance Settings
-```bash
-OLLAMA_USE_GUIDED_CHUNKING=false          # Saves 30s by using simple chunking
-OLLAMA_SUMMARY_CONCURRENCY=16             # Maximum parallel summarization
 OLLAMA_CHUNK_DIVISOR=15                   # Small chunks for efficient processing
 ```
-
-### Content Quality Settings
-```bash
 OLLAMA_NUM_PREDICT_SUMMARY=60             # Brief, focused summaries
 OLLAMA_SUMMARY_MAX_CHARS_PER_CHUNK=150    # Minimal chunk content
 OLLAMA_MERGED_SUMMARY_MAX_CHARS=1200      # Compact merged summary
@@ -32,24 +20,14 @@ OLLAMA_SUMMARY_TIMEOUT_MS=15000           # 15s per chunk summary
 OLLAMA_SYNTHESIS_TIMEOUT_MS=40000         # 40s for final synthesis
 ```
 
-## Key Optimizations Applied
-
-### 1. Disabled LLM-Guided Chunking
-- **Impact**: -30 seconds processing time
 - **Reason**: Simple chunking works as well with 35% time savings
 - **Trade-off**: Slightly less optimal chunk boundaries, but negligible quality impact
 
 ### 2. Aggressive Summarization
-- **Concurrency**: 16 parallel summaries (from 4)
-- **Content**: 150 chars per chunk (from 360)
 - **Result**: Faster processing while maintaining key information
 
-### 3. Assertive Synthesis Prompts
-- **Change**: "You MUST make a definitive decision" prompts
 - **Impact**: Eliminates mediation suggestions and DRAW fallbacks
 - **Result**: Clear, actionable verdicts
-
-### 4. Increased Synthesis Tokens
 - **Setting**: 300 tokens (from 120-200)
 - **Impact**: Complete responses without truncation
 - **Result**: Better validation pass rate
@@ -80,7 +58,6 @@ Total: ~86s
 - Increase `OLLAMA_NUM_PREDICT_SYNTHESIS=400` for more detailed rationales
 - Set `OLLAMA_MERGED_SUMMARY_MAX_CHARS=1500` for more context
 
-### For Speed-Critical Scenarios
 - Reduce `OLLAMA_NUM_PREDICT_SUMMARY=50` for faster summaries
 - Set `OLLAMA_CHUNK_DIVISOR=20` for smaller chunks
 
