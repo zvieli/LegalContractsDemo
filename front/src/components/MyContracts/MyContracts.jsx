@@ -237,8 +237,8 @@ export default function MyContracts() {
         })}
       </ul>
       
-      {/* V7 Arbitration Requests Section */}
-      {(v7Loading || v7ArbitrationRequests.length > 0) && (
+  {/* V7 Arbitration Requests Section */}
+  {(v7Loading || arbitrationRequests.length > 0) && (
         <div className="v7-arbitration-section" data-testid="v7-arbitration-section">
           <h3 style={{
             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
@@ -261,7 +261,7 @@ export default function MyContracts() {
               <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.5rem', color: '#667eea' }}></i>
               <p style={{ marginTop: '1rem', color: '#667eea' }}>Loading V7 arbitration requests...</p>
             </div>
-          ) : v7ArbitrationRequests.length === 0 ? (
+          ) : arbitrationRequests.length === 0 ? (
             <div style={{ 
               textAlign: 'center', 
               padding: '2rem',
@@ -276,7 +276,7 @@ export default function MyContracts() {
             </div>
           ) : (
           <ul className="arbitration-list" style={{ listStyle: 'none', padding: 0 }} data-testid="v7-arbitration-list">
-            {v7ArbitrationRequests.map((request, index) => (
+            {arbitrationRequests.map((request, index) => (
               <li key={index} className="arbitration-item" data-testid={`v7-arbitration-item-${index}`}
                 style={{
                   background: 'linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)',

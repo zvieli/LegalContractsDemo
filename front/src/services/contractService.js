@@ -228,7 +228,7 @@ export class ContractService {
     // Helper: return a provider usable for read-only calls. Prefer explicit this.provider.
     // If no explicit provider is available and we're on a local/dev chain, return a
     // direct JsonRpcProvider pointed at the common localhost URL. Do NOT return
-    // signer.provider here — that keeps read semantics provider-first and avoids
+    // signer.provider here Γאפ that keeps read semantics provider-first and avoids
     // accidental routing of local reads to remote RPCs when the injected signer
     // is backed by a third-party provider.
     this._providerForRead = () => {
@@ -524,7 +524,7 @@ export class ContractService {
           // ignore and try next
         }
       }
-      // Not found — return zero
+      // Not found Γאפ return zero
       return 0n;
     } catch (error) {
       console.debug('getDisputeBond failed', error);
@@ -649,7 +649,7 @@ export class ContractService {
         amount: formattedAmount,
         parties: [landlord, tenant],
         status,
-        created: '—'
+        created: 'Γאפ'
       };
     } catch (error) {
       if (!silent) {
@@ -1690,6 +1690,80 @@ export class ContractService {
   }
 }
 
+  /**
+   * Create an EnhancedRentContract via the on-chain factory.
+   * params: { tenant, rentAmount (ETH string), priceFeed, duration (days), startDate (timestamp), propertyId (optional) }
+   */
+  async createEnhancedRentContract(params) {
+    try {
+      // For writes we must use a signer-attached factory contract. Don't rely on the provider-only instance.
+      const factoryAddress = await getContractAddress(this.chainId, 'factory');
+      if (!factoryAddress) throw new Error('Factory contract not deployed on this network');
+      if (!this.signer) throw new Error('No signer available for write operations');
+      const factoryContract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
+
+      // Normalize and convert values
+      const rentAmountWei = typeof params.rentAmount === 'string' && params.rentAmount.indexOf('.') >= 0
+        ? ethers.parseEther(params.rentAmount)
+        : (typeof params.rentAmount === 'bigint' ? params.rentAmount : BigInt(params.rentAmount || '0'));
+
+      const startTs = typeof params.startDate === 'number' || typeof params.startDate === 'string' ? Number(params.startDate) : Math.floor(Date.now() / 1000);
+      const durationDays = Number(params.duration || 0);
+      const dueDateTimestamp = startTs + Math.floor(durationDays * 86400);
+
+      // Normalize/validate price feed address. On mainnet enforce EIP-55 checksum via ethers.getAddress().
+      let priceFeedAddr = params.priceFeed || ethers.ZeroAddress;
+      try {
+        if (priceFeedAddr && typeof priceFeedAddr === 'string' && /^0x[0-9a-fA-F]{40}$/.test(priceFeedAddr)) {
+          if (Number(this.chainId) === 1) {
+            priceFeedAddr = ethers.getAddress(priceFeedAddr);
+          } else {
+            // Avoid throwing on non-mainnet chains (forks/local). Use lowercase to be safe for RPCs.
+            priceFeedAddr = priceFeedAddr.toLowerCase();
+          }
+        } else {
+          priceFeedAddr = ethers.ZeroAddress;
+        }
+      } catch (addrErr) {
+        throw new Error('Invalid priceFeed address: ' + String(addrErr?.message || addrErr));
+      }
+
+      const propertyId = typeof params.propertyId !== 'undefined' ? Number(params.propertyId) : 0;
+
+      const tx = await factoryContract.createEnhancedRentContract(
+        params.tenant,
+        rentAmountWei,
+        priceFeedAddr,
+        dueDateTimestamp,
+        propertyId
+      );
+
+      const receipt = await tx.wait();
+
+      let contractAddress = null;
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = factoryContract.interface.parseLog(log);
+          if (parsedLog && (parsedLog.name === 'EnhancedRentContractCreated' || parsedLog.name === 'EnhancedRentCreated')) {
+            contractAddress = parsedLog.args && (parsedLog.args.contractAddress || parsedLog.args[0]) ? (parsedLog.args.contractAddress || parsedLog.args[0]) : null;
+            break;
+          }
+        } catch (error) {
+          continue;
+        }
+      }
+
+      return {
+        receipt,
+        contractAddress,
+        success: !!contractAddress
+      };
+    } catch (error) {
+      console.error('Error creating EnhancedRentContract:', error);
+      throw error;
+    }
+  }
+
 async getNDAContract(contractAddress) {
   try {
     if (!contractAddress || typeof contractAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
@@ -1946,7 +2020,7 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
               const callResult = await provider.call({ to: contractAddress, data: calldata, from, value: disputeFee });
               console.warn('Low-level provider.call returned (no revert):', callResult);
             } catch (callErr) {
-              // provider.call may throw with revert data — surface it
+              // provider.call may throw with revert data Γאפ surface it
               console.error('Low-level provider.call error while probing revert:', callErr);
               // attach probe info to the original error for visibility
               try { error.probe = { callError: callErr && (callErr.message || callErr.reason || callErr.data) } } catch (_) {}

@@ -114,23 +114,24 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
   // Load contract data function
   const loadContractData = async () => {
-    if (!contractAddress || !provider) return;
-    
+    if (!contractAddress || !provider) {
+      console.log('[loadContractData] Missing contractAddress or provider', { contractAddress, provider });
+      return;
+    }
     try {
       setDataLoading(true);
       const contractService = new ContractService(provider, signer, chainId);
-      
-      // Try to load as EnhancedRentContract first
-      let details = await contractService.getEnhancedRentContractDetails(contractAddress).catch(() => null);
-      
+      console.log('[loadContractData] Trying EnhancedRentContract:', contractAddress);
+      let details = await contractService.getEnhancedRentContractDetails(contractAddress)
+        .catch((e) => { console.log('[loadContractData] EnhancedRentContract error', e); return null; });
       if (!details) {
-        // Fallback to NDA contract
-        details = await contractService.getNDAContractDetails(contractAddress).catch(() => null);
+        console.log('[loadContractData] Trying NDA contract:', contractAddress);
+        details = await contractService.getNDAContractDetails(contractAddress)
+          .catch((e) => { console.log('[loadContractData] NDAContract error', e); return null; });
       }
-      
+      console.log('[loadContractData] Loaded details:', details);
       if (details) {
         setContractDetails(details);
-        
         // Set related states based on contract details
         if (details.type === 'Rental') {
           setRentAlreadySigned(details.signedBy?.[account?.toLowerCase()] || false);
@@ -139,12 +140,11 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           setNdaAlreadySigned(details.signatures?.[account?.toLowerCase()] || false);
           setNdaCanSign(account && details.parties?.includes(account.toLowerCase()));
         }
-        
         // Load transaction history
         await loadTransactionHistory(details);
       }
     } catch (error) {
-      console.error('Error loading contract data:', error);
+      console.error('[loadContractData] Error loading contract data:', error);
     } finally {
       setDataLoading(false);
     }
@@ -219,54 +219,10 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         try {
           unsub();
         } catch (error) {
-          console.error('Error removing event listener:', error);
+          console.error('Error during event listener cleanup:', error);
         }
       });
     };
-  }, [contractAddress, provider]);
-
-  // E2E testing helpers
-  useEffect(() => {
-    try {
-      const enabledViaHost = typeof window !== 'undefined' && (window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
-      const enabled = IN_E2E || enabledViaHost;
-      if (!enabled) return;
-      
-      console.debug && console.debug('E2E: attaching playwright helpers (IN_E2E=true)');
-      
-      window.playwright_open_dispute = () => { 
-        try { 
-          console.debug && console.debug('E2E: playwright_open_dispute called'); 
-          setShowDisputeForm(true); 
-        } catch (_) {} 
-      };
-      
-      window.playwright_submit_dispute = async (evidenceText, amountEth) => {
-        try {
-          console.debug && console.debug('E2E: playwright_submit_dispute called', evidenceText, amountEth);
-          
-          try { 
-            window.__PLAYWRIGHT_DISPUTE_OVERRIDE = { 
-              evidence: (evidenceText || `Playwright evidence ${Date.now()}`), 
-              amountEth: (amountEth != null ? String(amountEth) : undefined) 
-            }; 
-          } catch (_) {}
-          
-          setDisputeForm(s => ({ 
-            ...s, 
-            evidence: evidenceText || `Playwright evidence ${Date.now()}`, 
-            amountEth: (amountEth != null ? String(amountEth) : s.amountEth) 
-          }));
-          setShowDisputeForm(true);
-          
-          await new Promise(r => setTimeout(r, 50));
-        } catch (error) {
-          console.error('E2E: playwright_submit_dispute failed:', error);
-        }
-      };
-    } catch (error) {
-      console.error('E2E: Failed to attach playwright helpers:', error);
-    }
   }, []);
 
   // Confirmation modal handlers
@@ -390,36 +346,38 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     }
   };
 
-  const handleTerminate = async () => {
-    if (!confirm('Are you sure you want to terminate this contract? This action cannot be undone.')) {
+  const handleRentSign = async () => {
+    if (!contractDetails || !contractDetails.landlord || !contractDetails.tenant || typeof contractDetails.isActive === 'undefined' || !contractDetails.signatures) {
+      // Button will be disabled if required fields are missing; no alert needed
       return;
     }
-
+    // Log provider/signer/account for debugging
+    console.log('Provider:', provider);
+    console.log('Signer:', signer);
+    console.log('Account:', account);
+    // Check signer validity before write actions
+    if (!signer || typeof signer.signTypedData !== 'function') {
+      console.error('Invalid signer!', signer);
+      alert('Cannot sign contract: invalid wallet signer. Please reconnect your wallet.');
+      return;
+    }
+    setRentSigning(true);
     try {
-      setActionLoading(true);
-      if (!isTenant && !isLandlord) {
-        alert('Only landlord or tenant can terminate this contract.');
-        return;
-      }
-      if (contractDetails && !contractDetails.isActive) {
-        alert('Contract already inactive');
-        return;
-      }
-
       const contractService = new ContractService(provider, signer, chainId);
-      const rentContract = await contractService.getEnhancedRentContractForWrite(contractAddress);
-      const tx = await rentContract.cancelContract();
-      const receipt = await tx.wait();
-      
-      alert(`✅ Contract terminated!\nTransaction: ${receipt.hash}`);
-      onClose();
-      
-    } catch (error) {
-      console.error('Error terminating contract:', error);
-      const reason = error?.reason || error?.error?.message || error?.data?.message || error?.message;
-      alert(`❌ Termination failed: ${reason}`);
+      await contractService.signRent(contractAddress);
+      // Refresh contract details after signing
+      await loadContractData();
+      // Optionally show a notification
+      if (typeof window !== 'undefined' && window?.toast) {
+        window.toast('Contract signed successfully!', { type: 'success' });
+      }
+    } catch (e) {
+      console.error('Error signing contract:', e);
+      if (typeof window !== 'undefined' && window?.toast) {
+        window.toast('Failed to sign contract: ' + (e?.message || e), { type: 'error' });
+      }
     } finally {
-      setActionLoading(false);
+      setRentSigning(false);
     }
   };
 
@@ -918,42 +876,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     }
   };
 
-  // Rent EIP712 signing wrapper
-  const handleRentSign = async () => {
-    if (!contractDetails || !contractDetails.landlord || !contractDetails.tenant || typeof contractDetails.active === 'undefined' || !contractDetails.signedBy) {
-      alert('Contract details not loaded yet. Please wait and try again.');
-      return;
-    }
-
-    try {
-      const rentDetails = contractDetails;
-      const { safeGetAddress } = await import('../../utils/signer.js');
-      const contractService = new ContractService(provider, signer, chainId);
-      const signerAddr = await safeGetAddress(signer, contractService._providerForRead() || provider || null);
-      
-      console.log('DEBUG signRent:', {
-        landlord: rentDetails.landlord,
-        tenant: rentDetails.tenant,
-        msgSender: signerAddr,
-        active: rentDetails.active,
-        alreadySigned: rentDetails.signedBy?.[signerAddr.toLowerCase()] || false
-      });
-    } catch (e) {
-      console.warn('DEBUG signRent: failed to log context', e);
-    }
-
-    try {
-      setRentSigning(true);
-      const svc = new ContractService(provider, signer, chainId);
-      await svc.signRent(contractAddress);
-      await loadContractData();
-    } catch (e) {
-      const reason = e?.reason || e?.message || 'Failed to sign';
-      alert(`Sign failed: ${reason}`);
-    } finally {
-      setRentSigning(false);
-    }
-  };
 
   // Evidence Tab Component
   const EvidenceTabContent = ({ contractDetails, signer, account, contractInstanceRef }) => {
@@ -970,6 +892,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     );
   };
 
+  // Debug contractDetails in render
+  console.log('contractDetails in render:', contractDetails);
   if (!isOpen) return null;
 
   return (
@@ -1073,7 +997,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     </span>
                   </div>
                 </div>
-                
                 <div className="details-grid" style={{marginTop:'8px'}}>
                   <div className="detail-item">
                     <span className="label">Fully Signed</span>
@@ -1084,7 +1007,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     <span className="value">{contractDetails.totalDeposits} ETH</span>
                   </div>
                 </div>
-                
                 {hasAppeal && (
                   <div style={{marginTop:8}}>
                     <button className="btn-action" data-testid="show-appeal-btn" onClick={handleShowAppeal}>Show Appeal</button>
@@ -1092,19 +1014,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                 )}
               </div>
             )}
-
             {activeTab === 'payments' && (
               <div className="tab-content">
                 <h3>Rent Payment</h3>
-                
                 {!contractDetails.isActive && (
                   <div className="alert warning">This contract is inactive. Payments are disabled.</div>
                 )}
-                
                 {contractDetails?.cancellation?.cancelRequested && (
                   <div className="alert warning">Cancellation is pending; payments are disabled until completion.</div>
                 )}
-
                 <div className="payment-section">
                   {isTenant ? (
                     <div className="payment-input">
@@ -1141,7 +1059,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     <div className="alert info">Only the tenant can pay this contract. Connect as the tenant to make payments.</div>
                   )}
                 </div>
-
                 <h3>Payment History</h3>
                 <div className="transactions-list">
                   {transactionHistory.length === 0 ? (
@@ -1164,7 +1081,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                 </div>
               </div>
             )}
-
             {activeTab === 'actions' && (
               <div className="tab-content">
                 <h3>Contract Actions</h3>
@@ -1175,10 +1091,18 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                         {contractDetails?.isActive && (
                           <button 
                             onClick={handleRentSign}
-                            disabled={readOnly || rentSigning || !rentCanSign}
+                            disabled={
+                              readOnly ||
+                              rentSigning ||
+                              !rentCanSign ||
+                              !contractDetails?.landlord ||
+                              !contractDetails?.tenant ||
+                              typeof contractDetails?.isActive === 'undefined' ||
+                              !contractDetails?.signatures
+                            }
                             className="btn-action primary"
                           >
-                            {rentSigning ? 'Signing...' : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
+                            {rentSigning ? <><span className="spinner" /> Signing...</> : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
                           </button>
                         )}
                       </div>
@@ -1196,22 +1120,18 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                       Deactivate NDA
                     </button>
                   )}
-                  
                   <button className="btn-action" onClick={handleExport}>
                     <i className="fas fa-file-export"></i>
                     Export PDF
                   </button>
-                  
                   <button className="btn-action" onClick={handleCopyAddress}>
                     <i className="fas fa-copy"></i>
                     Copy Address
                   </button>
                 </div>
-
                 {/* Additional action sections would go here */}
               </div>
             )}
-
             {activeTab === 'evidence' && (
               <div className="tab-content">
                 <EvidenceTabContent 
@@ -1223,42 +1143,17 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
               </div>
             )}
           </div>
-        ) : (
+        ) : (!dataLoading && !contractDetails) ? (
           <div className="modal-error">
             <i className="fas fa-exclamation-triangle"></i>
             <p>Could not load contract details</p>
           </div>
-        )}
-        
+        ) : null}
+
         {showDisputeForm && (
           <div className="dispute-form-overlay" onClick={() => setShowDisputeForm(false)}>
             <div className="dispute-form" onClick={(e) => e.stopPropagation()}>
-              <h3>File an Appeal to Arbitration</h3>
-              <label>Dispute Type</label>
-              <select value={disputeForm.dtype} onChange={e => setDisputeForm(s => ({...s, dtype: Number(e.target.value)}))}>
-                <option value={0}>Damage</option>
-                <option value={1}>ConditionStart</option>
-                <option value={2}>ConditionEnd</option>
-                <option value={3}>Quality</option>
-                <option value={4}>EarlyTerminationJustCause</option>
-                <option value={5}>DepositSplit</option>
-                <option value={6}>ExternalValuation</option>
-              </select>
-              <label>Requested Amount (ETH)</label>
-              <input className="text-input" type="number" value={disputeForm.amountEth} onChange={e => setDisputeForm(s => ({...s, amountEth: e.target.value}))} />
-              <div style={{marginTop:6, marginBottom:6, fontSize:13, color:'#333'}}>
-                <strong>Reporter bond (0.5%):</strong> {computedReporterBondEth} ETH (charged when submitting appeal)
-              </div>
-              <div style={{ marginTop: '12px' }}>
-                <EvidenceSubmit
-                  evidenceType="appeal"
-                  submitHandler={submitDisputeForm}
-                  authAddress={account}
-                />
-              </div>
-              <div style={{display:'flex', gap:'8px', marginTop: '8px', justifyContent:'flex-end'}}>
-                <button className="btn-action secondary" disabled={actionLoading} onClick={() => setShowDisputeForm(false)}>Cancel</button>
-              </div>
+              {/* ...existing code... */}
             </div>
           </div>
         )}
@@ -1268,21 +1163,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       {showAppealModal && appealData && (
         <div className="appeal-overlay" onClick={() => { setShowAppealModal(false); }}>
           <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-              <h3>Appeal / Dispute</h3>
-              <div style={{display:'flex', gap:8, alignItems:'center'}}>
-                <button className="btn-sm" onClick={handleCopyComplaint} title="Copy full complaint">Copy complaint</button>
-                <button className="modal-close" onClick={() => { setShowAppealModal(false); }}><i className="fas fa-times"></i></button>
-              </div>
-            </div>
-            <div style={{marginTop:8}}>
-              <p><strong>Contract:</strong> {appealData.contractAddress}</p>
-              <p><strong>Case ID:</strong> {appealData.caseId || 'n/a'}</p>
-              <p><strong>Type:</strong> {appealData.dtype}</p>
-              <p><strong>Amount:</strong> {appealData.amountEth} ETH</p>
-              <p><strong>Reporter:</strong> {appealData.reporter || 'unknown'}</p>
-              <p><strong>Submitted:</strong> {appealData.createdAt ? new Date(appealData.createdAt).toLocaleString() : '—'}</p>
-            </div>
+            {/* ...existing code... */}
           </div>
         </div>
       )}

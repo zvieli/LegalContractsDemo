@@ -41,15 +41,33 @@ export function EthersProvider({ children }) {
 
         if (accounts[0]) setIsConnected(true);
 
+        // Always await getSigner so signer is not a Promise
+        if (accounts[0]) {
+          const signerObj = await web3Provider.getSigner(accounts[0]);
+          setSigner(signerObj);
+        } else {
+          setSigner(null);
+        }
+
         // Listen for account/network changes
         if (window.ethereum.on) {
-          window.ethereum.on('accountsChanged', (accs) => {
+          window.ethereum.on('accountsChanged', async (accs) => {
             setAccount(accs[0] || null);
             setIsConnected(!!accs[0]);
+            if (accs[0]) {
+              const signerObj = await web3Provider.getSigner(accs[0]);
+              setSigner(signerObj);
+            } else {
+              setSigner(null);
+            }
           });
           window.ethereum.on('chainChanged', async () => {
-            const newNet = await provider.getNetwork();
-            setChainId(Number(newNet.chainId));
+            if (provider && typeof provider.getNetwork === 'function') {
+              const newNet = await provider.getNetwork();
+              setChainId(Number(newNet.chainId));
+            } else {
+              setChainId(null);
+            }
           });
         }
 
@@ -87,12 +105,13 @@ export function EthersProvider({ children }) {
       // reflects the MetaMask-selected account. For read fallbacks on
       // localhost, ContractService will use a direct JsonRpcProvider.
       const net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
-      setProvider(web3Provider);
-      setAccount(acc);
-      const newSigner = web3Provider.getSigner(acc);
-      setSigner(newSigner);
-      if (net && net.chainId) setChainId(Number(net.chainId));
-      setIsConnected(true);
+  setProvider(web3Provider);
+  setAccount(acc);
+  // Always await getSigner so signer is not a Promise
+  const signerObj = await web3Provider.getSigner(acc);
+  setSigner(signerObj);
+  if (net && net.chainId) setChainId(Number(net.chainId));
+  setIsConnected(true);
     } catch (err) {
       console.error('[EthersContext] connectWallet failed:', err);
       try { alert('Failed to connect wallet: ' + (err?.message || String(err))); } catch (_) {}
@@ -111,11 +130,13 @@ export function EthersProvider({ children }) {
       const acc = accounts && accounts[0];
       if (acc) {
         const net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
-        setProvider(web3Provider);
-        setAccount(acc);
-        setSigner(web3Provider.getSigner(acc));
-        if (net && net.chainId) setChainId(Number(net.chainId));
-        setIsConnected(true);
+  setProvider(web3Provider);
+  setAccount(acc);
+  // Always await getSigner so signer is not a Promise
+  const signerObj = await web3Provider.getSigner(acc);
+  setSigner(signerObj);
+  if (net && net.chainId) setChainId(Number(net.chainId));
+  setIsConnected(true);
       } else {
         setSigner(null);
         setAccount(null);
@@ -141,14 +162,21 @@ export function EthersProvider({ children }) {
       setSigner(null);
       return;
     }
-    try {
-      const newSigner = provider.getSigner(account);
-      setSigner(newSigner);
-      console.log('[EthersContext] Signer created:', account);
-    } catch (err) {
-      console.error('[EthersContext] Failed to create signer:', err);
-      setSigner(null);
-    }
+    (async () => {
+      try {
+        if (!provider || !account) {
+          setSigner(null);
+          return;
+        }
+        // Always await getSigner so signer is not a Promise
+        const newSigner = await provider.getSigner(account);
+        setSigner(newSigner);
+        console.log('[EthersContext] Signer created:', account);
+      } catch (err) {
+        console.error('[EthersContext] Failed to create signer:', err);
+        setSigner(null);
+      }
+    })();
   }, [provider, account]);
 
   const disconnectWallet = () => {
