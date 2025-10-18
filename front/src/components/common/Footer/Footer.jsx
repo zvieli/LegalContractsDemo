@@ -5,13 +5,14 @@ import { ContractService } from '../../../services/contractService';
 
 function Footer() {
   const currentYear = new Date().getFullYear();
-  const { account, signer, chainId } = useEthers();
+  const { account, signer, chainId, provider } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     async function checkAdmin() {
       try {
         if (!account || !signer || !chainId) { setIsAdmin(false); return; }
-        const contractService = new ContractService(signer, chainId);
+  const { provider } = require('../../contexts/EthersContext').useEthers();
+  const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }

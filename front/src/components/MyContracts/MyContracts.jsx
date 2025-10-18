@@ -37,7 +37,10 @@ export default function MyContracts() {
 
           setV7Loading(true);
         try {
-          const addr = await signer.getAddress();
+          const { safeGetAddress } = await import('../../utils/signer.js');
+          const contractService = new ContractService(provider, signer, chainId);
+          const readProvider = contractService._providerForRead() || provider || null;
+          const addr = await safeGetAddress(signer, readProvider || contractService);
           const requests = await v7Service.getArbitrationRequestsByUser(addr);
           setV7ArbitrationRequests(requests || []);
         } catch (error) {

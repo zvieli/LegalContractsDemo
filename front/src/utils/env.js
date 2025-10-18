@@ -1,3 +1,5 @@
+import process from 'process';
+
 // Environment helper utilities
 export function isProduction() {
   try {

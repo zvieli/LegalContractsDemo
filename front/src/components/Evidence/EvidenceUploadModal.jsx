@@ -4,6 +4,7 @@ import { canonicalize, computeCidDigest, computeContentDigest } from '../../util
 import { computeEvidenceLeaf, verifyMerkleProof } from '../../utils/merkleHelper.js';
 import { BatchHelper } from '../../utils/batchHelper.js';
 import { buildEncryptedEnvelope, signEvidenceEIP712, hashRecipients } from '../../utils/evidence.js';
+import { safeGetAddress } from '../../utils/signer.js';
 import { listRecipients } from '../../utils/recipientKeys.js';
 import { addJson } from '../../utils/heliaClient.js';
 import * as ethers from 'ethers';
@@ -37,9 +38,11 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
     setError(null);
     setEncryptionFallback(false);
     try {
-      if (!signer) throw new Error('Signer required to build evidence preview');
-      const addr = await signer.getAddress();
-      const net = await signer.provider.getNetwork();
+  if (!signer) throw new Error('Signer required to build evidence preview');
+  const contractService = new ContractService(provider, signer, chainId);
+  const readProvider = contractService._providerForRead() || provider || null;
+  const addr = await safeGetAddress(signer, readProvider || contractService);
+  const net = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
       const verifyingContract = contract ? contract.target : ethers.ZeroAddress;
       const base = makeBaseObject(addr, Number(net.chainId), verifyingContract);
       const canon = canonicalize(base);
@@ -79,7 +82,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
     if (!signer) return;
     if (!preview) return;
     try {
-      const chain = await signer.provider.getNetwork();
+  const chain = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
       const evidenceData = {
         caseId: caseId,
         contentDigest: preview.contentDigest,
@@ -154,8 +157,8 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       // Try new secure method first
       let tx;
       if (typeof contract.submitEvidenceWithSignature === 'function') {
-        // Re-sign with actual CID
-        const chain = await signer.provider.getNetwork();
+  // Re-sign with actual CID
+  const chain = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
         const evidenceData = {
           caseId: caseId,
           contentDigest: preview.contentDigest,

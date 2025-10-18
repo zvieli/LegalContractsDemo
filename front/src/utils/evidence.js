@@ -1,4 +1,7 @@
 import * as ethers from 'ethers';
+import { Buffer } from 'buffer';
+import process from 'process';
+import { safeGetAddress } from './signer.js';
 import { computeCidDigest, computeContentDigest, canonicalize } from './evidenceCanonical.js';
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
 import { IN_E2E } from './env.js';
@@ -209,7 +212,9 @@ export async function signEvidenceEIP712(evidenceData, contractInfo, signer) {
   };
   
   // Get uploader address
-  const uploader = await signer.getAddress();
+  const contractService = new ContractService(provider, signer, chainId);
+  const readProvider = contractService._providerForRead() || provider || null;
+  const uploader = await safeGetAddress(signer, readProvider || contractService);
   
   // Evidence message
   const message = {

@@ -5,13 +5,16 @@ import './CreateChoice.css';
 
 function CreateChoice() {
   const [selected, setSelected] = useState(null);
-  const { account, signer, chainId } = useEthers();
+  const { account, signer, chainId, provider } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     async function checkAdmin() {
+      if (!provider || !signer || !chainId || !account) {
+        setIsAdmin(false);
+        return;
+      }
       try {
-        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
-        const contractService = new ContractService(signer, chainId);
+  const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }
@@ -19,7 +22,10 @@ function CreateChoice() {
       } catch { setIsAdmin(false); }
     }
     checkAdmin();
-  }, [account, signer, chainId]);
+  }, [provider, signer, chainId, account]);
+  if (loading || !provider || !signer || !chainId || !account) {
+    return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
+  }
 
   const contractTypes = [
     {

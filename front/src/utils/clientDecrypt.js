@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { Buffer } from 'buffer';
+import process from 'process';
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
 
 function aesDecryptUtf8(ciphertextBase64, ivBase64, tagBase64, symKeyBuffer) {

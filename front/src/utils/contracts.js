@@ -205,6 +205,37 @@ export const createContractInstance = (contractName, address, signerOrProvider) 
   if (!address || typeof address !== 'string' || !ethers.isAddress(address)) {
     throw new Error(`createContractInstance: invalid contract address provided for ${contractName}: ${String(address)}`);
   }
+  // Defensive: if caller passed a signer-like object without an attached provider,
+  // prefer to create the contract with a provider for read-only calls and event
+  // listeners to avoid UNSUPPORTED_OPERATION from signer-only runners.
+  try {
+    const isSignerLike = signerOrProvider && typeof signerOrProvider === 'object' && (typeof signerOrProvider.getAddress === 'function' || signerOrProvider._isSigner);
+    const hasProvider = signerOrProvider && signerOrProvider.provider;
+    if (isSignerLike && !hasProvider) {
+      console.warn('[contracts.js] createContractInstance: runner is a signer without provider — falling back to global or inferred provider for read/event calls.');
+      // Try derive a provider from window.__APP_ETHERS__ or a global JsonRpcProvider
+      let fallbackProvider = null;
+      try {
+        if (typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) fallbackProvider = window.__APP_ETHERS__.provider;
+      } catch (e) {}
+      try {
+        if (!fallbackProvider && typeof window !== 'undefined' && window.ethereum) {
+          // Use BrowserProvider around injected provider so we get a provider instance
+          fallbackProvider = new ethers.BrowserProvider(window.ethereum);
+        }
+      } catch (e) {}
+      // As last resort, prefer a localhost JSON-RPC provider if present
+      try {
+        if (!fallbackProvider) fallbackProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      } catch (e) {}
+
+      if (fallbackProvider) return new ethers.Contract(address, abi, fallbackProvider);
+      // If we couldn't obtain a fallback provider, still create contract with the original runner
+      console.warn('[contracts.js] createContractInstance: no fallback provider available; returning contract bound to signer-only runner');
+    }
+  } catch (e) {
+    // swallow and proceed to normal creation
+  }
   return new ethers.Contract(address, abi, signerOrProvider);
 };
 
@@ -230,8 +261,53 @@ export const createContractInstanceAsync = async (contractName, address, signerO
   if (!address || typeof address !== 'string' || !ethers.isAddress(address)) {
     throw new Error(`createContractInstanceAsync: invalid contract address provided for ${contractName}: ${String(address)}`);
   }
-  
-  // Always use the passed signer for contract creation, even on localhost
-  // Only use local provider for explicit read-only calls (not here)
+  // Defensive: if signer-only runner passed, try to prefer a provider-backed instance
+  try {
+    const isSignerLike = signerOrProvider && typeof signerOrProvider === 'object' && (typeof signerOrProvider.getAddress === 'function' || signerOrProvider._isSigner);
+    const hasProvider = signerOrProvider && signerOrProvider.provider;
+    if (isSignerLike && !hasProvider) {
+      console.warn('[contracts.js] createContractInstanceAsync: runner is a signer without provider — attempting to derive an equivalent provider-attached signer.');
+      let fallbackProvider = null;
+      try {
+        if (typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) fallbackProvider = window.__APP_ETHERS__.provider;
+      } catch (e) {}
+      try {
+        if (!fallbackProvider && typeof window !== 'undefined' && window.ethereum) {
+          fallbackProvider = new ethers.BrowserProvider(window.ethereum);
+        }
+      } catch (e) {}
+      try {
+        if (!fallbackProvider) fallbackProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      } catch (e) {}
+
+      // If we were able to pick a fallback provider, try to derive the signer's address
+      // and create a signer attached to the fallback provider so contract can send txs.
+      if (fallbackProvider) {
+        try {
+          let addr = null;
+          if (typeof signerOrProvider.getAddress === 'function') {
+            try { addr = await signerOrProvider.getAddress(); } catch (_) { addr = null; }
+          }
+          // Fallback: some signer objects expose `_address` or `address`
+          if (!addr && signerOrProvider && typeof signerOrProvider === 'object') {
+            addr = signerOrProvider._address || signerOrProvider.address || null;
+          }
+          if (addr) {
+            try {
+              const realSigner = await fallbackProvider.getSigner(addr);
+              return new ethers.Contract(address, abi, realSigner);
+            } catch (e) {
+              // if we couldn't getSigner for the address, fall back to provider-only contract
+            }
+          }
+        } catch (e) {
+          // ignore and fall back to provider-only
+        }
+        // Provider-only fallback (read/event capable)
+        return new ethers.Contract(address, abi, fallbackProvider);
+      }
+      console.warn('[contracts.js] createContractInstanceAsync: no fallback provider available; returning contract bound to signer-only runner');
+    }
+  } catch (e) {}
   return new ethers.Contract(address, abi, signerOrProvider);
 };

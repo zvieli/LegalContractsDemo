@@ -6,13 +6,19 @@ import './CreateRent.css';
 import '../../styles/notAllowed.css';
 
 function CreateRent() {
-  const { account, signer, isConnected, chainId, connectWallet, setLatestContractAddress, addContract } = useEthers();
+  const { account, signer, chainId, provider, isConnected, loading, connectWallet, setLoading, setLatestContractAddress, addContract } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
+  // Canonical read provider for read-only calls (prefer explicit JsonRpcProvider for localhost)
+  const contractService = new ContractService(provider, signer, chainId);
+  const readProvider = contractService._providerForRead() || provider || null;
   useEffect(() => {
     async function checkAdmin() {
+      if (!provider || !signer || !chainId || !account) {
+        setIsAdmin(false);
+        return;
+      }
       try {
-        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
-        const contractService = new ContractService(signer, chainId);
+  const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }
@@ -20,8 +26,8 @@ function CreateRent() {
       } catch { setIsAdmin(false); }
     }
     checkAdmin();
-  }, [account, signer, chainId]);
-  const [loading, setLoading] = useState(false);
+  }, [provider, signer, chainId, account]);
+  
   // Canonical ETH/USD feed addresses (Chainlink)
   const FEEDS = {
     mainnet: '0x5f4eC3Df9cbd43714FE2740f5E3616155C5b8419',
@@ -38,6 +44,8 @@ function CreateRent() {
     network: 'localhost' // Default to localhost for developer workflows
   });
   const [createdContractAddress, setCreatedContractAddress] = useState('');
+
+  
 
   const resolveSelectedNetworkChainId = () => {
     switch (formData.network) {
@@ -73,9 +81,9 @@ function CreateRent() {
   // Manual feed detection helper (user-invoked)
   async function manualDetectFeed() {
     try {
-      if (!signer) return;
+      if (!readProvider) return;
       if (formData.network === 'localhost') {
-        const code = await signer.provider.getCode(FEEDS.mainnet).catch(() => '0x');
+        const code = await readProvider.getCode(FEEDS.mainnet).catch(() => '0x');
         if (code && code !== '0x') {
           setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
           alert('Detected mainnet ETH/USD feed on local fork and applied it.');
@@ -97,7 +105,7 @@ function CreateRent() {
     const start = Date.now();
     while (Date.now() - start < maxWaitMs) {
       try {
-        const net = await signer?.provider?.getNetwork();
+        const net = await (readProvider && readProvider.getNetwork ? readProvider.getNetwork() : null);
         if (net && Number(net.chainId) === Number(expectedChainId)) return true;
       } catch (e) {
         const msg = String(e?.message || '');
@@ -112,16 +120,18 @@ function CreateRent() {
 
   const handleCreateContract = async (e) => {
     e.preventDefault();
-
-
     // Ensure signer is a valid signer, not just a provider
-    if (!isConnected || !account || !signer || typeof signer.getAddress !== 'function') {
+    // Use safeGetAddress helper to tolerate BrowserProvider signers
+  const { safeGetAddress } = await import('../../utils/signer.js');
+  const addrCheck = await safeGetAddress(signer, readProvider || null);
+    if (!isConnected || !account || !signer || !addrCheck) {
       alert('Please connect your wallet first.');
       if (typeof connectWallet === 'function') {
         await connectWallet();
       }
       // Try to re-fetch signer after connection
-      if (!signer || typeof signer.getAddress !== 'function') {
+  const recheck = await safeGetAddress(signer, contractService._providerForRead() || provider || null);
+      if (!signer || !recheck) {
         alert('Wallet signer not available. Please reload the page or reconnect your wallet.');
         return;
       }
@@ -195,8 +205,8 @@ function CreateRent() {
       const stable = await ensureStableNetwork(expectedChainId, 6000);
       if (!stable) {
         try {
-          const providerNetwork = await signer.provider.getNetwork();
-          alert(`Provider network still unstable or mismatched (expected ${expectedChainId}, got ${providerNetwork.chainId}). Please retry after your wallet finishes switching.`);
+          const providerNetwork = await (readProvider && readProvider.getNetwork ? readProvider.getNetwork() : null);
+            alert(`Provider network still unstable or mismatched (expected ${expectedChainId}, got ${providerNetwork?.chainId}). Please retry after your wallet finishes switching.`);
         } catch (_) {
           alert('Provider network not ready. Please retry in a moment.');
         }
@@ -209,7 +219,7 @@ function CreateRent() {
         setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
       }
 
-      const contractService = new ContractService(signer, expectedChainId); // ✅ Use expectedChainId
+      const contractService = new ContractService(provider, signer, expectedChainId); // ✅ Use expectedChainId
 
       // Normalize priceFeed to EIP-55 checksum only for mainnet; skip for localhost/fork
       let priceFeedAddress = formData.priceFeed;
@@ -282,6 +292,10 @@ function CreateRent() {
         </div>
       </div>
     );
+  }
+
+  if (loading || !provider || !signer || !chainId || !account) {
+    return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
   }
 
   return (

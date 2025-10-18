@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Buffer } from 'buffer';
 import './AppealForm.css';
 import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
 import { useEthers } from '../../contexts/EthersContext';
@@ -115,7 +116,10 @@ export default function AppealForm({ contractAddress, disputeId, contractName = 
         ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
       }
 
-      const submitterAddress = signer ? await signer.getAddress().catch(() => null) : null;
+  const { safeGetAddress } = await import('../../utils/signer.js');
+  const contractService = new ContractService(provider, signer, chainId);
+  const readProvider = contractService._providerForRead() || provider || null;
+  const submitterAddress = signer ? await safeGetAddress(signer, readProvider || contractService) : null;
       const submitBody = { ciphertext: ciphertextToSend, digest };
       let submitResp;
       try {

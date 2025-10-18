@@ -1,4 +1,5 @@
 import * as secp from '@noble/secp256k1';
+import { Buffer } from 'buffer';
 
 function strip0x(s) { if (!s && s !== 0) return s; let t = String(s).trim(); if (t.startsWith('0x')) t = t.slice(2); return t; }
 

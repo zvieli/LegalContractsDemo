@@ -42,8 +42,8 @@ function EvidencePanel({ initialEvidenceRef }) {
   );
 }
 
-function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onResolved }) {
-  const { contracts: globalContracts } = useEthers();
+function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
+  const { account, signer, chainId, provider, contracts: globalContracts } = useEthers();
   // Resolve contract address: prefer prop, else latest/first from globalContracts
   const resolvedAddress = contractAddress || (Array.isArray(globalContracts) && globalContracts.length > 0 ? globalContracts[globalContracts.length - 1] : null);
   const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
@@ -93,7 +93,8 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
   const refreshDisputeState = async () => {
     try {
       if (!resolvedAddress || !signer) return;
-      const svc = new ContractService(signer, chainId);
+  const { provider } = require('../../contexts/EthersContext').useEthers();
+  const svc = new ContractService(provider, signer, chainId);
       const rent = await svc.getRentContract(resolvedAddress);
       const count = Number(await rent.getDisputesCount().catch(() => 0));
       if (count > 0) {
@@ -132,7 +133,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
     (async () => {
       try {
   if (!isOpen || !resolvedAddress || !signer) return;
-  const svc = new ContractService(signer, chainId);
+  const svc = new ContractService(provider, signer, chainId);
   const ok = await svc.isAuthorizedArbitratorForContract(resolvedAddress).catch(() => false);
         if (mounted) setIsAuthorizedArbitrator(!!ok);
       } catch (e) {
@@ -236,7 +237,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
         }
       }
 
-      const svc = new ContractService(signer, chainId);
+        const svc = new ContractService(provider, signer, chainId);
       // For cancellation flow we finalize via service; fee is 0 here.
       // Decision semantics: approve => finalize cancellation, deny => do nothing on-chain
   if (decision === 'approve') {
@@ -260,7 +261,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
           // If we detected a dispute (non-cancellation) and it requests an amount,
           // use the ContractService helper to apply the resolution to the target
           // and transfer the requested amount to the initiator (beneficiary).
-          const svc2 = new ContractService(signer, chainId);
+          const svc2 = new ContractService(provider, signer, chainId);
           // Authorization preflight: ensure connected signer is owner or factory allowed by ArbitrationService
           try {
             // create instance via ContractService helper
@@ -270,10 +271,14 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
             // Instead of relying on target, create a direct ArbitrationService contract to read owner/factory
               try {
                 // Use the frontend static ABI helper to create the contract instance (avoids dynamic ABI imports)
-                const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, signer.provider || signer);
+                const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, provider || signer);
                 const ownerAddr = await arbRead.factoryOwner().catch(() => null);
                 const factoryAddr = await arbRead.factory().catch(() => null);
-                const me = (await signer.getAddress?.()).toLowerCase();
+                const { safeGetAddress } = await import('../../utils/signer.js');
+                const contractService = new ContractService(provider, signer, chainId);
+                const readProvider = contractService._providerForRead() || provider || null;
+                const rawMe = await safeGetAddress(signer, readProvider || contractService);
+                const me = rawMe ? rawMe.toLowerCase() : '';
                 const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
                 if (!allowed) {
                   throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
@@ -306,7 +311,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
 
           // After on-chain confirmation, attempt to read the canonical on-chain rationale via getDisputeMeta
           try {
-            const svc3 = new ContractService(signer, chainId);
+            const svc3 = new ContractService(provider, signer, chainId);
             let onChainMeta = null;
             try {
               if (disputeInfo && typeof disputeInfo.caseId !== 'undefined' && disputeInfo.caseId !== null) {
@@ -464,7 +469,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, signer, chainId, onRes
                         setDepositConfirmAction(() => async () => {
                           try {
                             setDepositConfirmBusy(true);
-                            const svc = new ContractService(signer, chainId);
+                            const svc = new ContractService(provider, signer, chainId);
                             await svc.depositForCase(contractAddress, disputeInfo.caseId, amtWei);
                             alert('Deposit submitted for case');
                             // refresh parent contract data to update payment history and hide deposit input

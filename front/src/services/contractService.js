@@ -205,9 +205,139 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
 import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 
 export class ContractService {
-  constructor(signer, chainId) {
-    this.signer = signer;
-    this.chainId = chainId;
+  /**
+   * Constructor is flexible to accept either:
+   *   new ContractService(provider, signer, chainId)
+   * or
+   *   new ContractService(signer, chainId, { provider })
+   * or
+   *   new ContractService(signer, chainId)
+   * The constructor normalizes inputs to this.provider, this.signer, this.chainId.
+   */
+  constructor(a, b, c) {
+    // Normalize arguments
+    let provider = null;
+    let signer = null;
+    let chainId = null;
+    let opts = {};
+
+    // Case: (provider, signer, chainId)
+    if (a && typeof a.getBlockNumber === 'function') {
+      provider = a;
+      signer = b || null;
+      chainId = c || null;
+    } else {
+      // Case: (signer, chainId, opts?) or (signer, chainId)
+      signer = a || null;
+      chainId = b || null;
+      opts = c || {};
+      if (opts.provider) provider = opts.provider;
+    }
+
+  // NOTE: do NOT derive provider automatically from signer here.
+  // Deriving a provider from a signer can produce an injected BrowserProvider
+  // that is routed to a remote RPC (e.g. Alchemy) or may be missing in some
+  // signer-like objects. Favor an explicit provider passed into the
+  // constructor. For local development we fall back to a direct JSON-RPC
+  // provider when needed inside _providerForRead().
+
+    // Last-resort fallback: read from global debug handle if available
+    try {
+      if (!provider && typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) {
+        provider = window.__APP_ETHERS__.provider;
+        console.debug('[ContractService] provider derived from window.__APP_ETHERS__');
+      }
+      if (!signer && typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.signer) {
+        signer = window.__APP_ETHERS__.signer;
+        console.debug('[ContractService] signer derived from window.__APP_ETHERS__');
+      }
+      if (!chainId && typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.chainId) {
+        chainId = window.__APP_ETHERS__.chainId;
+        console.debug('[ContractService] chainId derived from window.__APP_ETHERS__');
+      }
+    } catch (e) {
+      // noop
+    }
+
+    // Final assignment
+    this.provider = provider || null;
+    this.signer = signer || null;
+    this.chainId = chainId || null;
+
+    // Helper: detect signer-like objects
+    this._isSignerLike = (obj) => {
+      if (!obj) return false;
+      if (typeof obj.getAddress === 'function') return true;
+      // Ethers BrowserProvider.getSigner returns objects with 'provider' and 'getAddress'
+      if (obj.provider && typeof obj === 'object' && typeof obj === 'object') return !!obj.provider;
+      return false;
+    };
+
+    // Helper: return a provider usable for read-only calls. Prefer explicit this.provider.
+    // If no explicit provider is available and we're on a local/dev chain, return a
+    // direct JsonRpcProvider pointed at the common localhost URL. Do NOT return
+    // signer.provider here — that keeps read semantics provider-first and avoids
+    // accidental routing of local reads to remote RPCs when the injected signer
+    // is backed by a third-party provider.
+    this._providerForRead = () => {
+      if (this.provider) return this.provider;
+      const chainNum = Number(this.chainId);
+      const isLocal = chainNum === 31337 || chainNum === 1337 || chainNum === 5777;
+      if (isLocal) {
+        try {
+          return new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+        } catch (e) {
+          return null;
+        }
+      }
+      return null;
+    };
+
+    // Helper: safely get signer address when signer-like
+    this._getSignerAddressSafe = async () => {
+      try {
+        if (!this.signer) return null;
+        try {
+          const { safeGetAddress } = await import('../utils/signer.js');
+          const p = this._providerForRead();
+          return await safeGetAddress(this.signer, p);
+        } catch (e) {
+          // Fallback: attempt the older style checks
+          if (typeof this.signer.getAddress === 'function') {
+            return await this.signer.getAddress().catch(() => null);
+          }
+          const p = this._providerForRead();
+          if (p && typeof p.getSigner === 'function') {
+            try {
+              const s = await p.getSigner();
+              if (s && typeof s.getAddress === 'function') return await s.getAddress().catch(() => null);
+            } catch (_) {}
+          }
+          return null;
+        }
+      } catch (e) {
+        return null;
+      }
+    };
+
+  if (!this.provider) console.warn('[ContractService] Warning: provider is undefined after normalization');
+  if (!this.signer) console.warn('[ContractService] Warning: signer is undefined after normalization');
+  if (!this.chainId) console.warn('[ContractService] Warning: chainId is undefined after normalization');
+
+    // Debug info (async to avoid blocking constructor)
+    (async () => {
+      try {
+        console.log('[ContractService] provider URL:', this.provider?.connection?.url || this.provider);
+        try {
+          const addr = await this._getSignerAddressSafe();
+          console.log('[ContractService] signer address:', addr);
+        } catch (inner) {
+          console.log('[ContractService] signer address: <unavailable>', inner);
+        }
+      } catch (e) {
+        console.warn('[ContractService] signer debug error', e);
+      }
+    })();
   }
 
   /**
@@ -240,7 +370,7 @@ export class ContractService {
       if (endpointUrl.endsWith('/')) endpointUrl = endpointUrl.slice(0, -1);
       if (!endpointUrl.toLowerCase().endsWith('/submit-evidence')) endpointUrl = endpointUrl + '/submit-evidence';
 
-      const submitterAddress = await this.signer?.getAddress?.().catch(() => null);
+  const submitterAddress = await this._getSignerAddressSafe();
       const requestHeaders = { 'Content-Type': 'application/json' };
       if (submitterAddress) requestHeaders.Authorization = `Bearer ${submitterAddress}`;
 
@@ -295,7 +425,7 @@ export class ContractService {
       if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return '0x';
       addr = address; // keep as-is
     }
-    const primary = this.signer.provider;
+  const primary = this.provider;
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -357,7 +487,9 @@ export class ContractService {
     if (!factoryAddress) {
       throw new Error('Factory contract not deployed on this network');
     }
-    const contract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
+    // Prefer provider-backed factory for read operations; signer is only required for writes
+    const p = this._providerForRead();
+    const contract = await createContractInstanceAsync('ContractFactory', factoryAddress, p || this.signer);
     // Lightweight sanity check to catch wrong/stale addresses on localhost
     const code = await this.getCodeSafe(factoryAddress);
   // console.log(`[DEBUG] getFactoryContract: getCodeSafe for factoryAddress ${factoryAddress} returned:`, code); // TEMP: silenced for production
@@ -390,7 +522,12 @@ export class ContractService {
       // exist on the current network). We must not swallow this error.
       let net;
       try {
-        net = await this.signer.provider.getNetwork();
+        const p = this._providerForRead();
+        if (p && typeof p.getNetwork === 'function') {
+          net = await p.getNetwork();
+        } else {
+          console.warn('Could not determine provider network: no provider available');
+        }
       } catch (err) {
         console.warn('Could not determine provider network:', err);
       }
@@ -410,9 +547,10 @@ export class ContractService {
           bal = await this.signer.getBalance();
         } else {
           try {
-            const addr = await this.signer.getAddress().catch(() => null);
-            if (addr && this.signer.provider && typeof this.signer.provider.getBalance === 'function') {
-              bal = await this.signer.provider.getBalance(addr);
+            const addr = await this._getSignerAddressSafe();
+              const p = this._providerForRead();
+              if (addr && p && typeof p.getBalance === 'function') {
+                bal = await p.getBalance(addr);
             }
           } catch (inner) {
             // ignore and let outer catch handle
@@ -478,7 +616,7 @@ export class ContractService {
 
       // Extra diagnostics to help debug provider errors (network/account/address mismatches)
       try {
-        const signerAddr = await this.signer.getAddress().catch(() => null);
+  const signerAddr = await this._getSignerAddressSafe();
         const factoryAddr = factoryContract.target || factoryContract.address || null;
   console.debug('Preparing factory.createEnhancedRentContract', { factoryAddr: factoryContract.target || factoryContract.address, signerAddr, expectedChainId: this.chainId });
 
@@ -642,9 +780,27 @@ export class ContractService {
   console.warn('getEnhancedRentContract called with invalid contractAddress:', contractAddress);
         return null;
       }
-  return await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+  // Prefer a provider-backed contract for read-only operations and event listeners.
+  const p = this._providerForRead();
+  const runner = p || this.signer;
+  return await createContractInstanceAsync('EnhancedRentContract', contractAddress, runner);
     } catch (error) {
       console.error('Error getting rent contract:', error);
+      throw error;
+    }
+  }
+
+  // Create a signer-attached EnhancedRentContract specifically for sending transactions
+  async getEnhancedRentContractForWrite(contractAddress) {
+    try {
+      if (!contractAddress || typeof contractAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
+        console.warn('getEnhancedRentContractForWrite called with invalid contractAddress:', contractAddress);
+        return null;
+      }
+      if (!this.signer) throw new Error('No signer available for write operations');
+      return await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+    } catch (error) {
+      console.error('Error getting rent contract for write:', error);
       throw error;
     }
   }
@@ -652,7 +808,7 @@ export class ContractService {
   // Withdraw any pull-payments credited to caller on a Rent contract
   async withdrawRentPayments(contractAddress) {
     try {
-      const rentContract = await this.getEnhancedRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContractForWrite(contractAddress);
       const tx = await rentContract.withdrawPayments();
       const receipt = await tx.wait();
       return receipt;
@@ -712,9 +868,10 @@ export class ContractService {
     } catch (e) {
       try {
         // fallback: low-level call decode
-  const rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
-        const data = rent.interface.encodeFunctionData('getDisputeMeta', [Number(caseId)]);
-        const ret = await this.signer.provider.call({ to: contractAddress, data });
+  const pFallback = this._providerForRead();
+  const rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, pFallback || this.signer);
+    const data = rent.interface.encodeFunctionData('getDisputeMeta', [Number(caseId)]);
+  const ret = pFallback && typeof pFallback.call === 'function' ? await pFallback.call({ to: contractAddress, data }) : null;
         const decoded = rent.interface.decodeFunctionResult('getDisputeMeta', ret);
         return { classification: decoded[0] || '', rationale: decoded[1] || '' };
       } catch (err) {
@@ -728,7 +885,8 @@ export class ContractService {
     const { silent = false } = options || {};
     try {
       // Ensure the address is a contract before calling views
-      const code = await this.signer.provider.getCode(contractAddress);
+  const p2 = this._providerForRead();
+  const code = p2 && typeof p2.getCode === 'function' ? await p2.getCode(contractAddress) : '0x';
       if (!code || code === '0x') {
         throw new Error(`Address ${contractAddress} has no contract code`);
       }
@@ -831,14 +989,20 @@ export class ContractService {
 
   async getUserContracts(userAddress) {
     try {
-      // No special-casing for a platform admin address; return whatever the factory reports.
-      const factoryContract = await this.getFactoryContract();
+      // Use a provider-attached factory for read-only calls to avoid using a signer-only runner
+      const factoryAddress = await getContractAddress(this.chainId, 'factory');
+      if (!factoryAddress) throw new Error('Factory not deployed on this network');
+      const provider = this._providerForRead();
+      if (!provider) throw new Error('No provider available for read-only factory calls');
+      const factoryContract = await createContractInstanceAsync('ContractFactory', factoryAddress, provider);
       const contracts = await factoryContract.getContractsByCreator(userAddress);
       // Filter out any addresses that aren't contracts (defensive against wrong factory/addressing)
+      const p = this._providerForRead();
       const checks = await Promise.all(
         contracts.map(async (addr) => {
           try {
-            const code = await this.signer.provider.getCode(addr);
+            if (!p || typeof p.getCode !== 'function') return null;
+            const code = await p.getCode(addr);
             return code && code !== '0x' ? addr : null;
           } catch (_) {
             return null;
@@ -855,13 +1019,20 @@ export class ContractService {
   // Discover contracts where the user participates (landlord/tenant for rent, partyA/partyB for NDA)
   async getContractsByParticipant(userAddress, pageSize = 50, maxScan = 300) {
     try {
-      const factory = await this.getFactoryContract();
+      // Use provider-attached factory for read-only discovery
+      const factoryAddress = await getContractAddress(this.chainId, 'factory');
+      if (!factoryAddress) throw new Error('Factory not deployed on this network');
+      const provider = this._providerForRead();
+      if (!provider) throw new Error('No provider available for read-only factory calls');
+      const factory = await createContractInstanceAsync('ContractFactory', factoryAddress, provider);
       const discovered = new Set();
       // Use getAllContracts (returns address[])
       const addresses = await factory.getAllContracts();
       for (const addr of addresses) {
         try {
-          const code = await this.signer.provider.getCode(addr);
+          const p = this._providerForRead();
+          if (!p || typeof p.getCode !== 'function') continue;
+          const code = await p.getCode(addr);
           if (!code || code === '0x') continue;
           // Try Rent
           let matched = false;
@@ -899,13 +1070,11 @@ export class ContractService {
 
   async payRent(contractAddress, amount) {
     try {
-  const rentContract = await this.getEnhancedRentContract(contractAddress);
+  const rentContract = await this.getEnhancedRentContractForWrite(contractAddress);
       // Preflight: ensure connected signer is the tenant
       try {
-        const [chainTenant, current] = await Promise.all([
-          rentContract.tenant(),
-          this.signer.getAddress()
-        ]);
+        const current = await this._getSignerAddressSafe();
+        const chainTenant = await rentContract.tenant();
         if (chainTenant?.toLowerCase?.() !== current?.toLowerCase?.()) {
           const msg = `Connected wallet is not the tenant. Expected ${chainTenant}, got ${current}`;
           const err = new Error(msg);
@@ -991,8 +1160,8 @@ export class ContractService {
     try {
       if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
       // Preflight: ensure the target contract is configured for arbitration and whether a fee is required.
-      try {
-  const target = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+    try {
+  const target = await this.getEnhancedRentContract(contractAddress);
         // Check arbitrationService field
         const targetArb = await target.arbitrationService().catch(() => null);
         if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
@@ -1034,10 +1203,14 @@ export class ContractService {
       }
 
       // Use the frontend static ABI helper to create the ArbitrationService instance
+      // For the actual write we will use a signer-attached instance, but prefer
+      // creating a provider-backed instance when used for reads/preflight to avoid
+      // signer-only runners without provider causing UNSUPPORTED_OPERATION.
       let svc;
-      try {
-  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer);
-      } catch (e) {
+    try {
+    const p = this._providerForRead();
+    svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
+        } catch (e) {
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
       }
@@ -1062,7 +1235,7 @@ export class ContractService {
       if (!arbitrationServiceAddress || !arbitrationServiceAddress.trim()) throw new Error('Arbitration service address required');
 
       // Preflight: ensure target configured and cancellation pending
-  const target = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+  const target = await this.getEnhancedRentContract(contractAddress);
       const targetArb = await target.arbitrationService().catch(() => null);
       if (!targetArb || targetArb === '0x0000000000000000000000000000000000000000') {
         throw new Error(`Target contract ${contractAddress} has no arbitrationService configured`);
@@ -1088,15 +1261,18 @@ export class ContractService {
         }
       }
 
-      // Determine whether connected signer is landlord
-      const signerAddr = (await this.signer.getAddress()).toLowerCase();
+  // Determine whether connected signer is landlord
+  const signerAddrRaw = await this._getSignerAddressSafe();
+  const signerAddr = signerAddrRaw ? signerAddrRaw.toLowerCase() : null;
       const landlordAddr = (await target.landlord()).toLowerCase();
       const value = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
 
-      // Create service instance using static ABI helper
+      // Create service instance using static ABI helper. Prefer signer for writes
+      // but allow provider fallback for read operations in preflight.
       let svc;
       try {
-  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer);
+  const p = this._providerForRead();
+  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
       } catch (e) {
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
@@ -1132,10 +1308,12 @@ export class ContractService {
   // allow clamping below when debtor deposit is smaller than requested apply amount
   let appAmt = typeof appliedAmount === 'bigint' ? appliedAmount : BigInt(appliedAmount || 0);
 
-      // Create service contract using static ABI helper
+      // Create service contract using static ABI helper. Prefer signer for writes
+      // but allow provider fallback for read operations in preflight.
       let svc;
       try {
-  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer);
+  const p = this._providerForRead();
+  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
       } catch (e) {
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
@@ -1143,9 +1321,13 @@ export class ContractService {
 
       // Authorization preflight: ensure connected signer is owner or the configured factory
       try {
-        const signerAddr = (await this.signer.getAddress()).toLowerCase();
-        const ownerAddr = (await svc.owner?.().catch(() => null) || null);
-        const factoryAddr = (await svc.factory?.().catch(() => null) || null);
+        const signerAddrRaw = await this._getSignerAddressSafe();
+        const signerAddr = signerAddrRaw ? signerAddrRaw.toLowerCase() : '';
+        // Use a provider-backed instance to read owner/factory even if svc is signer-only
+        const pRead = this._providerForRead();
+        const svcRead = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, pRead || this.signer);
+        const ownerAddr = (await svcRead.owner?.().catch(() => null) || null);
+        const factoryAddr = (await svcRead.factory?.().catch(() => null) || null);
         const isOwner = ownerAddr && signerAddr === String(ownerAddr).toLowerCase();
         const isFactory = factoryAddr && signerAddr === String(factoryAddr).toLowerCase();
         if (!isOwner && !isFactory) {
@@ -1159,7 +1341,7 @@ export class ContractService {
 
       // Target preflight: ensure the target contract has this arbitration service configured
       try {
-  const target = await createContractInstanceAsync('EnhancedRentContract', targetContract, this.signer);
+  const target = await this.getEnhancedRentContract(targetContract);
         const targetArb = await target.arbitrationService().catch(() => null);
         if (!targetArb || targetArb === ethers.ZeroAddress) {
           throw new Error(`Target contract ${targetContract} has no arbitrationService configured`);
@@ -1258,19 +1440,20 @@ export class ContractService {
         throw new Error('Invalid contractAddress for reportRentDispute');
       }
       console.debug('reportRentDispute target:', contractAddress);
+      // Use a provider-backed contract for preflight reads (landlord/tenant checks)
       let rent;
       try {
-        rent = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+        rent = await this.getEnhancedRentContract(contractAddress);
       } catch (instErr) {
-        console.error('Failed to create EnhancedRentContract instance for', contractAddress, instErr);
+        console.error('Failed to create EnhancedRentContract instance for preflight checks', contractAddress, instErr);
         throw instErr;
       }
       // Ensure caller is one of the parties recorded on-chain
       try {
-        const [landlordAddr, tenantAddr, me] = await Promise.all([
+        const me = await this._getSignerAddressSafe();
+        const [landlordAddr, tenantAddr] = await Promise.all([
           rent.landlord().catch(() => null),
-          rent.tenant().catch(() => null),
-          this.signer.getAddress().catch(() => null)
+          rent.tenant().catch(() => null)
         ]);
         submitterAddress = me;
         const lc = (landlordAddr || '').toLowerCase();
@@ -1290,9 +1473,8 @@ export class ContractService {
         // Compute reporter bond and send as msg.value
         const bond = this.computeReporterBond(amount);
         const overrides = bond > 0n ? { value: bond } : {};
-        // The contract now accepts a bytes32 evidence digest. If caller passed a plain string,
-        // first attempt to POST the ciphertext/plaintext to the configured evidence endpoint
-        // so the server will write the canonical ciphertext JSON into the static dir.
+  // For the actual on-chain report (a write), use a signer-attached instance
+  // to ensure the transaction is signed and sent from the connected wallet.
         // If no endpoint is configured, fall back to computing the digest locally.
   let evidenceArg = '';
         const submitEndpoint = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (window && window?.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || null;
@@ -1364,7 +1546,7 @@ export class ContractService {
         // Debugging instrumentation: log signer, target code and calldata so we can
         // diagnose CALL_EXCEPTION / missing revert data issues during E2E runs.
         try {
-          const signerAddr = await this.signer.getAddress().catch(() => null);
+        const signerAddr = await this._getSignerAddressSafe();
           console.debug('reportRentDispute: signerAddr=', signerAddr, 'target=', contractAddress, 'disputeType=', disputeType, 'amount=', String(amount), 'evidence=', evidenceArg);
           try {
             const code = await this.getCodeSafe(contractAddress);
@@ -1381,19 +1563,26 @@ export class ContractService {
             console.warn('reportRentDispute: failed to encode calldata', encErr);
           }
 
-          const tx = await rent.reportDispute(disputeType, amount, evidenceArg, overrides);
+          // Use a signer-attached contract for the write
+          const rentForWrite = await this.getEnhancedRentContractForWrite(contractAddress);
+          const tx = await rentForWrite.reportDispute(disputeType, amount, evidenceArg, overrides);
           const receipt = await tx.wait();
           return { receipt, caseId: (function(){ try{ for(const l of receipt.logs){ try{ const p = rent.interface.parseLog(l); if(p && p.name==='DisputeReported') return p.args[0]?.toString?.() ?? null; }catch(_){} } }catch(_){ } return null; })() };
         } catch (sendErr) {
           console.error('reportRentDispute: send failed', sendErr);
           // Attempt a low-level eth_call to capture revert reason / data (may be available even when send fails)
           try {
-            if (calldata && this.signer && this.signer.provider) {
-              const from = (await this.signer.getAddress().catch(()=>null)) || undefined;
+            if (calldata) {
+              const from = (await this._getSignerAddressSafe()) || undefined;
+              const p = this._providerForRead();
               const callObj = { to: contractAddress, data: calldata, from };
               try {
-                const callRes = await this.signer.provider.call(callObj);
-                console.debug('reportRentDispute: provider.call returned', callRes);
+                if (p && typeof p.call === 'function') {
+                  const callRes = await p.call(callObj);
+                  console.debug('reportRentDispute: provider.call returned', callRes);
+                } else {
+                  console.debug('reportRentDispute: no provider available for low-level call');
+                }
               } catch (callErr) {
                 // Some providers surface nested data objects
                 console.warn('reportRentDispute: provider.call failed', callErr?.data || callErr?.message || callErr);
@@ -1419,7 +1608,7 @@ export class ContractService {
   async depositForCase(contractAddress, caseId, amountWei = 0n) {
     try {
       if (!contractAddress) throw new Error('contractAddress required');
-      const rent = await this.getEnhancedRentContract(contractAddress);
+      const rent = await this.getEnhancedRentContractForWrite(contractAddress);
       const value = typeof amountWei === 'bigint' ? amountWei : BigInt(amountWei || 0);
       if (value <= 0n) throw new Error('deposit amount must be > 0');
       const tx = await rent.depositForCase(Number(caseId), { value });
@@ -1440,7 +1629,8 @@ export class ContractService {
    */
   async isAuthorizedArbitratorForContract(contractAddress) {
     try {
-      const me = (await this.signer.getAddress()).toLowerCase();
+      const meRaw = await this._getSignerAddressSafe();
+      const me = meRaw ? meRaw.toLowerCase() : '';
       // 1) Check creator mapping on factory
       try {
         const factory = await this.getFactoryContract();
@@ -1456,8 +1646,9 @@ export class ContractService {
         try {
           const rent = await this.getEnhancedRentContract(contractAddress);
           const svc = await rent.arbitrationService();
-          if (svc && svc !== ethers.ZeroAddress) {
-            const svcInst = await createContractInstanceAsync('ArbitrationService', svc, this.signer);
+            if (svc && svc !== ethers.ZeroAddress) {
+            const p = this._providerForRead();
+            const svcInst = await createContractInstanceAsync('ArbitrationService', svc, p || this.signer);
             const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
             if (owner && owner.toLowerCase() === me) return true;
           }
@@ -1468,7 +1659,8 @@ export class ContractService {
           const nda = await this.getNDAContract(contractAddress);
           const svc = await nda.arbitrationService();
           if (svc && svc !== ethers.ZeroAddress) {
-            const svcInst = await createContractInstanceAsync('ArbitrationService', svc, this.signer);
+            const p = this._providerForRead();
+            const svcInst = await createContractInstanceAsync('ArbitrationService', svc, p || this.signer);
             const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
             if (owner && owner.toLowerCase() === me) return true;
           }
@@ -1487,7 +1679,7 @@ export class ContractService {
   // ============ Cancellation Policy and Flow ============
   async setCancellationPolicy(contractAddress, { noticePeriodSec, feeBps, requireMutual }) {
     try {
-      const rentContract = await this.getEnhancedRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContractForWrite(contractAddress);
       const tx = await rentContract.setCancellationPolicy(
         Number(noticePeriodSec || 0),
         Number(feeBps || 0),
@@ -1502,7 +1694,7 @@ export class ContractService {
 
   async initiateCancellation(contractAddress) {
     try {
-      const rentContract = await this.getEnhancedRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContractForWrite(contractAddress);
 
       // Preflight checks to provide friendlier errors and avoid RPC estimateGas revert
       try {
@@ -1513,7 +1705,7 @@ export class ContractService {
           rentContract.cancelRequested().catch(() => null),
         ]);
 
-        const myAddr = await this.signer.getAddress().catch(() => null);
+  const myAddr = await this._getSignerAddressSafe();
         // Ensure caller is a party
         if (!myAddr) {
           throw new Error('Could not determine connected wallet address. Connect your wallet and try again.');
@@ -1591,16 +1783,29 @@ export class ContractService {
           }
           const injected = (injectedAccounts && injectedAccounts[0]) ? String(injectedAccounts[0]).toLowerCase() : null;
           try {
-            const currentSignerAddr = (await this.signer.getAddress().catch(() => null) || '').toLowerCase();
+            const currentSignerAddr = ((await this._getSignerAddressSafe()) || '').toLowerCase();
             if (injected && injected !== currentSignerAddr) {
               // attempt to refresh signer from the existing provider
               try {
-                const provider = this.signer.provider;
-                const refreshed = provider.getSigner(injectedAccounts[0]);
-                // validate
-                const refreshedAddr = (await refreshed.getAddress().catch(() => null) || '').toLowerCase();
-                if (refreshedAddr && refreshedAddr === injected) {
-                  activeSigner = refreshed;
+                const provider = this._providerForRead();
+                if (provider && typeof provider.getSigner === 'function') {
+                  const refreshed = await provider.getSigner(injectedAccounts[0]).catch(() => null);
+                  // validate
+                  let refreshedAddr = '';
+                  try {
+                    if (refreshed) {
+                      try {
+                        const { safeGetAddress } = await import('../utils/signer.js');
+                        refreshedAddr = (await safeGetAddress(refreshed, provider)) || '';
+                      } catch (_) {
+                        refreshedAddr = '';
+                      }
+                    }
+                  } catch (_) { refreshedAddr = '' }
+                  refreshedAddr = (refreshedAddr || '').toLowerCase();
+                  if (refreshedAddr && refreshedAddr === injected) {
+                    activeSigner = refreshed;
+                  }
                 }
               } catch (_) {
                 // fall back to existing signer
@@ -1613,7 +1818,11 @@ export class ContractService {
       // Use the (possibly refreshed) signer when sending the transaction
       let tx;
       try {
-        tx = await rentContract.connect(activeSigner).initiateCancellation();
+        // If we obtained a refreshed signer different from the original this.signer,
+        // connect it to the contract instance before sending. Otherwise the contract
+        // instance is already bound to this.signer via getEnhancedRentContractForWrite.
+        const sendContract = (activeSigner && typeof activeSigner === 'object') ? rentContract.connect(activeSigner) : rentContract;
+        tx = await sendContract.initiateCancellation();
         return await tx.wait();
       } catch (err) {
         // Map known revert selectors to friendlier messages when possible
@@ -1644,7 +1853,7 @@ export class ContractService {
 
   async approveCancellation(contractAddress) {
     try {
-      const rentContract = await this.getEnhancedRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContractForWrite(contractAddress);
       const tx = await rentContract.approveCancellation();
       return await tx.wait();
     } catch (error) {
@@ -1655,7 +1864,7 @@ export class ContractService {
 
   async finalizeCancellation(contractAddress, { feeValueEth } = {}) {
     try {
-      const rentContract = await this.getEnhancedRentContract(contractAddress);
+      const rentContract = await this.getEnhancedRentContractForWrite(contractAddress);
       const overrides = {};
       if (feeValueEth && Number(feeValueEth) > 0) {
         overrides.value = ethers.parseEther(String(feeValueEth));
@@ -1731,9 +1940,25 @@ async getNDAContract(contractAddress) {
       console.warn('getNDAContract called with invalid contractAddress:', contractAddress);
       return null;
     }
-    return await createContractInstanceAsync('NDATemplate', contractAddress, this.signer);
+    const p = this._providerForRead();
+    const runner = p || this.signer;
+    return await createContractInstanceAsync('NDATemplate', contractAddress, runner);
   } catch (error) {
     console.error('Error getting NDA contract:', error);
+    throw error;
+  }
+}
+
+async getNDAContractForWrite(contractAddress) {
+  try {
+    if (!contractAddress || typeof contractAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
+      console.warn('getNDAContractForWrite called with invalid contractAddress:', contractAddress);
+      return null;
+    }
+    if (!this.signer) throw new Error('No signer available for write operations');
+    return await createContractInstanceAsync('NDATemplate', contractAddress, this.signer);
+  } catch (error) {
+    console.error('Error getting NDA contract for write:', error);
     throw error;
   }
 }
@@ -1742,7 +1967,8 @@ async getNDAContractDetails(contractAddress, options = {}) {
   const { silent = false } = options || {};
   try {
     // Ensure the address is a contract before calling views
-    const code = await this.signer.provider.getCode(contractAddress);
+  const p = this._providerForRead();
+  const code = p && typeof p.getCode === 'function' ? await p.getCode(contractAddress) : '0x';
     if (!code || code === '0x') {
       throw new Error(`Address ${contractAddress} has no contract code`);
     }
@@ -1858,7 +2084,8 @@ async signNDA(contractAddress) {
   try {
     const nda = await this.getNDAContract(contractAddress);
     // Preflight: ensure current signer is a party and hasn't signed yet
-    const myAddr = (await this.signer.getAddress()).toLowerCase();
+  const myAddrRaw = await this._getSignerAddressSafe();
+  const myAddr = myAddrRaw ? myAddrRaw.toLowerCase() : '';
     try {
       const [isParty, alreadySigned] = await Promise.all([
         // public mapping getters
@@ -1899,8 +2126,9 @@ async signNDA(contractAddress) {
       penaltyBps: Number(penaltyBps),
       customClausesHash,
     };
-    const signature = await this.signer.signTypedData(domain, types, value);
-    const tx = await nda.signNDA(signature);
+  if (!this._isSignerLike(this.signer)) throw new Error('No signer available to sign NDA');
+  const signature = await this.signer.signTypedData(domain, types, value);
+  const tx = await nda.signNDA(signature);
     return await tx.wait();
   } catch (error) {
     console.error('Error signing NDA:', error);
@@ -1946,31 +2174,31 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
     // include on-chain dispute fee if present
     let disputeFee = 0n;
     try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
-  try {
-    const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
-    return await tx.wait();
-  } catch (error) {
+      try {
+        const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
+        return await tx.wait();
+      } catch (error) {
     // Some browser providers (injected shims) hide revert payloads on estimateGas/send;
     // attempt a low-level provider.call to extract the revert reason/data for debugging.
-    try {
-      const iface = nda.interface;
-      const calldata = iface.encodeFunctionData('reportBreach', [offender, requested, evidence]);
-      const from = this.signer ? await this.signer.getAddress() : undefined;
-      const provider = this.signer && this.signer.provider ? this.signer.provider : (this.provider || null);
-      if (provider && typeof provider.call === 'function') {
         try {
-          const callResult = await provider.call({ to: contractAddress, data: calldata, from, value: disputeFee });
-          console.warn('Low-level provider.call returned (no revert):', callResult);
-        } catch (callErr) {
-          // provider.call may throw with revert data — surface it
-          console.error('Low-level provider.call error while probing revert:', callErr);
-          // attach probe info to the original error for visibility
-          try { error.probe = { callError: callErr && (callErr.message || callErr.reason || callErr.data) } } catch (_) {}
+          const iface = nda.interface;
+          const calldata = iface.encodeFunctionData('reportBreach', [offender, requested, evidence]);
+          const from = await this._getSignerAddressSafe();
+          const provider = this._providerForRead();
+          if (provider && typeof provider.call === 'function') {
+            try {
+              const callResult = await provider.call({ to: contractAddress, data: calldata, from, value: disputeFee });
+              console.warn('Low-level provider.call returned (no revert):', callResult);
+            } catch (callErr) {
+              // provider.call may throw with revert data — surface it
+              console.error('Low-level provider.call error while probing revert:', callErr);
+              // attach probe info to the original error for visibility
+              try { error.probe = { callError: callErr && (callErr.message || callErr.reason || callErr.data) } } catch (_) {}
+            }
+          }
+        } catch (probeErr) {
+          console.error('Failed to probe revert with provider.call:', probeErr);
         }
-      }
-    } catch (probeErr) {
-      console.error('Failed to probe revert with provider.call:', probeErr);
-    }
     // rethrow original error (now possibly enriched)
     throw error;
   }
@@ -2019,8 +2247,9 @@ async ndaDeactivate(contractAddress, reason) {
 async signRent(contractAddress) {
   console.log('signRent: contractAddress =', contractAddress);
     try {
-      const rent = await this.getEnhancedRentContract(contractAddress);
-      const myAddr = (await this.signer.getAddress()).toLowerCase();
+      const rent = await this.getEnhancedRentContractForWrite(contractAddress);
+  const myAddrRaw = await this._getSignerAddressSafe();
+  const myAddr = myAddrRaw ? myAddrRaw.toLowerCase() : '';
       const landlord = (await rent.landlord()).toLowerCase();
       const tenant = (await rent.tenant()).toLowerCase();
       if (myAddr !== landlord && myAddr !== tenant) {

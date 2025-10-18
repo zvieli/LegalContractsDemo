@@ -2,13 +2,48 @@ import { createContractInstanceAsync } from '../utils/contracts';
 import * as ethers from 'ethers';
 
 export class ArbitrationService {
-  constructor(signer, chainId) {
-    this.signer = signer;
+  constructor(signerOrProvider, chainId) {
+    // Accept either (signer, chainId) or (provider, chainId)
     this.chainId = chainId;
+    // Prefer explicit provider if passed
+    if (signerOrProvider && typeof signerOrProvider.getBlockNumber === 'function') {
+      this.provider = signerOrProvider;
+      this.signer = null;
+    } else {
+      // If a signer-like object was passed, keep it as signer but do NOT
+      // derive a provider automatically from it. Read operations should use
+      // _providerForRead() which prefers an explicit provider or a local RPC
+      // fallback for dev chains.
+      this.signer = signerOrProvider || null;
+      this.provider = null;
+      try {
+        if (!this.provider && typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) {
+          this.provider = window.__APP_ETHERS__.provider;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
   }
 
-  async getArbitratorForNDA(ndaAddress) {
-  const nda = await createContractInstanceAsync('NDATemplate', ndaAddress, this.signer);
+  // Prefer a provider-backed runner for reads. If none is available, and
+  // this.chainId looks like a local dev chain, return a local JsonRpcProvider.
+  _providerForRead() {
+    if (this.provider && typeof this.provider.getBlockNumber === 'function') return this.provider;
+    try {
+      const localChains = [31337, 1337, 5777];
+      if (localChains.includes(Number(this.chainId))) {
+        return new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async getArbitratorForNDA(ndaAddress, options = {}) {
+  const { forWrite = false } = options || {};
+  // For reads/events prefer a provider-backed instance. For writes, require signer.
+  const runner = forWrite ? (this.signer || null) : (this._providerForRead() || this.signer || null);
+  const nda = await createContractInstanceAsync('NDATemplate', ndaAddress, runner);
     // NDA templates no longer store a direct `arbitrator`. Instead they
     // expose the configured `arbitrationService` which manages disputes.
     const svc = await nda.arbitrationService();
@@ -18,7 +53,8 @@ export class ArbitrationService {
     // The owner of the ArbitrationService is expected to be the on-chain
     // Arbitrator factory. We return the service contract instance here so
     // callers can interact with dispute creation helpers via the service.
-  return await createContractInstanceAsync('ArbitrationService', svc, this.signer);
+  const svcRunner = forWrite ? (this.signer || null) : (this._providerForRead() || this.signer || null);
+  return await createContractInstanceAsync('ArbitrationService', svc, svcRunner);
   }
 
   async getArbitratorOwner(ndaAddress) {
@@ -34,7 +70,8 @@ export class ArbitrationService {
 
   async createDisputeForCase(ndaAddress, caseId, evidenceText = '') {
     try {
-      const svc = await this.getArbitratorForNDA(ndaAddress);
+      // createDispute is a write that should be sent with a signer
+      const svc = await this.getArbitratorForNDA(ndaAddress, { forWrite: true });
       // To avoid sending arbitrarily-large evidence bytes on-chain (which
       // scales gas with length), we follow Option A: compute and submit a
       // 32-byte keccak256 digest of the off-chain evidence payload. The
@@ -55,7 +92,7 @@ export class ArbitrationService {
   const evidenceBytes = ethers.getBytes(digestHex);
       // ArbitrationService provides a helper to create disputes on the
       // configured arbitrator/factory and returns the dispute id.
-      const tx = await svc.createDisputeForCase(ndaAddress, Number(caseId), evidenceBytes);
+  const tx = await svc.createDisputeForCase(ndaAddress, Number(caseId), evidenceBytes);
       const receipt = await tx.wait();
       // Try to extract disputeId from event log
       let disputeId = null;
@@ -77,7 +114,8 @@ export class ArbitrationService {
 
   async resolveDispute(ndaAddress, disputeId, guiltyParty, penaltyEth, beneficiary) {
     try {
-      const svc = await this.getArbitratorForNDA(ndaAddress);
+  // resolveDispute is a write — ensure signer is used
+  const svc = await this.getArbitratorForNDA(ndaAddress, { forWrite: true });
       const penaltyWei = ethers.parseEther(String(penaltyEth || '0'));
       // Resolve via the ArbitrationService which will instruct the template
       // to apply the resolution using the correct ABI entrypoint.
@@ -92,7 +130,8 @@ export class ArbitrationService {
 
   async getDispute(ndaAddress, disputeId) {
     try {
-      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      // getDispute is a read; prefer provider-backed instance
+      const arbitrator = await this.getArbitratorForNDA(ndaAddress, { forWrite: false });
       const dispute = await arbitrator.getDispute(Number(disputeId));
       return dispute;
     } catch (error) {
@@ -103,7 +142,8 @@ export class ArbitrationService {
 
   async getActiveDisputesCount(ndaAddress) {
     try {
-      const arbitrator = await this.getArbitratorForNDA(ndaAddress);
+      // read-only
+      const arbitrator = await this.getArbitratorForNDA(ndaAddress, { forWrite: false });
       return await arbitrator.getActiveDisputesCount();
     } catch (error) {
       console.error('Error getting disputes count:', error);

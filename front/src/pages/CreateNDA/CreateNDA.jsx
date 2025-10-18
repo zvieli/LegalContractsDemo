@@ -6,13 +6,16 @@ import './CreateNDA.css';
 import '../../styles/notAllowed.css';
 
 function CreateNDA() {
-  const { isConnected, signer, chainId, account } = useEthers();
+  const { isConnected, signer, chainId, account, provider, loading } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     async function checkAdmin() {
+      if (!provider || !signer || !chainId || !account) {
+        setIsAdmin(false);
+        return;
+      }
       try {
-        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
-        const contractService = new ContractService(signer, chainId);
+  const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }
@@ -20,7 +23,7 @@ function CreateNDA() {
       } catch { setIsAdmin(false); }
     }
     checkAdmin();
-  }, [account, signer, chainId]);
+  }, [provider, signer, chainId, account]);
   const [formData, setFormData] = useState({
     partyB: '',
     expiryDate: '',
@@ -74,7 +77,7 @@ function CreateNDA() {
         }
       }
 
-      const service = new ContractService(signer, chainId);
+  const service = new ContractService(provider, signer, chainId);
       const res = await service.createNDA({
         partyB: formData.partyB,
         expiryDate: formData.expiryDate,
@@ -120,6 +123,10 @@ function CreateNDA() {
         </div>
       </div>
     );
+  }
+
+  if (loading || !provider || !signer || !chainId || !account) {
+    return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
   }
 
   return (

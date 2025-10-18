@@ -8,7 +8,8 @@ function useAdminRole(account, signer, chainId) {
     async function checkRole() {
       if (!account) { setRole('guest'); return; }
       try {
-        const contractService = new ContractService(signer, chainId);
+  const { provider } = require('../../../contexts/EthersContext').useEthers();
+  const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }
@@ -31,7 +32,7 @@ export default function WalletConnector({ onWallet }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const { account, signer, chainId } = useEthers();
+  const { account, signer, chainId, provider } = useEthers();
   const role = useAdminRole(account, signer, chainId);
 
   async function connectWallet() {

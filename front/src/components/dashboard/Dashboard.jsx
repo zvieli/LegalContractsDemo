@@ -9,7 +9,7 @@ import * as ethers from 'ethers';
 import './Dashboard.css';
 
 function Dashboard() {
-  const { account, signer, isConnected, chainId } = useEthers();
+  const { account, signer, isConnected, chainId, provider } = useEthers();
   const { addNotification } = useNotifications();
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -48,8 +48,8 @@ function Dashboard() {
   useEffect(() => {
     async function checkAdmin() {
       try {
-        if (!account || !signer || !chainId) { setIsAdmin(false); return; }
-        const contractService = new ContractService(signer, chainId);
+        if (!account || !signer || !chainId || !provider) { setIsAdmin(false); return; }
+        const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }
@@ -64,11 +64,12 @@ function Dashboard() {
   // האזנה לאירועי יצירת חוזים
   const setupEventListeners = async () => {
     try {
-    const contractService = new ContractService(signer, chainId);
-    const factoryContractBase = await contractService.getFactoryContract();
-    const factoryContract = await createContractInstanceAsync('ContractFactory', factoryContractBase.address || factoryContractBase.target || factoryContractBase, signer.provider || signer);
+      const contractService = new ContractService(provider, signer, chainId);
+      const factoryContractBase = await contractService.getFactoryContract();
+      // Always use provider for event listeners
+      const factoryContract = await createContractInstanceAsync('ContractFactory', factoryContractBase.address || factoryContractBase.target || factoryContractBase, provider);
 
-  factoryContract.on('EnhancedRentContractCreated', (contractAddress, landlord, tenant) => {
+      factoryContract.on('EnhancedRentContractCreated', (contractAddress, landlord, tenant) => {
         addNotification({
           type: 'success',
           title: 'New Rental Contract Created',
@@ -89,7 +90,7 @@ function Dashboard() {
       });
 
       // Also listen for cancellation-related events on any newly created rent contract
-  factoryContract.on('EnhancedRentContractCreated', async (contractAddress) => {
+      factoryContract.on('EnhancedRentContractCreated', async (contractAddress) => {
         // Attach listeners for newly created contract so dashboard refreshes
         try {
           attachListenersToAddresses([String(contractAddress)]);
@@ -97,7 +98,6 @@ function Dashboard() {
           console.warn('Failed to attach per-contract cancellation listeners for created contract', e);
         }
       });
-
     } catch (error) {
       console.error('Error setting up event listeners:', error);
     }
@@ -108,7 +108,7 @@ function Dashboard() {
 
   const attachListenersToAddresses = async (addresses = []) => {
     try {
-        const provider = signer.provider || new ethers.JsonRpcProvider('http://127.0.0.1:8545');
+      // Always use provider for event listeners
       for (const addr of addresses) {
         const a = String(addr).toLowerCase?.() ?? addr;
         if (!a) continue;
@@ -136,6 +136,7 @@ function Dashboard() {
       try {
         Object.values(contractListenersRef.current).forEach(({ inst, refresh }) => {
           try {
+            // Always use provider for event listeners
             inst.removeAllListeners('CancellationInitiated');
             inst.removeAllListeners('CancellationApproved');
             inst.removeAllListeners('CancellationFinalized');
@@ -151,7 +152,7 @@ function Dashboard() {
   const loadUserContracts = async () => {
     try {
       setLoading(true);
-      const contractService = new ContractService(signer, chainId);
+  const contractService = new ContractService(provider, signer, chainId);
   // If connected account is on-chain admin, show platform-wide counts (read-only)
   if (isAdmin) {
         try {
@@ -163,13 +164,13 @@ function Dashboard() {
           const localFactory = factoryAddr ? await createContractInstanceAsync('ContractFactory', factoryAddr, localRpc) : null;
           // Debug: print provider/wallet network state and on-provider code at factory address
           try {
-            const provider = contractService.signer.provider;
-            const provNet = await provider.getNetwork().catch(() => null);
+            const provider = contractService._providerForRead() || provider;
+            const provNet = provider && typeof provider.getNetwork === 'function' ? await provider.getNetwork().catch(() => null) : null;
             const provChainId = provNet ? provNet.chainId : null;
             const factoryAddr = factory.target || factory.address || null;
             let onProviderCode = null;
             try {
-              if (factoryAddr) onProviderCode = await provider.getCode(factoryAddr).catch(() => null);
+              if (factoryAddr && provider && typeof provider.getCode === 'function') onProviderCode = await provider.getCode(factoryAddr).catch(() => null);
             } catch (_) {}
             let injectedChain = null; let injectedAccounts = null;
             try {

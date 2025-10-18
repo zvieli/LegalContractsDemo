@@ -22,9 +22,20 @@ import { IN_E2E } from '../../utils/env';
 
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const contractInstanceRef = useRef(null);
-  const { signer, chainId, account, provider, contracts: globalContracts } = useEthers();
+  const { account, signer, chainId, provider, contracts: globalContracts } = useEthers();
+  const [dataLoading, setDataLoading] = useState(false);
+  // Ensure we don't reference an undefined `loading` variable. Use dataLoading and connection pieces.
+  if (dataLoading || !provider || !signer || !chainId || !account) {
+    return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
+  }
+  // Debug provider/signer info
+  useEffect(() => {
+    console.log('[ContractModal] active provider URL:', provider?.connection?.url);
+    try {
+      console.log('[ContractModal] signer.provider URL:', signer && signer.provider && signer.provider.connection ? signer.provider.connection.url : null);
+    } catch (e) {}
+  }, [provider, signer]);
   const [contractDetails, setContractDetails] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [transactionHistory, setTransactionHistory] = useState([]);
@@ -229,11 +240,13 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     try {
       if (!targetAddress || !/^0x[0-9a-fA-F]{40}$/.test(targetAddress)) {
         console.warn('loadContractData: no valid contract address provided, skipping load', targetAddress);
-        setLoading(false);
+  setDataLoading(false);
         return;
       }
-      setLoading(true);
-  const contractService = new ContractService(signer, chainId, { provider });
+  setDataLoading(true);
+  const contractService = new ContractService(provider, signer, chainId);
+    // prefer a stable read-capable provider to avoid using injected BrowserProvider that may route to Alchemy
+  const readProvider = (contractService && typeof contractService._providerForRead === 'function') ? contractService._providerForRead() : provider || null;
 
       // Try load as Rent first, then NDA using the resolved targetAddress
       let details;
@@ -279,7 +292,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         try {
               if (details?.type === 'Rental') {
             try {
-              const svc = new ContractService(signer, chainId, { provider });
+              const svc = new ContractService(provider, signer, chainId);
               // Attempt to find most recent resolved dispute meta if any
               const rent = await svc.getEnhancedRentContract (targetAddress);
               const count = Number(await rent.getDisputesCount().catch(() => 0));
@@ -386,7 +399,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         // Get latest block number for limiting event queries
         let latestBlock = 0;
         try {
-          latestBlock = await (signer?.provider || provider).getBlockNumber();
+          latestBlock = await (readProvider).getBlockNumber();
         } catch (_) {
           latestBlock = 0;
         }
@@ -406,7 +419,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         let deploymentBlock = 0;
         try {
           // Try to get the deployment block of the contract
-          const receipt = await (signer?.provider || provider).getTransactionReceipt(rentContract.deploymentTransaction() ? rentContract.deploymentTransaction().hash : rentContract.target);
+          const receipt = await readProvider.getTransactionReceipt(rentContract.deploymentTransaction() ? rentContract.deploymentTransaction().hash : rentContract.target);
           if (receipt && receipt.blockNumber) deploymentBlock = receipt.blockNumber;
         } catch (e) {
           console.warn('Could not determine deployment block, falling back to latestBlock - 500');
@@ -427,7 +440,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           console.error('queryFilter: SecurityDepositPaid FAILED', e);
         }
         const transactions = await Promise.all(paymentEvents.map(async (event) => {
-          const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
+          const blk = await readProvider.getBlock(event.blockNumber);
           return {
             hash: event.transactionHash,
             amount: ethers.formatEther(event.args.amount),
@@ -436,7 +449,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           };
         }));
         const depositTxs = await Promise.all(depositEvents.map(async (event) => {
-          const blk = await (signer?.provider || provider).getBlock(event.blockNumber);
+          const blk = await readProvider.getBlock(event.blockNumber);
           return {
             hash: event.transactionHash,
             amount: ethers.formatEther(event.args.amount),
@@ -450,14 +463,14 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         try {
           const disputeEvents = await rentContract.queryFilter(rentContract.filters.DisputeReported?.(), fromBlock, 'latest');
           const disputeTxs = await Promise.all(disputeEvents.map(async (ev) => {
-            const blk = await (signer?.provider || provider).getBlock(ev.blockNumber);
+            const blk = await readProvider.getBlock(ev.blockNumber);
             const cid = Number(ev.args?.caseId ?? ev.args?.[0] ?? 0);
             const req = ev.args?.requestedAmount ?? ev.args?.[3] ?? 0n;
             // Read the actual transaction value (msg.value) to show the real ETH moved (reporter bond),
             // otherwise showing `requestedAmount` is misleading because disputes often only send the bond.
-            let txValue = 0n;
+              let txValue = 0n;
             try {
-              const txOnChain = await (signer?.provider || provider).getTransaction(ev.transactionHash);
+              const txOnChain = await readProvider.getTransaction(ev.transactionHash);
               if (txOnChain && txOnChain.value != null) txValue = txOnChain.value;
             } catch (e) {
               // non-fatal: fall back to requestedAmount if tx.value cannot be read
@@ -550,33 +563,33 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           const ev = [];
           const signed = await nda.queryFilter(nda.filters.NDASigned?.());
           for (const e of signed) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             ev.push({ type: 'Signed', by: e.args?.signer || e.args?.[0], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           const deps = await nda.queryFilter(nda.filters.DepositMade?.());
           for (const e of deps) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             ev.push({ type: `Deposit ${ethers.formatEther(e.args?.amount || e.args?.[1] || 0n)} ETH`, by: e.args?.party || e.args?.[0], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           const wds = await nda.queryFilter(nda.filters.DepositWithdrawn?.());
           for (const e of wds) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             ev.push({ type: `Withdraw ${ethers.formatEther(e.args?.amount || e.args?.[1] || 0n)} ETH`, by: e.args?.party || e.args?.[0], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           const rep = await nda.queryFilter(nda.filters.BreachReported?.());
           for (const e of rep) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             ev.push({ type: `Breach Reported (Case #${Number(e.args?.caseId ?? e.args?.[0] ?? 0)})`, by: e.args?.reporter || e.args?.[1], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           const res = await nda.queryFilter(nda.filters.BreachResolved?.());
           for (const e of res) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             const id = Number(e.args?.caseId ?? e.args?.[0] ?? 0);
             ev.push({ type: `${e.args?.approved ? 'Breach Approved' : 'Breach Rejected'} (Case #${id})`, by: e.args?.beneficiary || e.args?.[3], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           const deact = await nda.queryFilter(nda.filters.ContractDeactivated?.());
           for (const e of deact) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             ev.push({ type: 'Deactivated', by: e.args?.by || e.args?.[0], at: blk?.timestamp || 0, tx: e.transactionHash });
           }
           ev.sort((a, b) => (a.at || 0) - (b.at || 0));
@@ -595,15 +608,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           const rentContract = await contractService.getEnhancedRentContract (contractAddress);
           const initiated = await rentContract.queryFilter(rentContract.filters.CancellationInitiated?.());
           for (const e of initiated) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
-            evts.push({ type: 'Initiated', by: e.args?.[0] || e.args?.initiator, at: blk?.timestamp || 0, tx: e.transactionHash });
-          }
+              const blk = await readProvider.getBlock(e.blockNumber);
+              evts.push({ type: 'Initiated', by: e.args?.[0] || e.args?.initiator, at: blk?.timestamp || 0, tx: e.transactionHash });
+            }
         } catch (_) {}
         try {
           const rentContract = await contractService.getEnhancedRentContract (contractAddress);
           const approved = await rentContract.queryFilter(rentContract.filters.CancellationApproved?.());
           for (const e of approved) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             evts.push({ type: 'Approved', by: e.args?.[0] || e.args?.approver, at: blk?.timestamp || 0, tx: e.transactionHash });
           }
         } catch (_) {}
@@ -611,7 +624,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           const rentContract = await contractService.getEnhancedRentContract (contractAddress);
           const finalized = await rentContract.queryFilter(rentContract.filters.CancellationFinalized?.());
           for (const e of finalized) {
-            const blk = await (signer?.provider || provider).getBlock(e.blockNumber);
+            const blk = await readProvider.getBlock(e.blockNumber);
             evts.push({ type: 'Finalized', by: e.args?.[0] || null, at: blk?.timestamp || 0, tx: e.transactionHash });
           }
         } catch (_) {}
@@ -623,7 +636,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
       // Check whether connected wallet is authorized to perform arbitration actions
       try {
-  const svc = new ContractService(signer, chainId, { provider });
+  const svc = new ContractService(provider, signer, chainId);
         const ok = await svc.isAuthorizedArbitratorForContract(contractAddress).catch(() => false);
         setIsAuthorizedArbitrator(!!ok);
       } catch (_) { setIsAuthorizedArbitrator(false); }
@@ -631,7 +644,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     } catch (error) {
       console.error('Error loading contract data:', error);
     } finally {
-      setLoading(false);
+          setDataLoading(false);
     }
   };
 
@@ -639,10 +652,11 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   useEffect(() => {
     if (!isOpen || !contractAddress || !signer) return;
     let inst = null;
-    let provider = signer.provider || provider;
+  // Use the same readProvider used throughout loadContractData to keep reads local
+  let eventProvider = (contractService && typeof contractService._providerForRead === 'function') ? contractService._providerForRead() : provider || null;
     const setup = async () => {
       try {
-  const svc = new ContractService(signer, chainId, { provider });
+  const svc = new ContractService(eventProvider, signer, chainId);
         inst = await svc.getEnhancedRentContract (contractAddress).catch(() => null);
         if (!inst) return;
         const refresh = () => loadContractData();
@@ -735,14 +749,19 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       try {
         if (provider && account) {
           const s = await provider.getSigner(account);
-          // double-check resolution
-          const addr = await s.getAddress();
-          if (addr?.toLowerCase?.() === account.toLowerCase()) {
-            activeSigner = s;
+          // double-check resolution using safe helper
+          try {
+            const { safeGetAddress } = await import('../../utils/signer.js');
+            const addr = await safeGetAddress(s, provider);
+            if (addr?.toLowerCase?.() === account.toLowerCase()) {
+              activeSigner = s;
+            }
+          } catch (_) {
+            // ignore and fallback
           }
         }
       } catch (_) { /* fallback to existing signer */ }
-  const contractService = new ContractService(activeSigner, chainId, { provider });
+  const contractService = new ContractService(provider, activeSigner, chainId);
       const receipt = await contractService.payRent(contractAddress, paymentAmount);
       
       alert(`✅ Rent paid successfully!\nTransaction: ${receipt.hash}`);
@@ -761,12 +780,12 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const handleRentWithdraw = async () => {
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
-      await service.withdrawRentPayments(contractAddress);
+  const service = new ContractService(provider, signer, chainId);
+  await service.withdrawRentPayments(contractAddress);
       alert('Withdraw successful');
       // refresh withdrawable amount
-      const rentContract = await service.getEnhancedRentContract (contractAddress);
-      const w = await rentContract.withdrawable(account);
+  const rentContract = await service.getEnhancedRentContract(contractAddress);
+  const w = await rentContract.withdrawable(account);
       setWithdrawableAmt(ethers.formatEther(w || 0n));
     } catch (e) {
       console.error('Withdraw failed', e);
@@ -792,11 +811,11 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         return;
       }
 
-  const contractService = new ContractService(signer, chainId, { provider });
-      const rentContract = await contractService.getEnhancedRentContract (contractAddress);
+  const contractService = new ContractService(provider, signer, chainId);
+    const rentContract = await contractService.getEnhancedRentContractForWrite(contractAddress);
       
   const tx = await rentContract.cancelContract();
-      const receipt = await tx.wait();
+    const receipt = await tx.wait();
       
       alert(`✅ Contract terminated!\nTransaction: ${receipt.hash}`);
       onClose();
@@ -814,7 +833,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return;
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
+  const service = new ContractService(provider, signer, chainId);
       // Prefer landlord-local finalize path when caller is landlord
       const arbAddress = contractDetails?.arbitrationService || null;
       let arbAddr = arbAddress;
@@ -872,7 +891,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleNdaSign = async () => {
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
+  const service = new ContractService(provider, signer, chainId);
       await service.signNDA(contractAddress);
       alert('Signed NDA');
       await loadContractData();
@@ -884,7 +903,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleNdaDeposit = async (amount) => {
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
+  const service = new ContractService(provider, signer, chainId);
       await service.ndaDeposit(contractAddress, amount);
       alert('Deposit successful');
       await loadContractData();
@@ -896,7 +915,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleNdaWithdraw = async (amount) => {
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
+  const service = new ContractService(provider, signer, chainId);
       await service.ndaWithdraw(contractAddress, amount);
       alert('Withdraw successful');
       await loadContractData();
@@ -908,7 +927,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleNdaReport = async (offender, penalty, evidence) => {
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
+  const service = new ContractService(provider, signer, chainId);
       // Upload evidence to endpoint if configured. If the app requires upload and configuration is missing,
       // surface a user-friendly alert and abort rather than silently falling back.
       let digestToUse = null;
@@ -935,7 +954,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleNdaDeactivate = async () => {
     try {
       setActionLoading(true);
-      const service = new ContractService(signer, chainId);
+  const service = new ContractService(provider, signer, chainId);
       await service.ndaDeactivate(contractAddress, 'User action');
       alert('NDA deactivated');
       await loadContractData();
@@ -989,7 +1008,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
         }
       } catch (_) {}
 
-  const svc = new ContractService(signer, chainId, { provider });
+  const svc = new ContractService(provider, signer, chainId);
 
       let amountEthForCalc = disputeForm.amountEth;
       try {
@@ -1107,7 +1126,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
 
       setShowDisputeForm(false);
       try {
-  const svc2 = new ContractService(signer, chainId, { provider });
+  const svc2 = new ContractService(provider, signer, chainId);
         const isAuthorized = await svc2.isAuthorizedArbitratorForContract(targetAddress).catch(() => false);
         if (isAuthorized) {
           window.location.pathname = '/arbitration';
@@ -1140,7 +1159,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const computedReporterBondEth = (() => {
     try {
       const amt = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
-  const svc = new ContractService(signer, chainId, { provider });
+  const svc = new ContractService(provider, signer, chainId);
       const bond = svc.computeReporterBond(amt);
       try { return ethers.formatEther(bond); } catch { return String(bond); }
     } catch (_) { return '0'; }
@@ -1181,7 +1200,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleSetPolicy = async () => {
     try {
       setActionLoading(true);
-  const contractService = new ContractService(signer, chainId, { provider });
+  const contractService = new ContractService(provider, signer, chainId);
       await contractService.setCancellationPolicy(contractAddress, {
         noticePeriodSec: Number(policyDraft.notice || 0),
         feeBps: Number(policyDraft.feeBps || 0),
@@ -1199,7 +1218,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleInitiateCancel = async () => {
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
+  const service = new ContractService(provider, signer, chainId);
       await service.initiateCancellation(contractAddress);
       alert('Cancellation initiated');
       await loadContractData();
@@ -1211,7 +1230,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   const handleApproveCancel = async () => {
     try {
       setActionLoading(true);
-  const service = new ContractService(signer, chainId, { provider });
+  const service = new ContractService(provider, signer, chainId);
       await service.approveCancellation(contractAddress);
       alert('Cancellation approved');
       await loadContractData();
@@ -1419,7 +1438,8 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   // DEBUG: Log landlord, tenant, msg.sender, active state
   try {
     const rentDetails = contractDetails;
-    const signerAddr = await signer.getAddress();
+  const { safeGetAddress } = await import('../../utils/signer.js');
+  const signerAddr = await safeGetAddress(signer, contractService._providerForRead() || provider || null);
     console.log('DEBUG signRent:', {
       landlord: rentDetails.landlord,
       tenant: rentDetails.tenant,
@@ -1434,7 +1454,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
   // Execute signing
   try {
     setRentSigning(true);
-  const svc = new ContractService(signer, chainId, { provider });
+  const svc = new ContractService(provider, signer, chainId);
     await svc.signRent(contractAddress);
     await loadContractData();
   } catch (e) {
@@ -1503,7 +1523,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
           </button>
         </div>
 
-        {loading ? (
+        {dataLoading ? (
           <div className="modal-loading">
             <div className="loading-spinner"></div>
             <p>Loading contract data...</p>
@@ -1711,7 +1731,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                               setConfirmAction(() => async () => {
                                 try {
                                   setActionLoading(true);
-                                  const svc = new ContractService(signer, chainId, { provider });
+                                  const svc = new ContractService(provider, signer, chainId);
                                   await svc.depositForCase(contractAddress, pendingDeposit.caseId, amtWei);
                                   alert('Deposit submitted');
                                   // refresh contract data
@@ -1721,7 +1741,7 @@ Transaction: ${receipt.transactionHash || receipt.hash}`);
                             <h4>Payment History</h4>
                             {transactionHistory.length === 0 ? (
                               <div className="tx-list-empty">No transactions found for this contract.<br />
-                                {loading ? <span>Loading on-chain data...</span> : null}
+                                {dataLoading ? <span>Loading on-chain data...</span> : null}
                               </div>
                             ) : (
                               <div className="tx-list">

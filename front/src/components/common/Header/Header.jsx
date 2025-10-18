@@ -5,7 +5,7 @@ import './Header.css';
 import WalletConnector from './WalletConnector';
 function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { account, signer, chainId } = useEthers();
+  const { account, signer, chainId, provider } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
   const [showArbitration, setShowArbitration] = useState(false);
   const [showPlatform, setShowPlatform] = useState(false);
@@ -19,7 +19,7 @@ function Header() {
           setShowPlatform(false);
           return;
         }
-        const contractService = new ContractService(signer, chainId);
+  const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }
