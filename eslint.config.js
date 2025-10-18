@@ -1,12 +1,5 @@
-import { FlatCompat } from '@eslint/eslintrc';
-
-// Minimal flat config compatible with ESLint v8+/v9+ flat config system
-const compat = new FlatCompat({ baseDirectory: __dirname });
-
+// Minimal flat ESLint config that only enforces runtime-critical rules
 export default [
-  ...compat.config({
-    extends: ['plugin:react/recommended', 'plugin:react-hooks/recommended'],
-  }),
   {
     files: ['front/src/**/*.{js,jsx,ts,tsx}'],
     languageOptions: {
@@ -15,7 +8,7 @@ export default [
       globals: { window: 'readonly', document: 'readonly' },
     },
     rules: {
-      // Runtime-critical rules
+      // Runtime-critical rules only
       'no-undef': 'error',
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',

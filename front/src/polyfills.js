@@ -4,7 +4,7 @@
 (function () {
   // Ensure a global object exists
   if (typeof globalThis === 'undefined') {
-    // eslint-disable-next-line no-undef
+     
     this.globalThis = this; // fallback (should not happen in modern browsers)
   }
 

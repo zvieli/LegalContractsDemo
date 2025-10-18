@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { computeCidDigest, computeContentDigest, canonicalize } from '../utils/evidenceCanonical.js';
-import { verifyTypedData } from 'ethers';
+import { verifyTypedData, BrowserProvider, JsonRpcProvider, Contract } from 'ethers';
 
 /**
  * useEvidence
@@ -24,8 +24,53 @@ export function useEvidence(contractInstance, caseId, heliaFetch) {
       // 1. Query events
       let events = [];
       try {
-        const filter = contractInstance.filters.EvidenceSubmitted(caseId);
-        events = await contractInstance.queryFilter(filter, 0, 'latest');
+        // Prefer a provider-backed contract instance for read-heavy operations
+        // to avoid signer-only runners or injected providers routing queries to
+        // remote RPC nodes (which can fail for large ranges).
+        let readProvider = null;
+        try {
+          if (contractInstance && contractInstance.runner && contractInstance.runner.provider) readProvider = contractInstance.runner.provider;
+        } catch (e) {}
+        try {
+          if (!readProvider && typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) readProvider = window.__APP_ETHERS__.provider;
+        } catch (e) {}
+        try {
+          if (!readProvider && typeof window !== 'undefined' && window.ethereum) readProvider = new BrowserProvider(window.ethereum);
+        } catch (e) {}
+        try {
+          if (!readProvider) readProvider = new JsonRpcProvider('http://127.0.0.1:8545');
+        } catch (e) {}
+
+        let readContract = null;
+        try {
+          if (readProvider && contractInstance && (contractInstance.target || contractInstance.address) && contractInstance.interface) {
+            const addr = contractInstance.target || contractInstance.address;
+            readContract = new Contract(addr, contractInstance.interface, readProvider);
+          }
+        } catch (e) {
+          readContract = null;
+        }
+
+        const filter = (readContract && readContract.filters) ? readContract.filters.EvidenceSubmitted(caseId) : contractInstance.filters.EvidenceSubmitted(caseId);
+        // Limit block range to avoid 400 errors on forked networks
+        let fromBlock = 0;
+        let toBlock = 'latest';
+        try {
+          const latestBlock = await (readContract?.runner?.provider?.getBlockNumber?.() || contractInstance?.runner?.provider?.getBlockNumber?.());
+          if (typeof latestBlock === 'number' && latestBlock > 5000) {
+            fromBlock = latestBlock - 5000;
+          }
+        } catch (_) {}
+        if (readContract && readContract.queryFilter) {
+          try {
+            events = await readContract.queryFilter(filter, fromBlock, toBlock);
+          } catch (e) {
+            console.warn('readContract.queryFilter failed, falling back to original contractInstance.queryFilter', e);
+            try { events = await contractInstance.queryFilter(filter, fromBlock, toBlock); } catch (e2) { console.error('queryFilter EvidenceSubmitted failed', e2); }
+          }
+        } else {
+          try { events = await contractInstance.queryFilter(filter, fromBlock, toBlock); } catch (e) { console.error('queryFilter EvidenceSubmitted failed', e); }
+        }
       } catch (e) {
         console.error('queryFilter EvidenceSubmitted failed', e);
       }

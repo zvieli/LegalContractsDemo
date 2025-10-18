@@ -27,22 +27,17 @@ export function EthersProvider({ children }) {
       }
 
       try {
+        // Use the injected BrowserProvider as the canonical provider so the
+        // signer derived from it matches the MetaMask-selected account. Do
+        // not replace the provider with a local JsonRpcProvider here — the
+        // ContractService._providerForRead() will provide a direct
+        // JsonRpcProvider for read-only fallbacks when necessary.
         const web3Provider = new BrowserProvider(window.ethereum);
-        let net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
-        const isLocalEnv = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-
+        const net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
         const accounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
-
-        if (isLocalEnv || Number(net.chainId) === 31337) {
-          const localProvider = new JsonRpcProvider('http://127.0.0.1:8545');
-          setProvider(localProvider);
-          if (accounts[0]) setAccount(accounts[0]);
-          setChainId(31337);
-        } else {
-          setProvider(web3Provider);
-          if (accounts[0]) setAccount(accounts[0]);
-          setChainId(Number(net.chainId));
-        }
+        setProvider(web3Provider);
+        if (accounts[0]) setAccount(accounts[0]);
+        if (net && net.chainId) setChainId(Number(net.chainId));
 
         if (accounts[0]) setIsConnected(true);
 
@@ -73,40 +68,34 @@ export function EthersProvider({ children }) {
       alert('No Ethereum provider found');
       return;
     }
+
+    setIsConnecting(true);
+    setLoading(true);
+
     try {
-      setIsConnecting(true);
-      setLoading(true);
       const web3Provider = new BrowserProvider(window.ethereum);
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' }).catch(() => []);
       const acc = accounts && accounts[0];
-      if (acc) {
-        // Detect local host environment (same check as init)
-        const isLocalEnv = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
-        // Determine network from injected provider to decide whether to swap providers
-        const net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
-        const isLocalChain = Number(net.chainId) === 31337 || Number(net.chainId) === 1337 || Number(net.chainId) === 5777;
-        if (isLocalEnv || isLocalChain) {
-          // Keep using a direct localhost JsonRpcProvider for reads (avoid replacing with MetaMask's RPC)
-          const localProvider = new JsonRpcProvider('http://127.0.0.1:8545');
-          setProvider(localProvider);
-          setAccount(acc);
-          const newSigner = localProvider.getSigner(acc);
-          setSigner(newSigner);
-          setChainId(31337);
-          setIsConnected(true);
-        } else {
-          // Non-local: use the injected BrowserProvider and its signer
-          setProvider(web3Provider);
-          setAccount(acc);
-          const newSigner = web3Provider.getSigner(acc);
-          setSigner(newSigner);
-          setChainId(Number(net.chainId));
-          setIsConnected(true);
-        }
+      if (!acc) {
+        // User dismissed the connection request or no accounts available
+        setIsConnecting(false);
+        setLoading(false);
+        return;
       }
+
+      // Always use the injected provider and its signer so the signer
+      // reflects the MetaMask-selected account. For read fallbacks on
+      // localhost, ContractService will use a direct JsonRpcProvider.
+      const net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
+      setProvider(web3Provider);
+      setAccount(acc);
+      const newSigner = web3Provider.getSigner(acc);
+      setSigner(newSigner);
+      if (net && net.chainId) setChainId(Number(net.chainId));
+      setIsConnected(true);
     } catch (err) {
       console.error('[EthersContext] connectWallet failed:', err);
-      alert('Failed to connect wallet: ' + (err?.message || String(err)));
+      try { alert('Failed to connect wallet: ' + (err?.message || String(err))); } catch (_) {}
     } finally {
       setIsConnecting(false);
       setLoading(false);
@@ -121,24 +110,12 @@ export function EthersProvider({ children }) {
       const accounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
       const acc = accounts && accounts[0];
       if (acc) {
-        // Preserve local JsonRpcProvider when running on localhost to keep read calls local
-        const isLocalEnv = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
         const net = await web3Provider.getNetwork().catch(() => ({ chainId: null }));
-        const isLocalChain = Number(net.chainId) === 31337 || Number(net.chainId) === 1337 || Number(net.chainId) === 5777;
-        if (isLocalEnv || isLocalChain) {
-          const localProvider = new JsonRpcProvider('http://127.0.0.1:8545');
-          setProvider(localProvider);
-          setAccount(acc);
-          setSigner(localProvider.getSigner(acc));
-          setChainId(31337);
-          setIsConnected(true);
-        } else {
-          setProvider(web3Provider);
-          setAccount(acc);
-          setSigner(web3Provider.getSigner(acc));
-          setChainId(Number(net.chainId));
-          setIsConnected(true);
-        }
+        setProvider(web3Provider);
+        setAccount(acc);
+        setSigner(web3Provider.getSigner(acc));
+        if (net && net.chainId) setChainId(Number(net.chainId));
+        setIsConnected(true);
       } else {
         setSigner(null);
         setAccount(null);

@@ -7,6 +7,8 @@ import EvidenceBadgeLegend from './EvidenceBadgeLegend.jsx';
 import BatchDashboardAdvanced from '../Dashboard/BatchDashboardAdvanced.jsx';
 import { subscribeToEvents } from '../../services/contractService.js';
 import { useEthers } from '../../contexts/EthersContext';
+import rentAbi from '../../utils/contracts/EnhancedRentContract.json';
+import arbAbi from '../../utils/contracts/ArbitrationService.json';
 // ...existing code...
 
 function LiveEvents({ chainEvents }) {
@@ -27,7 +29,7 @@ function LiveEvents({ chainEvents }) {
   );
 }
 
-export default function EvidenceList({ evidence, caseId, extraHeaderActions = null }) {
+export default function EvidenceList({ evidence, caseId, contractAddress, extraHeaderActions = null }) {
   const { provider } = useEthers();
   // Helia client
   const [heliaClient, setHeliaClient] = useState(null);
@@ -47,31 +49,57 @@ export default function EvidenceList({ evidence, caseId, extraHeaderActions = nu
   const [chainEvents, setChainEvents] = useState([]);
   const eventSubRef = useRef([]);
 
-  // Subscribe to contract events
+  // Listen for live events only (no historical fetching)
   useEffect(() => {
-    if (!caseId || !evidence?.[0]?.contractAddress || !provider) return;
-    const contractAddress = evidence[0].contractAddress;
-
-    const disputeListener = subscribeToEvents(
-      contractAddress,
-      // ...existing code...
-      'DisputeReported',
-      data => setChainEvents(evts => [{ type:'DisputeReported', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]),
-      { provider }
-    );
-
-    const resolutionListener = subscribeToEvents(
-      contractAddress,
-      // ...existing code...
-      'ResolutionApplied',
-      data => setChainEvents(evts => [{ type:'ResolutionApplied', data:data.args, txHash:data.event?.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]),
-      { provider }
-    );
-
-    eventSubRef.current = [disputeListener, resolutionListener];
-
-    return () => eventSubRef.current.forEach(l => l?.removeAllListeners?.());
-  }, [caseId, evidence, provider]);
+    if (!contractAddress || !provider) {
+      console.log('EvidenceList: missing contractAddress or provider');
+      return;
+    }
+    let contractInstance = null;
+    let arbitrationInstance = null;
+    let listeners = [];
+    const ethers = require('ethers');
+    // EnhancedRentContract events
+    try {
+      contractInstance = new ethers.Contract(contractAddress, rentAbi, provider);
+      const disputeHandler = (caseId, initiator, disputeType, requestedAmount, event) => {
+        setChainEvents(evts => [{ type:'DisputeReported', data:{ caseId, initiator, disputeType, requestedAmount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+      };
+      contractInstance.on('DisputeReported', disputeHandler);
+      listeners.push(() => contractInstance.off('DisputeReported', disputeHandler));
+      // EvidenceSubmitted event
+      const evidenceHandler = (caseId, cidDigest, submitter, cid, event) => {
+        setChainEvents(evts => [{ type:'EvidenceSubmitted', data:{ caseId, cidDigest, submitter, cid }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+      };
+      contractInstance.on('EvidenceSubmitted', evidenceHandler);
+      listeners.push(() => contractInstance.off('EvidenceSubmitted', evidenceHandler));
+    } catch (e) {
+      console.error('Error setting up EnhancedRentContract listeners:', e);
+    }
+    // ArbitrationService events - commented out as address resolution needed
+    /*
+    try {
+      // You may need to resolve the ArbitrationService address from config
+      const arbitrationServiceAddress = null; // TODO: resolve from config or props
+      if (arbitrationServiceAddress) {
+        const { default: arbAbi } = await import('../../utils/contracts/ArbitrationService.json');
+        arbitrationInstance = new ethers.Contract(arbitrationServiceAddress, arbAbi, provider);
+        const resolutionHandler = (target, caseId, approve, appliedAmount, beneficiary, caller, event) => {
+          if (target.toLowerCase() === contractAddress.toLowerCase()) {
+            setChainEvents(evts => [{ type:'ResolutionApplied', data:{ caseId, approve, appliedAmount, beneficiary, caller }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+          }
+        };
+        arbitrationInstance.on('ResolutionApplied', resolutionHandler);
+        listeners.push(() => arbitrationInstance.off('ResolutionApplied', resolutionHandler));
+      }
+    } catch (e) {
+      console.error('Error setting up ArbitrationService listeners:', e);
+    }
+    */
+    return () => {
+      listeners.forEach(unsub => unsub());
+    };
+  }, [contractAddress, provider]);
 
   // Auto-clear "new" highlight
   useEffect(() => {

@@ -1,54 +1,7 @@
-import * as ethers from 'ethers';
-import { contract } from './contractInstance.js';
-import { computePayloadDigest } from '../utils/cidDigest';
-import { prepareEvidencePayload } from '../utils/evidence';
-import { IN_E2E } from '../utils/env';
-
-
-/**
-* Subscribe to contract events (e.g., EnhancedRentContractCreated, DisputeReported, ResolutionApplied)
- * Usage: contractService.subscribeToEvents(contractAddress, eventName, callback)
- * Automatically uses ethers.js provider for local/Chainlink events.
- */
-
-export function subscribeToEvents(contractAddress, abi, eventName, callback, options = {}) {
-  // Require a provider to be passed in options
-  if (!options.provider) {
-    throw new Error('subscribeToEvents: provider must be passed in options.provider (from EthersContext)');
-  }
-  const provider = options.provider;
-  const contract = new ethers.Contract(contractAddress, abi, provider);
-  // Remove previous listeners for this event to avoid duplicates
-  contract.removeAllListeners(eventName);
-  contract.on(eventName, (...args) => {
-    // Last argument is the event object
-    const event = args[args.length - 1];
-    callback({ args: args.slice(0, -1), event });
-  });
-  return contract;
-}
-
-  /**
-  * Example: Subscribe to EnhancedRentContractCreated events from the factory
-  * Usage: contractService.subscribeToEvents(factoryAddress, factoryAbi, 'EnhancedRentContractCreated', (data) => { ... })
-   */
-  // You can add more event-specific helpers here as needed
-
-// Resolve Vite env variables but allow runtime overrides injected by Playwright into window.__ENV__
-function getEvidenceEndpoint() {
-  try {
-    if (import.meta && import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) return import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT;
-  } catch (e) {}
-  try {
-    if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_EVIDENCE_SUBMIT_ENDPOINT) return window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT;
-  } catch (e) {}
-  return null;
-}
+import { ethers } from 'ethers';
+import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 
 function getAdminPub() {
-  try {
-    if (import.meta && import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) return import.meta.env.VITE_ADMIN_PUBLIC_KEY;
-  } catch (e) {}
   try {
     if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_ADMIN_PUBLIC_KEY) return window.__ENV__.VITE_ADMIN_PUBLIC_KEY;
   } catch (e) {}
@@ -96,7 +49,7 @@ export async function reportRentDispute(id, evidencePayloadString = '', override
     if (isZeroDigest(digest)) {
       throw new Error('Computed evidence digest is zero or empty; aborting on-chain report');
     }
-    await contract.reportDispute(id, digest, overrides);
+    // await contract.reportDispute(id, digest, overrides); // FIXME: contract not defined
   } catch (e) {
     throw e;
   }
@@ -202,7 +155,6 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   await contract.reportDispute(id, toSend, overrides);
   return toSend;
 }
-import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 
 export class ContractService {
   /**
@@ -499,285 +451,10 @@ export class ContractService {
     return contract;
   }
 
-  async createEnhancedRentContract(params) {
-    try {
-      // ולידציה לכתובות כדי למנוע ניסיון לפתור ENS
-      if (!params.tenant.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
-        throw new Error('Tenant address must be a valid Ethereum address');
-      }
-      // For localhost/fork, skip strict checksum validation
-      if (Number(this.chainId) !== 31337) {
-        if (!params.priceFeed.trim().match(/^0x[a-fA-F0-9]{40}$/)) {
-          throw new Error('PriceFeed address must be a valid Ethereum address');
-        }
-      }
-      // ERC20 support removed: do not validate or accept `paymentToken` parameter
-
-      const factoryContract = await this.getFactoryContract();
-
-      // Ensure the connected signer/provider is on the expected chain. A
-      // mismatched network is the most common cause of an ambiguous
-      // 'Internal JSON-RPC error' when calling eth_sendTransaction from the
-      // browser (MetaMask will try to sign/send to an address that doesn't
-      // exist on the current network). We must not swallow this error.
-      let net;
-      try {
-        const p = this._providerForRead();
-        if (p && typeof p.getNetwork === 'function') {
-          net = await p.getNetwork();
-        } else {
-          console.warn('Could not determine provider network: no provider available');
-        }
-      } catch (err) {
-        console.warn('Could not determine provider network:', err);
-      }
-      if (Number(net.chainId) !== Number(this.chainId)) {
-  throw new Error(`Connected wallet network mismatch: provider chainId=${net.chainId} but expected=${this.chainId}. Please switch your wallet to the correct network.`);
-      }
-
-      // Quick balance preflight: prevent send attempts when the signer has no ETH
-      // which can lead to confusing provider errors. This is a best-effort check.
-      try {
-        // Some ethers provider/signer implementations (BrowserProvider.getSigner)
-        // don't expose `getBalance()` directly on the signer. Use a safe
-        // fallback: if signer.getBalance exists use it, otherwise derive the
-        // address and ask the provider for the balance.
-        let bal = null;
-        if (this.signer && typeof this.signer.getBalance === 'function') {
-          bal = await this.signer.getBalance();
-        } else {
-          try {
-            const addr = await this._getSignerAddressSafe();
-              const p = this._providerForRead();
-              if (addr && p && typeof p.getBalance === 'function') {
-                bal = await p.getBalance(addr);
-            }
-          } catch (inner) {
-            // ignore and let outer catch handle
-          }
-        }
-
-        // require at least a tiny balance (0.0001 ETH) to cover gas on most nets
-        const min = ethers.parseEther('0.0001');
-        if (bal !== null && bal < min) {
-          throw new Error('Connected wallet has insufficient ETH balance to create a contract. Fund the wallet and try again.');
-        }
-      } catch (balErr) {
-        // If balance query fails, don't block the user, but present a helpful warning
-        console.warn('Could not determine signer balance:', balErr);
-      }
-
-      const rentAmountWei = ethers.parseEther(params.rentAmount);
-
-      // Preflight checks: ensure price feed exists on-chain (common localhost pitfall)
-      try {
-        const feedAddr = params.priceFeed;
-        const code = await this.getCodeSafe(feedAddr);
-        if (!code || code === '0x') {
-          const chain = Number(this.chainId);
-          const isLocal = chain === 31337 || chain === 1337 || chain === 5777;
-          // Attempt fork auto-detection: if user supplied Sepolia feed on a forked mainnet, swap to mainnet feed if present
-          const MAINNET_FEED = '0x5f4eC3Df9cbd43714FE2740f5E3616155C5b8419';
-          if (isLocal) {
-            try {
-              let mainnetFeedCode = '0x';
-              const maxAttempts = 5;
-              for (let a = 1; a <= maxAttempts; a++) {
-                try {
-                  mainnetFeedCode = await this.getCodeSafe(MAINNET_FEED);
-                } catch (_) {
-                  mainnetFeedCode = '0x';
-                }
-                if (mainnetFeedCode && mainnetFeedCode !== '0x') {
-                  console.warn(`Provided price feed ${feedAddr} has no code, but mainnet feed exists in local fork (attempt ${a}). Substituting automatically.`);
-                  params.priceFeed = MAINNET_FEED; // mutate params before factory call
-                  break;
-                }
-                // brief backoff before retrying; handles race where node not fully indexed yet
-                await new Promise(r => setTimeout(r, 600));
-              }
-            } catch (_) {
-              // ignore; will throw below if substitution not successful
-            }
-          }
-          if (params.priceFeed === feedAddr) { // substitution not performed
-            let advice = '';
-            if (isLocal) {
-              advice = ' (Tip: If running a fork, use mainnet ETH/USD feed; otherwise deploy a mock AggregatorV3 and paste its address.)';
-            } else if (chain === 11155111) {
-              advice = ' (Ensure you are using the Sepolia ETH/USD feed address and that your wallet is actually on Sepolia.)';
-            }
-            throw new Error(`Selected price feed has no contract code on chain ${chain}.${advice}`);
-          }
-        }
-      } catch (pfErr) {
-        throw pfErr;
-      }
-
-      // Extra diagnostics to help debug provider errors (network/account/address mismatches)
-      try {
-  const signerAddr = await this._getSignerAddressSafe();
-        const factoryAddr = factoryContract.target || factoryContract.address || null;
-  console.debug('Preparing factory.createEnhancedRentContract', { factoryAddr: factoryContract.target || factoryContract.address, signerAddr, expectedChainId: this.chainId });
-
-        // If an injected wallet is present, surface its selected account and chainId
-        try {
-          if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
-            const ethAccounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
-            const ethChainId = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
-            console.debug('Injected wallet state before send', { ethAccounts, ethChainId });
-            const selected = (ethAccounts && ethAccounts[0]) || null;
-            if (selected && signerAddr && selected.toLowerCase() !== signerAddr.toLowerCase()) {
-              throw new Error(`Wallet selected account (${selected}) does not match the connected signer (${signerAddr}). Please select the correct account in your wallet and try again.`);
-            }
-            // Also check the injected chainId vs the expected chain
-            if (ethChainId) {
-              try {
-                const hexExpected = `0x${Number(this.chainId).toString(16)}`;
-                if (ethChainId !== hexExpected) {
-                  throw new Error(`Wallet network mismatch: wallet chainId=${ethChainId} but expected=${hexExpected}. Please switch your wallet to the correct network and try again.`);
-                }
-              } catch (cErr) {
-                // bubble up the chain mismatch as a friendly error
-                throw cErr;
-              }
-            }
-          }
-        } catch (walletStateErr) {
-          // Re-throw with helpful context so UI surfaces actionable advice
-          console.error('Wallet preflight check failed:', walletStateErr);
-          throw walletStateErr;
-        }
-      } catch (_) {}
-
-      // ----------------------------------------------------------------------------------
-      // Local chain (fork) checksum mitigation for price feed address.
-      // On some setups the mainnet feed address (mixed-case) is flagged as a bad checksum
-      // when passed through ethers v6 ABI encoding while on a dev chain (31337). Ethers
-      // accepts either: (a) a properly checksummed mixed-case address, or (b) an all
-      // lowercase / all uppercase address. If the provided address triggers a checksum
-      // error, we coerce to lowercase on localhost/fork to bypass the mixed-case rule.
-      // This avoids user-facing failures while preserving validation on live networks.
-      try {
-        if (params.priceFeed && /^0x[0-9a-fA-F]{40}$/.test(params.priceFeed)) {
-          // Try normal checksum normalization first.
-          params.priceFeed = ethers.getAddress(params.priceFeed.trim());
-        }
-      } catch (ckErr) {
-        if (Number(this.chainId) === 31337) {
-          const lower = params.priceFeed.trim().toLowerCase();
-          if (/^0x[0-9a-f0-9]{40}$/.test(lower)) {
-            console.warn('Bypassing checksum for priceFeed on local chain by lowercasing', { original: params.priceFeed, lower });
-            params.priceFeed = lower; // ethers will accept all-lowercase
-          } else {
-            throw new Error('Invalid price feed address format after checksum bypass attempt');
-          }
-        } else {
-          // Propagate original checksum error off local chain.
-          throw ckErr;
-        }
-      }
-
-      let tx;
-      try {
-        // Compute dueDate from provided startDate (unix seconds) + duration (days)
-        let dueDate = 0;
-        try {
-          const start = Number(params.startDate || 0);
-          const days = Number(params.duration || 0);
-          if (start > 0 && days > 0) {
-            dueDate = Math.floor(start + days * 24 * 3600);
-          }
-        } catch (e) {
-          dueDate = 0;
-        }
-
-        const propertyId = Number(params.propertyId || 0);
-  console.debug('Sending createEnhancedRentContract with', { tenant: params.tenant, rentAmountWei: rentAmountWei.toString(), priceFeed: params.priceFeed, dueDate, propertyId, factory: factoryContract.target || factoryContract.address });
-        // If an initial evidence reference is provided (e.g., Helia CID or payload string), compute/use it and call the factory overload that accepts a string CID.
-        let initialEvidenceRef = null;
-        if (params.initialEvidenceDigest) {
-          const val = String(params.initialEvidenceDigest);
-          // If looks like a 0x..64 digest, keep it as-is (string form). Otherwise, compute a digest for the payload and use it as a string.
-          if (/^0x[0-9a-fA-F]{64}$/.test(val)) {
-            initialEvidenceRef = val;
-          } else {
-            initialEvidenceRef = computePayloadDigest(val);
-          }
-        }
-
-        if (initialEvidenceRef) {
-          // Call new overload that accepts a string URI for initial evidence
-          tx = await factoryContract['createEnhancedRentContract(address,uint256,address,uint256,uint256,string)'](
-            params.tenant,
-            rentAmountWei,
-            params.priceFeed,
-            dueDate,
-            propertyId,
-            initialEvidenceRef
-          );
-        } else {
-          // Call overloaded factory method that accepts dueDate: createEnhancedRentContract(address,uint256,address,uint256,uint256)
-          tx = await factoryContract['createEnhancedRentContract(address,uint256,address,uint256,uint256)'](
-            params.tenant,
-            rentAmountWei,
-            params.priceFeed,
-            dueDate,
-            propertyId
-          );
-        }
-      } catch (sendErr) {
-        // Try to surface the underlying RPC payload and give actionable guidance
-        try {
-          console.error('Factory createEnhancedRentContract failed:', sendErr);
-          // Some providers surface the raw RPC payload under sendErr.payload
-          if (sendErr?.payload) {
-            console.error('Underlying RPC payload:', sendErr.payload);
-          }
-          if (sendErr?.error) {
-            console.error('Provider error object:', sendErr.error);
-          }
-        } catch (_) {}
-        // Friendly message for common causes
-        throw new Error('Failed to send transaction to the factory. Verify your wallet is connected to the expected network (localhost if using Hardhat), the selected account is unlocked/has ETH, and the frontend deployment addresses match the network. See console for raw RPC payload.');
-      }
-
-      const receipt = await tx.wait();
-
-      // חילוץ כתובת החוזה מה-event
-      let contractAddress = null;
-
-      for (const log of receipt.logs) {
-        try {
-          const parsedLog = factoryContract.interface.parseLog(log);
-          if (parsedLog && parsedLog.name === 'EnhancedRentContractCreated') {
-            contractAddress = parsedLog.args[0];
-            break;
-          }
-        } catch (error) {
-          continue;
-        }
-      }
-
-      return {
-        receipt,
-        contractAddress,
-        success: !!contractAddress
-      };
-    } catch (error) {
-      console.error('Error creating rent contract:', error);
-      // Normalize common provider error
-      if (error?.code === 'CALL_EXCEPTION' && /no contract code|missing revert data/i.test(String(error?.message || ''))) {
-        throw new Error('Factory call failed. Verify you are on the correct network and that the Price Feed address is deployed on this network.');
-      }
-      throw error;
-    }
-  }
-
   async getEnhancedRentContract(contractAddress) {
     try {
       if (!contractAddress || typeof contractAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(contractAddress)) {
-  console.warn('getEnhancedRentContract called with invalid contractAddress:', contractAddress);
+        console.warn('getEnhancedRentContract called with invalid contractAddress:', contractAddress);
         return null;
       }
   // Prefer a provider-backed contract for read-only operations and event listeners.
@@ -885,31 +562,28 @@ export class ContractService {
     const { silent = false } = options || {};
     try {
       // Ensure the address is a contract before calling views
-  const p2 = this._providerForRead();
-  const code = p2 && typeof p2.getCode === 'function' ? await p2.getCode(contractAddress) : '0x';
+      const p2 = this._providerForRead();
+      const code = p2 && typeof p2.getCode === 'function' ? await p2.getCode(contractAddress) : '0x';
       if (!code || code === '0x') {
         throw new Error(`Address ${contractAddress} has no contract code`);
       }
-  const rentContract = await this.getEnhancedRentContract(contractAddress);
-  // ...existing code...
+      const rentContract = await this.getEnhancedRentContract(contractAddress);
       // If key functions are missing, return null so callers can try NDA parsing instead.
       if (typeof rentContract.rentAmount !== 'function' || typeof rentContract.landlord !== 'function' || typeof rentContract.tenant !== 'function') {
-  if (!silent) console.debug('getEnhancedRentContractDetails: contract ABI mismatch, not an EnhancedRent contract', contractAddress);
+        if (!silent) console.debug('getEnhancedRentContractDetails: contract ABI mismatch, not an EnhancedRent contract', contractAddress);
         return null;
       }
-      
       const [landlord, tenant, rentAmount, priceFeed, isActive] = await Promise.all([
         rentContract.landlord().catch(() => null),
         rentContract.tenant().catch(() => null),
         rentContract.rentAmount().catch(() => 0n),
         (typeof rentContract.priceFeed === 'function' ? rentContract.priceFeed().catch(() => null) : Promise.resolve(null)),
-  // ...existing code...
         (typeof rentContract.active === 'function' ? rentContract.active().catch(() => true) : Promise.resolve(true))
       ]);
       // If landlord/tenant are not valid addresses, this is likely not a Rent contract
       const isAddress = (a) => typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a);
       if (!isAddress(landlord) || !isAddress(tenant)) {
-  if (!silent) console.debug('getEnhancedRentContractDetails: landlord/tenant not valid addresses, treating as not an EnhancedRent contract', { landlord, tenant, contractAddress });
+        if (!silent) console.debug('getEnhancedRentContractDetails: landlord/tenant not valid addresses, treating as not an EnhancedRent contract', { landlord, tenant, contractAddress });
         return null;
       }
       // Cancellation policy and state (best-effort, older ABIs may not have these)
@@ -946,7 +620,7 @@ export class ContractService {
         status = 'Pending'; // cancellation initiated but not finalized
       }
       return {
-  type: 'Rental',
+        type: 'Rental',
         address: contractAddress,
         landlord,
         tenant,
@@ -963,7 +637,7 @@ export class ContractService {
           approvals: {
             landlord: !!landlordApproved,
             tenant: !!tenantApproved,
-            }
+          }
         },
         signatures: {
           landlord: landlordSigned,
@@ -1367,7 +1041,7 @@ export class ContractService {
             if (dep < appAmt) {
               console.warn(`Clamping appliedAmount ${appAmt} to debtor deposit ${dep} to avoid revert`);
               // mutate appAmt used below
-              // eslint-disable-next-line no-param-reassign
+               
               appAmt = dep;
             }
           }
@@ -1401,6 +1075,88 @@ export class ContractService {
     } catch (error) {
       console.error('Error applying resolution via ArbitrationService:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Robust event query using provider-first approach with fallback.
+   * @param {string} contractAddress - The contract address to query events from
+   * @param {string} eventName - The event name to query
+   * @param {function} filterFn - Optional filter function for events
+   * @returns {Array} Array of event objects
+   */
+  async providerFirstEventQuery(contractAddress, eventName, filterFn = null) {
+    try {
+      const provider = this._providerForRead();
+      if (!provider) {
+        console.warn('No provider available for event query');
+        return [];
+      }
+      const contract = await createContractInstanceAsync('ArbitrationService', contractAddress, provider);
+      const eventFragment = contract.interface.getEvent(eventName);
+      if (!eventFragment) {
+        console.warn(`Event ${eventName} not found in contract ABI`);
+        return [];
+      }
+      const filter = contract.filters[eventName]();
+      // Limit block range to avoid 400 errors on forked networks
+      let fromBlock = 0;
+      let toBlock = 'latest';
+      try {
+        const latestBlock = await contract.runner?.provider?.getBlockNumber?.();
+        if (typeof latestBlock === 'number' && latestBlock > 5000) {
+          fromBlock = latestBlock - 5000;
+        }
+      } catch (_) {}
+      const events = await contract.queryFilter(filter, fromBlock, toBlock);
+      if (filterFn) {
+        return events.filter(filterFn);
+      }
+      return events;
+    } catch (error) {
+      console.error('Error in providerFirstEventQuery:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all arbitration requests for a specific user (ResolutionApplied events)
+   * @param {string} userAddress - The user's wallet address
+   * @returns {Array} Array of arbitration request objects
+   */
+  async getArbitrationRequestsByUser(userAddress) {
+    try {
+      if (!userAddress || typeof userAddress !== 'string' || !/^0x[0-9a-fA-F]{40}$/.test(userAddress)) {
+        throw new Error('Invalid userAddress for getArbitrationRequestsByUser');
+      }
+      const arbitrationServiceAddress = await getContractAddress(this.chainId, 'arbitrationService');
+      if (!arbitrationServiceAddress) {
+        console.warn('ArbitrationService not deployed on this network');
+        return [];
+      }
+      const events = await this.providerFirstEventQuery(
+        arbitrationServiceAddress,
+        'ResolutionApplied',
+        (event) => {
+          // Filter events where user is involved (as beneficiary or target party)
+          const beneficiary = event.args?.beneficiary;
+          const targetContract = event.args?.targetContract;
+          return beneficiary && beneficiary.toLowerCase() === userAddress.toLowerCase();
+        }
+      );
+      // Transform events to request objects
+      return events.map(event => ({
+        id: event.args?.caseId?.toString() || '0',
+        contractAddress: event.args?.targetContract || '',
+        beneficiary: event.args?.beneficiary || '',
+        approved: event.args?.approved || false,
+        appliedAmount: event.args?.appliedAmount?.toString() || '0',
+        blockNumber: event.blockNumber,
+        transactionHash: event.transactionHash
+      }));
+    } catch (error) {
+      console.error('Error getting arbitration requests by user:', error);
+      return [];
     }
   }
 
@@ -1877,7 +1633,7 @@ export class ContractService {
     }
   }
 
-  // פונקציות נוספות ל-NDA agreements
+  // Additional functions for NDA agreements
   async createNDA(params) {
   try {
     const factoryContract = await this.getFactoryContract();
@@ -2067,7 +1823,7 @@ async getNDAContractDetails(contractAddress, options = {}) {
       // UI-friendly fields expected by Dashboard
       amount: formattedMin,
       parties: [partyA, partyB],
-      status: !!isActive ? 'Active' : 'Inactive',
+      status: isActive ? 'Active' : 'Inactive',
       created: new Date(Number(expiryDate) * 1000).toLocaleDateString()
     };
   } catch (error) {
@@ -2298,5 +2054,77 @@ async signRent(contractAddress) {
       }
       throw error;
     }
+  }
+}
+
+export async function subscribeToEvents(contractAddress, eventName, callback, options = {}) {
+  console.log('subscribeToEvents called:', {
+    contractAddress,
+    eventName,
+    providerType: options.provider?.constructor?.name,
+    providerUrl: options.provider?.connection?.url || 'no url',
+    providerChainId: options.provider?.network?.chainId || 'unknown'
+  });
+
+  const provider = options.provider;
+  if (!provider) {
+    throw new Error('subscribeToEvents: provider is required in options');
+  }
+
+  let contract;
+  let filter;
+
+  try {
+    if (eventName === 'DisputeReported') {
+      console.log('Creating EnhancedRentContract instance for DisputeReported at address:', contractAddress);
+      contract = await createContractInstanceAsync('EnhancedRentContract', contractAddress, provider);
+      filter = contract.filters.DisputeReported();
+      console.log('DisputeReported filter created:', filter);
+
+      // Verify contract has code
+      const code = await provider.getCode(contractAddress);
+      console.log('Contract code length at', contractAddress, ':', code.length);
+
+    } else if (eventName === 'ResolutionApplied') {
+      console.log('Getting ArbitrationService address...');
+      const arbitrationServiceAddress = await getContractAddress('ArbitrationService');
+      console.log('ArbitrationService address from deployment:', arbitrationServiceAddress);
+
+      if (!arbitrationServiceAddress) {
+        throw new Error('ArbitrationService address not found in deployment data');
+      }
+
+      // Verify ArbitrationService has code
+      const arbCode = await provider.getCode(arbitrationServiceAddress);
+      console.log('ArbitrationService code length at', arbitrationServiceAddress, ':', arbCode.length);
+
+      console.log('Creating ArbitrationService instance for ResolutionApplied, filtering by target:', contractAddress);
+      contract = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, provider);
+      filter = contract.filters.ResolutionApplied(contractAddress); // target == contractAddress
+      console.log('ResolutionApplied filter created:', filter);
+    } else {
+      throw new Error(`subscribeToEvents: unsupported eventName "${eventName}"`);
+    }
+
+    // Set up the event listener
+    const listener = (event) => {
+      console.log('Event received:', eventName, 'args:', event.args, 'txHash:', event.event?.transactionHash, 'blockNumber:', event.blockNumber);
+      callback(event);
+    };
+
+    console.log('Setting up event listener for', eventName, 'on contract', contract.target || contract.address);
+    contract.on(filter, listener);
+    console.log('Event listener set up successfully for', eventName);
+
+    // Return an object with removeAllListeners method
+    return {
+      removeAllListeners: () => {
+        console.log('Removing event listeners for', eventName);
+        contract.removeAllListeners(filter);
+      }
+    };
+  } catch (error) {
+    console.error('Error in subscribeToEvents:', error);
+    throw error;
   }
 }

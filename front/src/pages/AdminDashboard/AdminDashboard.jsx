@@ -34,7 +34,16 @@ export default function AdminDashboard() {
         // Fetch PaymentWithdrawn events (simulate bond transactions)
         // You may need to adjust event name and args to match your contract
         const filter = contract.filters.ResolutionApplied();
-        const events = await contract.queryFilter(filter, -10000); // last 10k blocks
+        let events = [];
+        try {
+          const cs = new (await import('../../services/contractService')).ContractService(provider, signer, chainId);
+          const rp = cs._providerForRead() || provider;
+          const readContract = new ethers.Contract(ARBITRATION_SERVICE_ADDRESS, abi, rp);
+          events = await readContract.queryFilter(filter, -10000);
+        } catch (e) {
+          // fallback to provider-bound contract
+          events = await contract.queryFilter(filter, -10000);
+        }
         const txs = events.map((ev, idx) => ({
           id: idx + 1,
           date: new Date(ev.blockTimestamp * 1000).toLocaleString('en-GB'),

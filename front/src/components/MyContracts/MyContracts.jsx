@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import * as Contracts from '../../utils/contracts';
-import { ContractServiceV7 } from '../../services/contractServiceV7';
+import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
 import { createContractInstanceAsync } from '../../utils/contracts';
 import './MyContracts.css';
@@ -13,12 +13,11 @@ export default function MyContracts() {
   const [contracts, setContracts] = useState([]); // raw addresses
   const [details, setDetails] = useState({}); // address -> detail object
   const [loading, setLoading] = useState(false);
-   const [v7Loading, setV7Loading] = useState(false);
+  const [v7Loading, setV7Loading] = useState(false);
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalReadOnly, setModalReadOnly] = useState(false);
-  const [v7ArbitrationRequests, setV7ArbitrationRequests] = useState([]); // V7 arbitration requests
-   const [v7Service, setV7Service] = useState(null); // V7 service instance
+  const [arbitrationRequests, setArbitrationRequests] = useState([]); // arbitration requests
 
   useEffect(() => {
     // (see below for the correct useEffect implementation)
@@ -27,32 +26,35 @@ export default function MyContracts() {
   }, [isConnected, signer, chainId, account, globalContracts]);
 
 
-    // Load V7 arbitration requests
-    useEffect(() => {
-      const loadV7ArbitrationRequests = async () => {
-          if (!signer || !v7Service) {
-            setV7ArbitrationRequests([]);
-            return;
-          }
-
-          setV7Loading(true);
-        try {
-          const { safeGetAddress } = await import('../../utils/signer.js');
-          const contractService = new ContractService(provider, signer, chainId);
-          const readProvider = contractService._providerForRead() || provider || null;
-          const addr = await safeGetAddress(signer, readProvider || contractService);
-          const requests = await v7Service.getArbitrationRequestsByUser(addr);
-          setV7ArbitrationRequests(requests || []);
-        } catch (error) {
-          console.error('Error loading V7 arbitration requests:', error);
-          setV7ArbitrationRequests([]);
-          } finally {
-            setV7Loading(false);
+  // Load arbitration requests using ContractService
+  useEffect(() => {
+    const loadArbitrationRequests = async () => {
+      if (!signer) {
+        setArbitrationRequests([]);
+        return;
+      }
+      setV7Loading(true);
+      try {
+        const { safeGetAddress } = await import('../../utils/signer.js');
+        const contractService = new ContractService(signer, chainId);
+        const readProvider = contractService._providerForRead() || null;
+        const addr = await safeGetAddress(signer, readProvider || contractService);
+        // You may need to implement getArbitrationRequestsByUser in ContractService if not present
+        if (typeof contractService.getArbitrationRequestsByUser === 'function') {
+          const requests = await contractService.getArbitrationRequestsByUser(addr);
+          setArbitrationRequests(requests || []);
+        } else {
+          setArbitrationRequests([]);
         }
-      };
-
-      loadV7ArbitrationRequests();
-    }, [signer, v7Service]);
+      } catch (error) {
+        console.error('Error loading arbitration requests:', error);
+        setArbitrationRequests([]);
+      } finally {
+        setV7Loading(false);
+      }
+    };
+    loadArbitrationRequests();
+  }, [signer, chainId]);
 
   // If user isn't connected, show the previous placeholder UX (static preview)
   // On-chain admin detection: fetch factoryOwner from ContractFactory

@@ -7,6 +7,8 @@ function CreateChoice() {
   const [selected, setSelected] = useState(null);
   const { account, signer, chainId, provider } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [loading, setLoading] = useState(false);
+
   useEffect(() => {
     async function checkAdmin() {
       if (!provider || !signer || !chainId || !account) {
