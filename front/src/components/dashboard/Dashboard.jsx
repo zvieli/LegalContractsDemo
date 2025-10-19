@@ -6,6 +6,7 @@ import { createContractInstanceAsync } from '../../utils/contracts';
 import { useRentPaymentEvents } from '../../hooks/useContractEvents';
 import ContractModal from '../ContractModal/ContractModal';
 import * as ethers from 'ethers';
+import { formatEtherSafe } from '../../utils/eth';
 import './Dashboard.css';
 
 function Dashboard() {
@@ -477,11 +478,34 @@ function Dashboard() {
                   <div className="contract-info">
                     <div className="info-item">
                       <span className="label">Amount:</span>
-                      <span className="value">{contract.amount}</span>
+                      <span className="value">{(() => {
+                        try {
+                          const amt = contract.amount;
+                          // If already looks like a decimal string (formatted), show as-is.
+                          if (typeof amt === 'string' && amt.includes('.')) return amt + ' ETH';
+                          return formatEtherSafe(amt) + ' ETH';
+                        } catch (e) {
+                          return String(contract.amount);
+                        }
+                      })()}</span>
                     </div>
                     <div className="info-item">
                       <span className="label">Created:</span>
-                      <span className="value">{contract.created}</span>
+                      <span className="value" style={{direction:'ltr', display:'inline-block'}}>{(() => {
+                        try {
+                          const v = contract.created || Date.now();
+                          // If it's already a number timestamp
+                          if (typeof v === 'number' || (!isNaN(Number(v)) && String(v).length > 9)) {
+                            return new Date(Number(v)).toLocaleString();
+                          }
+                          // if it's a formatted string, show as-is, else try Date parse
+                          const parsed = Date.parse(String(v));
+                          if (!isNaN(parsed)) return new Date(parsed).toLocaleString();
+                          return String(v) || new Date().toLocaleString();
+                        } catch (e) {
+                          return String(contract.created || new Date().toLocaleString());
+                        }
+                      })()}</span>
                     </div>
                   </div>
                 </div>

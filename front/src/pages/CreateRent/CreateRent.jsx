@@ -6,7 +6,7 @@ import './CreateRent.css';
 import '../../styles/notAllowed.css';
 
 function CreateRent() {
-  const { account, signer, chainId, provider, isConnected, loading, connectWallet, setLoading, setLatestContractAddress, addContract } = useEthers();
+  const { account, signer, chainId, provider, isConnected, loading, isConnecting, connectWallet, setLoading, setLatestContractAddress, addContract } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
   // Canonical read provider for read-only calls (prefer explicit JsonRpcProvider for localhost)
   const contractService = new ContractService(provider, signer, chainId);
@@ -44,6 +44,16 @@ function CreateRent() {
     network: 'localhost' // Default to localhost for developer workflows
   });
   const [createdContractAddress, setCreatedContractAddress] = useState('');
+
+  // Spinner timeout / Connect fallback hooks must run unconditionally to preserve hook order
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const shouldShowSpinner = isConnecting || (loading && !provider && !account);
+  useEffect(() => {
+    let t;
+    if (loading) t = setTimeout(() => setLoadingTimedOut(true), 5000);
+    else setLoadingTimedOut(false);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   
 
@@ -294,8 +304,19 @@ function CreateRent() {
     );
   }
 
-  if (loading || !provider || !signer || !chainId || !account) {
+  if (shouldShowSpinner && !loadingTimedOut) {
     return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
+  }
+  if (!provider || !signer || !chainId || !account) {
+    return (
+      <div style={{textAlign:'center',marginTop:'48px'}}>
+        <div style={{fontSize:16,marginBottom:12}}>Wallet not connected</div>
+        <div style={{marginBottom:12}}><small>Please connect your Ethereum wallet to create a contract.</small></div>
+        <div>
+          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch(e){ console.error('connectWallet failed', e); } }}>Connect Wallet</button>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -125,8 +125,29 @@ function CreateNDA() {
     );
   }
 
-  if (loading || !provider || !signer || !chainId || !account) {
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const shouldShowSpinner = isConnecting || (loading && !provider && !account);
+  useEffect(() => {
+    let t;
+    if (loading) t = setTimeout(() => setLoadingTimedOut(true), 5000);
+    else setLoadingTimedOut(false);
+    return () => clearTimeout(t);
+  }, [loading]);
+
+  if (shouldShowSpinner && !loadingTimedOut) {
     return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
+  }
+
+  if (!provider || !signer || !chainId || !account) {
+    return (
+      <div style={{textAlign:'center',marginTop:'48px'}}>
+        <div style={{fontSize:16,marginBottom:12}}>Wallet not connected</div>
+        <div style={{marginBottom:12}}><small>Please connect your Ethereum wallet to create an NDA.</small></div>
+        <div>
+          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch(e){ console.error('connectWallet failed', e); } }}>Connect Wallet</button>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -399,6 +399,40 @@
   justify-content: flex-end;
   margin-top: 8px;
 }
+
+/* Pending evidence UI */
+.pending-button { position: relative; }
+.pending-badge {
+  display: inline-block;
+  background: var(--danger-color, #e74c3c);
+  color: #fff;
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 11px;
+  margin-left: 8px;
+  vertical-align: top;
+}
+.pending-list {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  padding: 8px;
+  background: #fff;
+}
+.pending-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 4px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.pending-meta { flex: 1; min-width: 0; }
+.pending-id { font-size: 13px; color: var(--primary-color); }
+.pending-digest { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pending-times { font-size: 11px; color: #666; }
+.pending-error { font-size: 12px; color: #b33434; margin-top:6px; }
+.pending-actions { display:flex; gap:8px; align-items:center; }
+.pending-empty { padding: 12px; color: var(--text-secondary); font-style: italic; }
 .dispute-form .btn-action {
   padding: 0.6rem 0.9rem;
   border-radius: 8px;

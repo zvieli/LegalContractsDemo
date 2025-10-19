@@ -227,7 +227,15 @@ function Arbitration() {
                   <div className="dispute-details" data-testid={`arbitration-dispute-details-${dispute.id}`}> 
                     <p><strong>Contract:</strong> <span data-testid={`arbitration-dispute-contract-${dispute.id}`}>{dispute.contractAddress}</span></p>
                     <p><strong>Reason:</strong> <span data-testid={`arbitration-dispute-reason-${dispute.id}`}>{dispute.reason}</span></p>
-                    <p><strong>Created:</strong> <span data-testid={`arbitration-dispute-created-${dispute.id}`}>{dispute.created}</span></p>
+                    <p><strong>Created:</strong> <span data-testid={`arbitration-dispute-created-${dispute.id}`} style={{direction:'ltr', display:'inline-block'}}>{(() => {
+                      const v = dispute.created || Date.now();
+                      try {
+                        if (typeof v === 'number' || (!isNaN(Number(v)) && String(v).length > 9)) return new Date(Number(v)).toLocaleString();
+                        const p = Date.parse(String(v));
+                        if (!isNaN(p)) return new Date(p).toLocaleString();
+                        return String(v) || new Date().toLocaleString();
+                      } catch (e) { return new Date().toLocaleString(); }
+                    })()}</span></p>
                   </div>
                   <div className="dispute-actions" data-testid={`arbitration-dispute-actions-${dispute.id}`}> 
                     <button className="btn-sm primary" data-testid={`arbitration-view-btn-${dispute.id}`} onClick={() => handleView(dispute.contractAddress)}>

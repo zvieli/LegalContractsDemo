@@ -312,8 +312,8 @@ export class ContractService {
         return computePayloadDigest(payload);
       }
 
-      // Prepare (encrypt) payload using existing helper
-      const { ciphertext, digest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: runtimeAdmin });
+  // Prepare (encrypt) payload using existing helper
+  const { ciphertext, digest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: runtimeAdmin });
       const isZeroDigest = d => !d || /^0x0{64}$/.test(String(d));
       if (!ciphertext || typeof ciphertext !== 'string' || ciphertext.length === 0) throw new Error('Evidence preparation failed: ciphertext empty');
       if (isZeroDigest(digest)) throw new Error('Evidence preparation failed: zero digest');
@@ -326,36 +326,59 @@ export class ContractService {
       const requestHeaders = { 'Content-Type': 'application/json' };
       if (submitterAddress) requestHeaders.Authorization = `Bearer ${submitterAddress}`;
 
-      // POST ciphertext
-      let res;
-      try {
-        res = await fetch(endpointUrl, { method: 'POST', headers: requestHeaders, body: ciphertext });
-      } catch (fetchErr) {
-        throw fetchErr;
-      }
+      // POST ciphertext with resilient behavior. If the POST fails due to
+      // transient network/server errors we will enqueue the payload locally
+      // and return the computed digest immediately so callers can continue.
+      // A background uploader will retry queued items and replace local
+      // placeholders with server-provided CIDs when available.
 
-      if (!res.ok) {
-        // If server returns adminPublicKey on 400, retry once using returned key
-        let errBody = null;
-        try { errBody = await res.json(); } catch (e) { errBody = null; }
-        if (res.status === 400 && errBody && errBody.adminPublicKey) {
-          const adminPub = errBody.adminPublicKey;
-          const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: adminPub });
-          res = await fetch(endpointUrl, { method: 'POST', headers: requestHeaders, body: newCiphertext });
-          if (!res.ok) {
-            const txt = await res.text().catch(() => '');
-            throw new Error('evidence endpoint retry failed: ' + res.status + ' ' + txt);
-          }
-          const parsed = await res.json();
-          return parsed && parsed.digest ? parsed.digest : newDigest;
+      // Attempt immediate POST with minimal retries
+      let res = null;
+      let attempt = 0;
+      const maxImmediateAttempts = 2;
+      let lastErr = null;
+      while (attempt < maxImmediateAttempts) {
+        try {
+          res = await fetch(endpointUrl, { method: 'POST', headers: requestHeaders, body: ciphertext });
+          break;
+        } catch (fetchErr) {
+          lastErr = fetchErr;
+          attempt++;
+          // small backoff
+          await new Promise(r => setTimeout(r, 200 * attempt));
         }
-        const txt = await (async() => { try { return await res.text(); } catch(e){ return ''; } })();
-        throw new Error('evidence endpoint returned ' + res.status + ' ' + txt);
       }
 
+      // If request ultimately failed or returned non-ok, enqueue for background retry
+      if (!res || !res.ok) {
+        try {
+          // Try to parse server hint if available
+          let errBody = null;
+          if (res && res.clone) {
+            try { errBody = await res.clone().json().catch(() => null); } catch (_) { errBody = null; }
+          }
+          if (res && res.status === 400 && errBody && errBody.adminPublicKey) {
+            // server expects a different admin key; re-encrypt & enqueue that variant
+            const adminPub = errBody.adminPublicKey;
+            const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: adminPub });
+            // enqueue with explicit override ciphertext
+            this.enqueuePendingEvidence({ payload, digest: newDigest, endpoint: endpointUrl, headers: requestHeaders, ciphertext: newCiphertext, createdAt: Date.now() });
+            // Return the digest as immediate reference (caller can use this on-chain)
+            this.scheduleBackgroundUploader();
+            return newDigest;
+          }
+        } catch (_) {}
+
+        // Generic enqueue for retry: store original ciphertext and digest
+  this.enqueuePendingEvidence({ payload, digest, endpoint: endpointUrl, headers: requestHeaders, ciphertext, createdAt: Date.now() });
+  this.scheduleBackgroundUploader();
+        // Return the digest as immediate on-chain-compatible reference
+        return digest;
+      }
+
+      // Success path: parse response and return server-provided CID/digest
       const body = await res.json();
-      // Prefer heliaCid when available
-      const returnedCid = body && body.heliaCid ? body.heliaCid : null;
+      const returnedCid = body && (body.heliaCid || body.heliaUri) ? (body.heliaCid || body.heliaUri) : null;
       const returnedDigest = body && body.digest ? body.digest : digest;
       return returnedCid ? returnedCid : returnedDigest;
     } catch (e) {
@@ -363,6 +386,184 @@ export class ContractService {
       throw e;
     }
   }
+
+  // ============ Pending evidence queue (sessionStorage-backed) ============
+  // Small local queue so evidence uploads aren't lost on transient network errors.
+  // Each item: { id, payload, digest, endpoint, headers, ciphertext, attempts, lastAttemptAt, createdAt }
+  _pendingKey() { return 'pendingEvidenceQueue_v1'; }
+
+  _loadPendingQueue() {
+    try {
+      const raw = typeof window !== 'undefined' ? window.sessionStorage.getItem(this._pendingKey()) : null;
+      if (!raw) return [];
+      const arr = JSON.parse(raw || '[]');
+      if (!Array.isArray(arr)) return [];
+      return arr;
+    } catch (e) { return []; }
+  }
+
+  _savePendingQueue(arr) {
+    try {
+      if (typeof window === 'undefined') return;
+      window.sessionStorage.setItem(this._pendingKey(), JSON.stringify(arr || []));
+    } catch (e) {}
+  }
+
+  async _flushOnePending(item) {
+    try {
+      if (!item || !item.endpoint || !item.ciphertext) return false;
+      const headers = item.headers || { 'Content-Type': 'application/json' };
+      let res;
+      try {
+        res = await fetch(item.endpoint, { method: 'POST', headers, body: item.ciphertext });
+      } catch (fetchErr) {
+        return { success: false, error: String(fetchErr) };
+      }
+      if (!res.ok) {
+        // Try to capture response body for debugging
+        let tb = '';
+        try { tb = await res.text().catch(() => ''); } catch (_) { tb = ''; }
+        return { success: false, error: `server ${res.status} ${tb}` };
+      }
+      const body = await res.json().catch(() => null);
+      // On success, we could notify local consumers or attempt to replace any placeholder mapping.
+      return { success: true, body };
+    } catch (e) {
+      return { success: false, error: String(e) };
+    }
+  }
+
+  _backgroundUploaderScheduled = false;
+  async _backgroundUploader() {
+    if (this._backgroundUploaderScheduled) return; // another runner is working
+    this._backgroundUploaderScheduled = true;
+    try {
+      const queue = this._loadPendingQueue();
+      if (!queue || !queue.length) return;
+      // Process items FIFO with exponential backoff per-item
+      for (let i = 0; i < queue.length; i++) {
+        const item = queue[i];
+        const attempts = item.attempts || 0;
+        // backoff: skip if lastAttempt too recent
+        const now = Date.now();
+        const last = item.lastAttemptAt || 0;
+        const backoffMs = Math.min(60_000, 500 * Math.pow(2, attempts));
+        if (last && now - last < backoffMs) continue;
+        // mark attempt
+        item.attempts = attempts + 1;
+        item.lastAttemptAt = now;
+        this._savePendingQueue(queue);
+        const ret = await this._flushOnePending(item);
+        if (ret && ret.success) {
+          // remove item from queue
+          queue.splice(i, 1);
+          i--; // adjust index after removal
+          this._savePendingQueue(queue);
+          try { console.info('Pending evidence uploaded successfully', item.digest, ret.body); } catch (_) {}
+        } else {
+          // Record lastError on the item for UI debugging, leave in queue
+          try {
+            item.lastError = ret && ret.error ? String(ret.error) : 'unknown error';
+          } catch (_) { item.lastError = 'unknown error'; }
+          this._savePendingQueue(queue);
+        }
+      }
+    } catch (e) {
+      console.warn('Background uploader error', e);
+    } finally {
+      this._backgroundUploaderScheduled = false;
+    }
+  }
+
+  _backgroundUploaderTimer = null;
+  scheduleBackgroundUploader() {
+    try {
+      if (this._backgroundUploaderTimer) return;
+      // Start background uploader that runs every 10s while queue non-empty
+      this._backgroundUploaderTimer = setInterval(async () => {
+        const q = this._loadPendingQueue();
+        if (!q || q.length === 0) {
+          clearInterval(this._backgroundUploaderTimer);
+          this._backgroundUploaderTimer = null;
+          return;
+        }
+        await this._backgroundUploader();
+      }, 10_000);
+    } catch (e) {}
+  }
+
+  enqueuePendingEvidence(item) {
+    try {
+      const queue = this._loadPendingQueue();
+      const id = item.id || `pd_${Date.now()}_${Math.floor(Math.random()*10000)}`;
+      const toPush = Object.assign({ id, attempts: 0, lastAttemptAt: 0, lastError: null }, item);
+      queue.push(toPush);
+      this._savePendingQueue(queue);
+      this.scheduleBackgroundUploader();
+      return id;
+    } catch (e) {
+      console.warn('Failed to enqueue pending evidence', e);
+      return null;
+    }
+  }
+
+  // Public helpers for UI integration: inspect and manage pending evidence
+  getPendingEvidenceQueue() {
+    try {
+      return this._loadPendingQueue();
+    } catch (e) {
+      console.warn('getPendingEvidenceQueue failed', e);
+      return [];
+    }
+  }
+
+  getPendingEvidenceCount() {
+    try {
+      const q = this._loadPendingQueue();
+      return Array.isArray(q) ? q.length : 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  async retryPendingEvidence(id) {
+    try {
+      if (!id) throw new Error('id required');
+      const queue = this._loadPendingQueue();
+      const idx = (queue || []).findIndex(i => i && i.id === id);
+      if (idx === -1) throw new Error('pending item not found');
+      const item = queue[idx];
+      // Attempt immediate flush
+      const ret = await this._flushOnePending(item);
+      if (ret && ret.success) {
+        queue.splice(idx, 1);
+        this._savePendingQueue(queue);
+        return ret.body || null;
+      }
+      // Mark attempt and schedule background uploader
+      item.attempts = (item.attempts || 0) + 1;
+      item.lastAttemptAt = Date.now();
+      this._savePendingQueue(queue);
+      this.scheduleBackgroundUploader();
+      throw new Error('retry failed');
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  removePendingEvidence(id) {
+    try {
+      if (!id) return false;
+      const queue = this._loadPendingQueue();
+      const filtered = (queue || []).filter(i => i && i.id !== id);
+      this._savePendingQueue(filtered);
+      return true;
+    } catch (e) {
+      console.warn('removePendingEvidence failed', e);
+      return false;
+    }
+  }
+
 
   // Prefer wallet provider, but on localhost fall back to a direct JSON-RPC provider if the wallet provider glitches
   async getCodeSafe(address) {
@@ -619,6 +820,12 @@ export class ContractService {
       } else if (cancelRequested) {
         status = 'Pending'; // cancellation initiated but not finalized
       }
+      // Build signedBy mapping keyed by lowercased addresses to preserve
+      // compatibility with UI consumers that index by account.toLowerCase()
+      const signedByMap = {};
+      try { signedByMap[(landlord || '').toLowerCase()] = !!landlordSigned; } catch (_) {}
+      try { signedByMap[(tenant || '').toLowerCase()] = !!tenantSigned; } catch (_) {}
+
       return {
         type: 'Rental',
         address: contractAddress,
@@ -645,6 +852,8 @@ export class ContractService {
           fullySigned,
           dueDate: Number(dueDate || 0n)
         },
+        // Backwards-compatibility: map of lowercased address => boolean for quick lookup
+        signedBy: signedByMap,
         // UI-friendly fields expected by Dashboard
         amount: formattedAmount,
         parties: [landlord, tenant],
@@ -1234,7 +1443,14 @@ export class ContractService {
         // If no endpoint is configured, fall back to computing the digest locally.
   let evidenceArg = '';
         const submitEndpoint = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (window && window?.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || null;
+        // If caller provided a 0x.. digest, pass it through. If caller provided
+        // an IPFS CID (base58 starting with Qm, or base32 starting with bafy) or
+        // an ipfs:// URI, treat it as a CID/URI and pass it through unchanged so
+        // the contract stores the CID (Helia flow) rather than a keccak digest.
         if (evidence && /^0x[0-9a-fA-F]{64}$/.test(evidence)) {
+          evidenceArg = evidence;
+        } else if (evidence && (/^ipfs:\/\//i.test(evidence) || /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(evidence) || /^bafy[0-9a-z]{40,}$/i.test(evidence))) {
+          // Looks like an IPFS CID/URI — pass through as-is
           evidenceArg = evidence;
         } else if (evidence) {
             // If we have a submit endpoint, encrypt (if admin public key is exposed) and POST the evidence.
@@ -1633,6 +1849,54 @@ export class ContractService {
     }
   }
 
+  /**
+   * Start cancellation flow with optional appeal evidence upload.
+   * Behavior:
+   * - If cancellation has not been requested yet: call initiateCancellation()
+   * - If cancellation already requested: call approveCancellation()
+   * - If appealEvidence is provided, upload it first (uploadEvidence) and include returned URI/digest in localStorage/emit event for off-chain arbitration UI to read.
+   * Returns the tx receipt from the contract call. Throws on error.
+   */
+  async startCancellationWithAppeal(contractAddress, { appealEvidence, feeValueEth } = {}) {
+    try {
+      if (!contractAddress) throw new Error('contractAddress required');
+
+      // Optionally upload appeal evidence and persist reference for UI/server mapping
+      let evidenceRef = null;
+      if (appealEvidence) {
+        try {
+          // uploadEvidence returns heliaUri or fallback digest
+          evidenceRef = await this.uploadEvidence(appealEvidence);
+          // Store a local mapping so UI can show the appeal reference tied to this contract
+          try {
+            const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+            const existing = JSON.parse(localStorage.getItem(key) || '[]');
+            existing.push({ ref: evidenceRef, createdAt: Date.now() });
+            localStorage.setItem(key, JSON.stringify(existing));
+          } catch (_) {}
+        } catch (ue) {
+          // If upload failed, continue but surface warning
+          console.warn('Appeal evidence upload failed, proceeding with cancellation request:', ue);
+        }
+      }
+
+      // Check current on-chain cancellation state
+      const rentContract = await this.getEnhancedRentContractForWrite(contractAddress);
+      const cancelRequested = await rentContract.cancelRequested().catch(() => false);
+
+      // If cancellation not requested, initiate; otherwise approve
+      if (!cancelRequested) {
+        return await this.initiateCancellation(contractAddress);
+      } else {
+        // If already requested, call approveCancellation (caller must be the other party)
+        return await this.approveCancellation(contractAddress);
+      }
+    } catch (error) {
+      console.error('Error in startCancellationWithAppeal:', error);
+      throw error;
+    }
+  }
+
   // Additional functions for NDA agreements
   async createNDA(params) {
   try {
@@ -1703,9 +1967,31 @@ export class ContractService {
       const factoryContract = await createContractInstanceAsync('ContractFactory', factoryAddress, this.signer);
 
       // Normalize and convert values
-      const rentAmountWei = typeof params.rentAmount === 'string' && params.rentAmount.indexOf('.') >= 0
-        ? ethers.parseEther(params.rentAmount)
-        : (typeof params.rentAmount === 'bigint' ? params.rentAmount : BigInt(params.rentAmount || '0'));
+      // Normalize rent amount: accept decimal ETH strings like '1.5', integer strings like '1', BigInt wei values, or numeric strings.
+      // Use ethers.parseEther for any string that looks like an ETH decimal or integer (safe behavior: '1' -> 1 ETH).
+      let rentAmountWei;
+      if (typeof params.rentAmount === 'bigint') {
+        rentAmountWei = params.rentAmount;
+      } else if (typeof params.rentAmount === 'number') {
+        // number -> treat as ETH
+        rentAmountWei = ethers.parseEther(String(params.rentAmount));
+      } else if (typeof params.rentAmount === 'string') {
+        const s = params.rentAmount.trim();
+        if (s === '') {
+          rentAmountWei = 0n;
+        } else {
+          // If string is a pure integer but represents wei (very unlikely from UI), we still treat it as ETH to match UI expectations.
+          // Thus, always parse strings as ETH decimals.
+          try {
+            rentAmountWei = ethers.parseEther(s);
+          } catch (e) {
+            // Fallback: if parseEther fails, attempt to coerce to BigInt directly
+            try { rentAmountWei = BigInt(s); } catch (_) { rentAmountWei = 0n; }
+          }
+        }
+      } else {
+        rentAmountWei = 0n;
+      }
 
       const startTs = typeof params.startDate === 'number' || typeof params.startDate === 'string' ? Number(params.startDate) : Math.floor(Date.now() / 1000);
       const durationDays = Number(params.duration || 0);

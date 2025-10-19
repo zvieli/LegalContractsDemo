@@ -1,5 +1,6 @@
 // ---- Rent EIP712 signing wrapper ----
     
+import React from 'react';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
@@ -7,12 +8,13 @@ import * as ethers from 'ethers';
 import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
 import { computePayloadDigest } from '../../utils/cidDigest';
-import { getContractAddress } from '../../utils/contracts';
+import { getContractAddress, createContractInstanceAsync } from '../../utils/contracts';
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
 import EvidenceList from '../Evidence/EvidenceList';
 import EvidenceBatchModal from '../Evidence/EvidenceBatchModal.jsx';
+import AppealEvidenceList from '../AppealEvidenceList';
 import { useNotifications } from '../../contexts/NotificationContext.jsx';
 import { useEvidence } from '../../hooks/useEvidence.js';
 import { registerRecipient } from '../../utils/recipientKeys.js';
@@ -22,7 +24,8 @@ import EnhancedRentContractJson from '../../utils/contracts/EnhancedRentContract
 import NDATemplateJson from '../../utils/contracts/NDATemplate.json';
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const contractInstanceRef = useRef(null);
-  const { account, signer, chainId, provider, contracts: globalContracts } = useEthers();
+  const { account, signer, chainId, provider, contracts: globalContracts, loading, isConnecting, connectWallet } = useEthers();
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   
   // Debug provider/signer info
@@ -50,11 +53,16 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [ndaCanSign, setNdaCanSign] = useState(true);
   const [ndaAlreadySigned, setNdaAlreadySigned] = useState(false);
   const [arbOwner, setArbOwner] = useState(null);
+  const [factoryOwner, setFactoryOwner] = useState(null);
+  const [arbitrationOwner, setArbitrationOwner] = useState(null);
+  const [creator, setCreator] = useState(null);
   const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
   const [arbCaseId, setArbCaseId] = useState('');
   const [arbApprove, setArbApprove] = useState(true);
   const [arbBeneficiary, setArbBeneficiary] = useState('');
   const [showDisputeForm, setShowDisputeForm] = useState(false);
+  const [showAppealEvidenceModal, setShowAppealEvidenceModal] = useState(false);
+  const [appealEvidenceInput, setAppealEvidenceInput] = useState('');
   const [disputeForm, setDisputeForm] = useState({ dtype: 4, amountEth: '0', evidence: '' });
 
   // Confirmation modal state for payable actions
@@ -79,6 +87,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [hasActiveDisputeAgainstLandlord, setHasActiveDisputeAgainstLandlord] = useState(false);
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
+  const [appealEvidenceList, setAppealEvidenceList] = useState([]);
   const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
   const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
   const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
@@ -88,6 +97,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
   const [fetchStatusMessage, setFetchStatusMessage] = useState(null);
   const [fetchedUrl, setFetchedUrl] = useState(null);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [pendingModalOpen, setPendingModalOpen] = useState(false);
+  const [pendingQueue, setPendingQueue] = useState([]);
 
   const formatDuration = (sec) => {
     const s = Number(sec || 0);
@@ -142,6 +154,17 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         }
         // Load transaction history
         await loadTransactionHistory(details);
+        // Determine whether we have a persisted appeal/incoming dispute or appealEvidence entries
+        try {
+          const key1 = `incomingDispute:${contractAddress}`;
+          const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+          const incoming = localStorage.getItem(key1) || localStorage.getItem(key2) || sessionStorage.getItem('incomingDispute');
+          const appealKey = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+          const appealExists = !!localStorage.getItem(appealKey);
+          if (incoming || appealExists) setHasAppeal(true);
+        } catch (e) {
+          // noop
+        }
       }
     } catch (error) {
       console.error('[loadContractData] Error loading contract data:', error);
@@ -168,6 +191,64 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       loadContractData();
     }
   }, [isOpen, contractAddress]);
+
+  // Fetch factory owner and arbitration owner for debug/admin checks
+  useEffect(() => {
+    let canceled = false;
+    const fetchOwners = async () => {
+      try {
+        if (!contractAddress || !provider) return;
+        const svc = new ContractService(provider, signer, chainId);
+        // Factory owner
+        try {
+          const factory = await svc.getFactoryContract();
+          const fo = await factory.factoryOwner().catch(() => null);
+          if (!canceled) setFactoryOwner(fo || null);
+          try {
+            const cr = await factory.getCreatorOf(contractAddress).catch(() => null);
+            if (!canceled) setCreator(cr || null);
+          } catch (_) { if (!canceled) setCreator(null); }
+        } catch (e) {
+          if (!canceled) { setFactoryOwner(null); setCreator(null); }
+        }
+
+        // Arbitration owner (if contract exposes arbitrationService)
+        try {
+          const rent = await svc.getEnhancedRentContract(contractAddress).catch(() => null);
+          const arbAddr = rent ? await rent.arbitrationService().catch(() => null) : null;
+          if (arbAddr && arbAddr !== ethers.ZeroAddress) {
+            const p = svc._providerForRead();
+            const arbInst = await createContractInstanceAsync('ArbitrationService', arbAddr, p || signer);
+            const ao = await arbInst.owner().catch(() => null);
+            if (!canceled) setArbitrationOwner(ao || null);
+          } else {
+            if (!canceled) setArbitrationOwner(null);
+          }
+        } catch (e) {
+          if (!canceled) setArbitrationOwner(null);
+        }
+      } catch (e) {
+        if (!canceled) { setFactoryOwner(null); setArbitrationOwner(null); }
+      }
+    };
+    fetchOwners();
+    return () => { canceled = true; };
+  }, [contractAddress, provider, signer, chainId]);
+
+  // Poll pending evidence queue count for badge
+  useEffect(() => {
+    let mounted = true;
+    const svc = new ContractService(provider, signer, chainId);
+    const refresh = async () => {
+      try {
+        const c = svc.getPendingEvidenceCount();
+        if (mounted) setPendingCount(c);
+      } catch (e) {}
+    };
+    refresh();
+    const iv = setInterval(refresh, 5000);
+    return () => { mounted = false; clearInterval(iv); };
+  }, [provider, signer, chainId]);
 
   // Event listeners for contract events
   useEffect(() => {
@@ -364,20 +445,83 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     setRentSigning(true);
     try {
       const contractService = new ContractService(provider, signer, chainId);
-      await contractService.signRent(contractAddress);
-      // Refresh contract details after signing
-      await loadContractData();
-      // Optionally show a notification
-      if (typeof window !== 'undefined' && window?.toast) {
-        window.toast('Contract signed successfully!', { type: 'success' });
+      // If no incomingDispute JSON, check persisted appealEvidence entries and open modal to show them
+      if (!json) {
+        try {
+          const appealKey = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+          const raw = localStorage.getItem(appealKey);
+          if (raw) {
+            const arr = JSON.parse(raw || '[]');
+            setAppealEvidenceList(Array.isArray(arr) ? arr : []);
+            // create a minimal appealData object so the modal can render
+            setAppealData({ contractAddress, caseId: null, reporter: null, createdAt: arr && arr[0] && arr[0].createdAt ? new Date(arr[0].createdAt).toISOString() : new Date().toISOString(), evidence: null });
+            setShowAppealModal(true);
+            return;
+          }
+        } catch (e) { /* ignore */ }
+
+        alert('No appeal found for this contract');
+        return;
       }
-    } catch (e) {
+
+      const obj = JSON.parse(json);
+      setAppealData(obj);
+      // Also load persisted appealEvidence refs for display
+      try {
+        const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+        const raw2 = localStorage.getItem(key);
+        if (raw2) {
+          const arr2 = JSON.parse(raw2 || '[]');
+          setAppealEvidenceList(Array.isArray(arr2) ? arr2 : []);
+        } else {
+          setAppealEvidenceList([]);
+        }
+      } catch (e) { setAppealEvidenceList([]); }
+      setShowAppealModal(true);
       console.error('Error signing contract:', e);
       if (typeof window !== 'undefined' && window?.toast) {
         window.toast('Failed to sign contract: ' + (e?.message || e), { type: 'error' });
       }
     } finally {
       setRentSigning(false);
+    }
+  };
+
+  // Pending evidence modal actions
+  const openPendingModal = async () => {
+    try {
+      setPendingModalOpen(true);
+      const svc = new ContractService(provider, signer, chainId);
+      const q = svc.getPendingEvidenceQueue() || [];
+      setPendingQueue(q);
+      setPendingCount(q.length);
+    } catch (e) {
+      console.error('Failed to open pending modal', e);
+    }
+  };
+
+  const handleRetryPending = async (id) => {
+    try {
+      const svc = new ContractService(provider, signer, chainId);
+      await svc.retryPendingEvidence(id);
+      const q = svc.getPendingEvidenceQueue() || [];
+      setPendingQueue(q);
+      setPendingCount(q.length);
+      alert('Retry attempted; check logs for result.');
+    } catch (e) {
+      alert('Retry failed: ' + (e?.message || e));
+    }
+  };
+
+  const handleRemovePending = async (id) => {
+    try {
+      const svc = new ContractService(provider, signer, chainId);
+      svc.removePendingEvidence(id);
+      const q = svc.getPendingEvidenceQueue() || [];
+      setPendingQueue(q);
+      setPendingCount(q.length);
+    } catch (e) {
+      alert('Remove failed: ' + (e?.message || e));
     }
   };
 
@@ -684,6 +828,31 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     } finally { setActionLoading(false); }
   };
 
+  // Start cancellation flow and optionally upload appeal evidence first
+  const handleStartCancellationWithAppeal = async () => {
+    try {
+      setActionLoading(true);
+      const svc = new ContractService(provider, signer, chainId);
+
+      // Prefer dispute form evidence if present, otherwise use appealEvidenceInput from modal
+      let evidence = null;
+      if (disputeForm && disputeForm.evidence) {
+        evidence = disputeForm.evidence;
+      } else if (appealEvidenceInput && String(appealEvidenceInput).trim()) {
+        evidence = appealEvidenceInput.trim();
+      }
+
+      const res = await svc.startCancellationWithAppeal(contractAddress, { appealEvidence: evidence, feeValueEth: feeToSend });
+      alert('Cancellation transaction submitted. Check transactions/notifications for status.');
+      setShowAppealEvidenceModal(false);
+      setAppealEvidenceInput('');
+      await loadContractData();
+    } catch (e) {
+      console.error('startCancellationWithAppeal failed', e);
+      alert('Failed to start cancellation with appeal: ' + (e?.reason || e?.message || e));
+    } finally { setActionLoading(false); }
+  };
+
   const handleCopyAddress = async () => {
     try {
       await navigator.clipboard.writeText(contractAddress);
@@ -745,6 +914,17 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       
       const obj = JSON.parse(json);
       setAppealData(obj);
+      // Load persisted appeal evidence refs for this contract as well
+      try {
+        const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const arr = JSON.parse(raw || '[]');
+          setAppealEvidenceList(Array.isArray(arr) ? arr : []);
+        } else {
+          setAppealEvidenceList([]);
+        }
+      } catch (e) { setAppealEvidenceList([]); }
       setShowAppealModal(true);
     } catch (e) {
       console.error('Show appeal failed', e);
@@ -854,10 +1034,39 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     tryAuto();
   }, [showAdminDecryptModal]);
 
-  // Early return if not connected
-  if (!provider || !signer || !chainId || !account) {
+  // Show spinner while an explicit wallet connection is in progress, or
+  // if the provider is loading and we don't yet have provider/account.
+  const shouldShowSpinner = (isConnecting || (loading && !provider && !account));
+  if (shouldShowSpinner && !loadingTimedOut) {
     return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
   }
+
+  // If loading persists for too long, fall back to the connect UI
+  useEffect(() => {
+    let t;
+    if (loading) {
+      t = setTimeout(() => setLoadingTimedOut(true), 5000);
+    } else {
+      setLoadingTimedOut(false);
+    }
+    return () => { if (t) clearTimeout(t); };
+  }, [loading]);
+
+  // If not loading but wallet/provider/account are missing, show a friendly fallback
+  if (!provider || !account) {
+    return (
+      <div style={{textAlign:'center',marginTop:'48px'}}>
+        <div style={{fontSize:16,marginBottom:12}}>Wallet not connected</div>
+        <div style={{marginBottom:12}}><small>Please connect your Ethereum wallet to interact.</small></div>
+        <div>
+          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch(e){ console.error('connectWallet failed', e); } }}>Connect Wallet</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Debug UI toggle (helps inspect why landlord/tenant controls may be hidden)
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   const handleExport = () => {
     try {
@@ -902,6 +1111,13 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         <div className="modal-header">
           <h2>Contract Management</h2>
           <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            <button className="btn-sm" onClick={() => setShowDebugPanel(s => !s)} style={{marginRight:6}}>Debug</button>
+            <button className="btn-sm pending-button" onClick={openPendingModal} title="Pending evidence uploads" style={{marginRight:6}}>
+              Pending
+              {pendingCount > 0 && (
+                <span className="pending-badge">{pendingCount}</span>
+              )}
+            </button>
             {hasAppeal && (
               <button className="btn-sm" onClick={handleShowAppeal} style={{marginRight:6}}>Show Appeal</button>
             )}
@@ -919,7 +1135,30 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             onCancel={onConfirmCancel} 
             busy={confirmBusy} 
           />
+          <div style={{ marginTop: 12 }}>
+            <button className="btn btn-ghost" onClick={() => setShowAppealEvidenceModal(true)} disabled={actionLoading}>
+              Start Cancel w/ Appeal
+            </button>
+          </div>
         </div>
+
+        {showDebugPanel && (
+          <div className="debug-panel" style={{padding:8,background:'#111',color:'#fff',fontSize:12}}>
+            <div><strong>Debug</strong></div>
+            <div>account: {String(account)}</div>
+            <div>isLandlord: {String(isLandlord)}</div>
+            <div>isTenant: {String(isTenant)}</div>
+            <div>factoryOwner: {String(factoryOwner || 'null')}</div>
+            <div>creator: {String(creator || 'null')}</div>
+            <div>arbitrationOwner: {String(arbitrationOwner || 'null')}</div>
+            <div>rentCanSign: {String(rentCanSign)}</div>
+            <div>rentAlreadySigned: {String(rentAlreadySigned)}</div>
+            <div>fullySigned: {String(contractDetails?.signatures?.fullySigned || false)}</div>
+            <div>readOnly prop: {String(readOnly)}</div>
+            <div style={{marginTop:6}}>contractDetails snapshot:</div>
+            <pre style={{whiteSpace:'pre-wrap',maxHeight:240,overflow:'auto',color:'#0f0'}}>{contractDetails ? JSON.stringify(contractDetails,null,2) : 'null'}</pre>
+          </div>
+        )}
 
         <div className="modal-tabs">
           <button 
@@ -936,6 +1175,44 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
               onClick={() => setActiveTab('payments')}
             >
               <i className="fas fa-money-bill-wave"></i>
+
+        {/* Pending evidence modal (simple) */}
+        {pendingModalOpen && (
+          <div className="modal-overlay" style={{position:'fixed',zIndex:9999,background:'rgba(0,0,0,0.6)'}} onClick={() => setPendingModalOpen(false)}>
+            <div className="modal-content" style={{maxWidth:720,margin:'40px auto',padding:12}} onClick={(e)=>e.stopPropagation()}>
+              <h3>Pending evidence uploads ({pendingQueue.length})</h3>
+              <div className="pending-list">
+                {pendingQueue.length === 0 && <div className="pending-empty">No pending items.</div>}
+                {pendingQueue.map(item => (
+                  <div key={item.id} className="pending-item">
+                    <div className="pending-meta">
+                      <div className="pending-id"><strong>{item.id}</strong></div>
+                      <div className="pending-digest">{item.digest || ''}</div>
+                      <div className="pending-times">Created: <span style={{direction:'ltr', display:'inline-block'}}>{(() => {
+                        const v = item.createdAt || Date.now();
+                        try {
+                          if (typeof v === 'number' || (!isNaN(Number(v)) && String(v).length > 9)) return new Date(Number(v)).toLocaleString();
+                          const p = Date.parse(String(v));
+                          if (!isNaN(p)) return new Date(p).toLocaleString();
+                          return String(v) || new Date().toLocaleString();
+                        } catch (e) { return new Date().toLocaleString(); }
+                      })()}</span></div>
+                      <div className="pending-times">Attempts: {item.attempts || 0} &middot; Last: {item.lastAttemptAt ? new Date(item.lastAttemptAt).toLocaleString() : 'n/a'}</div>
+                      {item.lastError && <div className="pending-error">Error: {String(item.lastError).slice(0,240)}</div>}
+                    </div>
+                    <div className="pending-actions">
+                      <button className="btn-sm" onClick={() => handleRetryPending(item.id)}>Retry</button>
+                      <button className="btn-sm" onClick={() => handleRemovePending(item.id)}>Remove</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{textAlign:'right',marginTop:8}}>
+                <button className="btn-sm" onClick={() => setPendingModalOpen(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        )}
               Payments
             </button>
           )}
@@ -1105,7 +1382,59 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                             {rentSigning ? <><span className="spinner" /> Signing...</> : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
                           </button>
                         )}
+                        {/* Allow landlord or tenant to initiate cancellation */}
+                        {(isLandlord || isTenant) && contractDetails?.isActive && !contractDetails?.cancellation?.cancelRequested && (
+                          <button className="btn-action" onClick={async () => {
+                            try {
+                              if (!confirm('Are you sure you want to initiate cancellation for this contract?')) return;
+                              await handleInitiateCancel();
+                            } catch (e) { console.error('Initiate cancel failed', e); alert('Failed to initiate cancellation: ' + (e?.message || e)); }
+                          }} disabled={readOnly || actionLoading}>
+                            Initiate Cancellation
+                          </button>
+                        )}
+                        {/* If cancellation was requested, allow other party to approve */}
+                        {(isLandlord || isTenant) && contractDetails?.cancellation?.cancelRequested && (
+                          <button className="btn-action" onClick={async () => {
+                            try {
+                              if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
+                              await handleApproveCancel();
+                            } catch (e) { console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
+                          }} disabled={readOnly || actionLoading}>
+                            Approve Cancellation
+                          </button>
+                        )}
+                        {/* Allow landlord or tenant to submit an appeal/dispute */}
+                        {(isLandlord || isTenant) && (
+                          <button className="btn-action" onClick={async () => { try { setShowDisputeForm(true); } catch(e){console.error(e);} }} disabled={readOnly || actionLoading}>
+                            Submit Appeal / Dispute
+                          </button>
+                        )}
+                        {(isLandlord || isTenant) && (
+                          <button className="btn-action" onClick={async () => {
+                            try {
+                              if (!confirm('Start cancellation (this will either initiate or approve cancellation). Continue?')) return;
+                              await handleStartCancellationWithAppeal();
+                            } catch (e) { console.error('Start cancel+appeal failed', e); alert('Failed: ' + (e?.message || e)); }
+                          }} disabled={readOnly || actionLoading}>
+                            Start Cancel w/ Appeal
+                          </button>
+                        )}
                       </div>
+
+                      {/* Policy editor: landlord-only */}
+                      {isLandlord && (
+                        <div style={{marginTop:8, padding:8, border:'1px solid #eee', borderRadius:6, background:'#fafafa'}}>
+                          <div style={{fontSize:13, marginBottom:6}}><strong>Cancellation Policy (Landlord)</strong></div>
+                          <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                            <input className="text-input" type="number" placeholder="Notice period (days)" value={policyDraft.notice} onChange={e => setPolicyDraft(p => ({...p, notice: e.target.value}))} style={{width:160}} />
+                            <input className="text-input" type="number" placeholder="Fee (bps)" value={policyDraft.feeBps} onChange={e => setPolicyDraft(p => ({...p, feeBps: e.target.value}))} style={{width:140}} />
+                            <label style={{display:'flex', alignItems:'center', gap:6}}><input type="checkbox" checked={policyDraft.mutual} onChange={e => setPolicyDraft(p => ({...p, mutual: e.target.checked}))} /> Require mutual approval</label>
+                            <button className="btn-action primary" onClick={handleSetPolicy} disabled={readOnly || actionLoading}>Set Policy</button>
+                          </div>
+                        </div>
+                      )}
+
                       {!rentCanSign && !rentAlreadySigned && (
                         <small className="muted">Connect as landlord or tenant to sign.</small>
                       )}
@@ -1143,6 +1472,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
               </div>
             )}
           </div>
+
+          
         ) : (!dataLoading && !contractDetails) ? (
           <div className="modal-error">
             <i className="fas fa-exclamation-triangle"></i>
@@ -1158,12 +1489,50 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           </div>
         )}
       </div>
-      
+      {/* Inline modal for appeal evidence collection */}
+      {showAppealEvidenceModal && (
+        <div className="modal-backdrop">
+          <div className="modal-card">
+            <h3>Start Cancellation with Appeal Evidence</h3>
+            <p>Optionally paste or type the evidence/summary for the appeal. This will be uploaded and attached to the cancellation request.</p>
+            <textarea
+              rows={6}
+              value={appealEvidenceInput}
+              onChange={(e) => setAppealEvidenceInput(e.target.value)}
+              placeholder="Paste evidence text, CID, or short summary (optional)"
+              style={{ width: '100%', marginTop: 8 }}
+            />
+            <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="btn" onClick={() => { setShowAppealEvidenceModal(false); setAppealEvidenceInput(''); }} disabled={actionLoading}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleStartCancellationWithAppeal} disabled={actionLoading}>Submit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Appeal modal */}
       {showAppealModal && appealData && (
         <div className="appeal-overlay" onClick={() => { setShowAppealModal(false); }}>
           <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
-            {/* ...existing code... */}
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <h3>Appeal</h3>
+              <div><small>Submitted: {appealData.createdAt}</small></div>
+            </div>
+            <div style={{marginTop:8}}>
+              <div><strong>Case ID:</strong> {appealData.caseId || 'N/A'}</div>
+              <div><strong>Reporter:</strong> {appealData.reporter || 'N/A'}</div>
+              <div style={{marginTop:8}}><strong>Evidence / Ref:</strong></div>
+              <div style={{marginTop:6}}>
+                {/* Show textual evidence inline when available */}
+                {appealData.evidence && typeof appealData.evidence === 'string' && !/^0x[0-9a-fA-F]{64}$/.test(appealData.evidence) ? (
+                  <pre style={{whiteSpace:'pre-wrap',background:'#f7f7f7',padding:8,borderRadius:6}}>{appealData.evidence}</pre>
+                ) : null}
+              </div>
+              <div style={{marginTop:12}}>
+                <strong>Persisted Appeal Evidence for this contract</strong>
+                <AppealEvidenceList entries={appealEvidenceList} />
+              </div>
+            </div>
           </div>
         </div>
       )}
