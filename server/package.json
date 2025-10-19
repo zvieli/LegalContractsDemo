@@ -5,10 +5,11 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node index.js",
+  "start": "node index.js",
     "start:v7": "node start-v7.js",
     "dev": "nodemon index.js",
-    "test": "vitest",
+  "pretest": "node ../scripts/ensure-root.js || true",
+  "test": "vitest",
     "test:evidence": "node tests/testEvidence.js",
     "test:llm": "node tests/testLLM.js",
     "test:time": "node tests/testTime.js",

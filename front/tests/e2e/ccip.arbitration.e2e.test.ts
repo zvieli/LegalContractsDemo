@@ -1,17 +1,17 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { test, expect } from '@playwright/test';
 import { ethers } from 'ethers';
 
 // This test assumes local backend and contracts are running
 // and CCIP sender/receiver contracts are deployed and configured
 
-describe('CCIP Arbitration End-to-End', () => {
+test.describe('CCIP Arbitration End-to-End', () => {
   let provider: ethers.Provider;
   let signer: ethers.Signer;
   let ccipSender: ethers.Contract;
   let ccipReceiver: ethers.Contract;
   let enhancedRentContract: ethers.Contract;
 
-  beforeAll(async () => {
+  test.beforeAll(async () => {
     provider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
     const privateKey = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
     signer = new ethers.Wallet(privateKey, provider);
@@ -30,7 +30,7 @@ describe('CCIP Arbitration End-to-End', () => {
       'event ArbitrationDecisionReceived(bytes32 indexed messageId, bytes32 indexed disputeId, uint64 indexed sourceChainSelector, bool approved, uint256 appliedAmount, address beneficiary, string rationale, bytes32 oracleId, uint256 timestamp)'
     ];
     const rentAbi = [
-      'function reportBreach() external',
+      'function reportDispute(uint8,uint256,string) external payable',
       'function getDisputeStatus() external view returns (uint8)'
     ];
 
@@ -48,18 +48,22 @@ describe('CCIP Arbitration End-to-End', () => {
     enhancedRentContract = new ethers.Contract(rentAddress, rentAbi, signer);
   });
 
-  it('should complete CCIP arbitration flow and verify decision', async () => {
-    // 1. Trigger a breach to create a dispute
-    const breachTx = await enhancedRentContract.reportBreach();
-    await breachTx.wait();
-
-    // 2. Prepare arbitration request data
-    const disputeId = ethers.keccak256(ethers.toUtf8Bytes('test-dispute-ccip-e2e'));
-    const caseId = 1;
-    const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('test evidence'));
+  test('should complete CCIP arbitration flow and verify decision', async () => {
+  // 1. Trigger a dispute to create a case using reportDispute
+  let disputeFee = 0n;
+  try { disputeFee = await enhancedRentContract.disputeFee(); } catch (e) { disputeFee = 0n; }
+  const dtype = 0;
+  const requestedAmount = ethers.parseEther('0.01');
   const evidenceCID = 'helia-cid-test-evidence';
-    const requestedAmount = ethers.parseEther('1.0');
-    const payFeesIn = 0; // Native
+  const breachTx = await enhancedRentContract.reportDispute(dtype, requestedAmount, evidenceCID, { value: disputeFee });
+  await breachTx.wait();
+
+      // 2. Prepare arbitration request data
+      const disputeId = ethers.keccak256(ethers.toUtf8Bytes('test-dispute-ccip-e2e'));
+      const caseId = 1;
+      const evidenceHash = ethers.keccak256(ethers.toUtf8Bytes('test evidence'));
+      const arbitrationRequestedAmount = ethers.parseEther('1.0');
+      const arbitrationPayFeesIn = 0; // Native
 
     // 3. Send arbitration request via CCIP sender
     const tx = await ccipSender.sendArbitrationRequest(
@@ -68,8 +72,8 @@ describe('CCIP Arbitration End-to-End', () => {
       caseId,
       evidenceHash,
       evidenceCID,
-      requestedAmount,
-      payFeesIn,
+      arbitrationRequestedAmount,
+      arbitrationPayFeesIn,
       { value: ethers.parseEther('0.01') }
     );
     const receipt = await tx.wait();

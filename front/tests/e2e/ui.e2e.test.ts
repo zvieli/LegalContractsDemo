@@ -53,8 +53,10 @@ test('Full E2E with MetaMask Helper', async () => {
   
   // Wait and check if we need to click a connect button
   const connectButton = page.locator('button:has-text("Connect Wallet"), [data-testid="connect-wallet"]');
-  if (await connectButton.isVisible()) {
-    await connectButton.click();
+  // Use first() to avoid strict locator violations when multiple buttons are present
+  const connectButtonFirst = connectButton.first();
+  if (await connectButtonFirst.isVisible().catch(() => false)) {
+    await connectButtonFirst.click();
     await page.waitForTimeout(2000);
   }
 
@@ -195,8 +197,8 @@ test('should display LLM arbitration decisions', async () => {
 
   // Connect wallet if needed
   await metamask.connect();
-  const connectButton = page.locator('button:has-text("Connect Wallet")');
-  if (await connectButton.isVisible()) {
+  const connectButton = page.locator('button:has-text("Connect Wallet")').first();
+  if (await connectButton.isVisible().catch(() => false)) {
     await connectButton.click();
     await page.waitForTimeout(2000);
   }
@@ -234,8 +236,8 @@ test('should sync with backend arbitration status', async () => {
 
   // Connect wallet if needed
   await metamask.connect();
-  const connectButton = page.locator('button:has-text("Connect Wallet")');
-  if (await connectButton.isVisible()) {
+  const connectButton = page.locator('button:has-text("Connect Wallet")').first();
+  if (await connectButton.isVisible().catch(() => false)) {
     await connectButton.click();
     await page.waitForTimeout(2000);
   }

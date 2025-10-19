@@ -1,9 +1,20 @@
 import { ethers } from 'ethers';
 import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
+import { computePayloadDigest } from '../utils/cidDigest';
 
 function getAdminPub() {
   try {
     if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_ADMIN_PUBLIC_KEY) return window.__ENV__.VITE_ADMIN_PUBLIC_KEY;
+  } catch (e) {}
+  return null;
+}
+
+function getEvidenceEndpoint() {
+  try {
+    if (import.meta && import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) return import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT;
+  } catch (e) {}
+  try {
+    if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_EVIDENCE_SUBMIT_ENDPOINT) return window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT;
   } catch (e) {}
   return null;
 }
@@ -67,6 +78,7 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   const runtimeAdmin = getAdminPub();
   if (!runtimeEndpoint || !runtimeAdmin) throw new Error('Evidence endpoint or admin public key not configured');
   // prepare (encrypt) payload
+  const { prepareEvidencePayload } = await import('../utils/evidence.js');
   const { ciphertext, digest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: runtimeAdmin });
 
   // Basic validation: make sure prepareEvidencePayload produced a ciphertext and a non-zero digest.
@@ -313,6 +325,7 @@ export class ContractService {
       }
 
   // Prepare (encrypt) payload using existing helper
+  const { prepareEvidencePayload } = await import('../utils/evidence.js');
   const { ciphertext, digest } = await prepareEvidencePayload(payload, { encryptToAdminPubKey: runtimeAdmin });
       const isZeroDigest = d => !d || /^0x0{64}$/.test(String(d));
       if (!ciphertext || typeof ciphertext !== 'string' || ciphertext.length === 0) throw new Error('Evidence preparation failed: ciphertext empty');
@@ -858,7 +871,8 @@ export class ContractService {
         amount: formattedAmount,
         parties: [landlord, tenant],
         status,
-        created: 'Γאפ'
+        // Fallback created timestamp (ms) when on-chain creation time is not available
+        created: Date.now()
       };
     } catch (error) {
       if (!silent) {
@@ -1865,15 +1879,42 @@ export class ContractService {
       let evidenceRef = null;
       if (appealEvidence) {
         try {
-          // uploadEvidence returns heliaUri or fallback digest
-          evidenceRef = await this.uploadEvidence(appealEvidence);
-          // Store a local mapping so UI can show the appeal reference tied to this contract
+          // If the server-side endpoint is available, POST the appeal to it so the server can
+          // assemble contract history, encrypt and upload to Helia reliably.
+          const endpoint = (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_EVIDENCE_SUBMIT_ENDPOINT) ? window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT : (import.meta.env ? import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT : null);
+          // Use provided endpoint or default to local route so tests can mock fetch without needing env vars
+          const base = endpoint ? endpoint.replace(/\/$/, '') : '';
+          const url = base ? (base.endsWith('/submit-appeal') ? base : (base + '/submit-appeal')) : '/submit-appeal';
+          const body = { contractAddress: contractAddress, userEvidence: appealEvidence };
+          // Attempt server POST first. If server responds OK, persist mapping. If server fails, fall back to client-side upload but DO NOT persist mapping.
+          let serverOk = false;
           try {
-            const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
-            const existing = JSON.parse(localStorage.getItem(key) || '[]');
-            existing.push({ ref: evidenceRef, createdAt: Date.now() });
-            localStorage.setItem(key, JSON.stringify(existing));
-          } catch (_) {}
+            const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            if (resp && resp.ok) {
+              const j = await resp.json();
+              evidenceRef = j && (j.evidenceRef || j.heliaUri || j.cid) ? (j.evidenceRef || j.heliaUri || j.cid) : (j.digest || null);
+              serverOk = true;
+            }
+          } catch (e) {
+            // ignore, will fallback
+          }
+          if (!serverOk) {
+            try {
+              evidenceRef = await this.uploadEvidence(appealEvidence);
+            } catch (ue) {
+              // swallow upload error and continue
+            }
+          }
+
+          // Only store a local mapping when the server successfully returned an evidence reference
+          if (serverOk && evidenceRef) {
+            try {
+              const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+              const existing = JSON.parse(localStorage.getItem(key) || '[]');
+              existing.push({ ref: evidenceRef, createdAt: Date.now() });
+              localStorage.setItem(key, JSON.stringify(existing));
+            } catch (_) {}
+          }
         } catch (ue) {
           // If upload failed, continue but surface warning
           console.warn('Appeal evidence upload failed, proceeding with cancellation request:', ue);

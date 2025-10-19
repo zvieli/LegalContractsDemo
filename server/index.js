@@ -56,6 +56,9 @@ app.get('/api/v7/admin/nonce', async (req, res) => {
 // Ensure JSON body parsing is enabled before any routes are registered
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+// Mount evidence routes (submit-appeal)
+import evidenceRoutes from './routes/evidence.js';
+app.use('/api', evidenceRoutes);
 // Ollama LLM arbitration test endpoint (must be after app is initialized)
 app.post('/api/v7/arbitration/ollama-test', async (req, res) => {
   try {

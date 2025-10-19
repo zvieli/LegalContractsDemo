@@ -42,11 +42,8 @@ export async function setupMetaMask(): Promise<MetaMaskHelper> {
     ],
   }).then(browser => browser.newContext());
 
-  // Create a page for our operations
-  const page = await context.newPage();
-  
-  // Inject Web3 provider simulation - PRE-CONNECT it so the app sees it as already connected
-  await page.addInitScript(() => {
+  // Inject Web3 provider simulation at the context level - PRE-CONNECT it so the app sees it as already connected
+  await context.addInitScript(() => {
     console.log('🚀 INJECTING ETHEREUM PROVIDER SIMULATION');
     
     // Set E2E environment variables so the app knows we're in test mode
@@ -119,23 +116,124 @@ export async function setupMetaMask(): Promise<MetaMaskHelper> {
             console.log('🔄 wallet_switchEthereumChain - success');
             return null; // Success
           case 'eth_sendTransaction':
-            // Mock transaction - return a fake hash
-            const txHash = '0x' + Math.random().toString(16).substring(2).padEnd(64, '0');
-            console.log('💸 eth_sendTransaction - returning:', txHash);
-            return txHash;
+            // Proxy transaction to local RPC so it becomes a real on-chain tx in Hardhat
+            try {
+              const rpcUrl = typeof process !== 'undefined' && (process as any).env && (process as any).env.E2E_RPC_URL
+                ? (process as any).env.E2E_RPC_URL
+                : 'http://localhost:8545';
+
+              const body = {
+                jsonrpc: '2.0',
+                id: Math.floor(Math.random() * 100000),
+                method: 'eth_sendTransaction',
+                params: [params.params]
+              };
+
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 10000);
+              const resp = await fetch(rpcUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: controller.signal
+              });
+              clearTimeout(timeout);
+              if (!resp.ok) {
+                console.warn('⚠️ RPC proxy eth_sendTransaction returned non-ok status', resp.status);
+                // fallback to fake tx hash so app proceeds (but logs the issue)
+                const txHashFallback = '0x' + Math.random().toString(16).substring(2).padEnd(64, '0');
+                return txHashFallback;
+              }
+              const json = await resp.json();
+              if (json && Object.prototype.hasOwnProperty.call(json, 'result')) {
+                return json.result;
+              }
+              console.warn('⚠️ RPC proxy eth_sendTransaction missing result', json);
+              return null;
+            } catch (err) {
+              console.warn('⚠️ RPC proxy eth_sendTransaction error', err);
+              const txHashFallback = '0x' + Math.random().toString(16).substring(2).padEnd(64, '0');
+              return txHashFallback;
+            }
           case 'personal_sign':
-            // Mock signature
+            // Proxy personal_sign to local node if supported, otherwise mock
+            try {
+              const rpcUrl = typeof process !== 'undefined' && (process as any).env && (process as any).env.E2E_RPC_URL
+                ? (process as any).env.E2E_RPC_URL
+                : 'http://localhost:8545';
+              const body = {
+                jsonrpc: '2.0',
+                id: Math.floor(Math.random() * 100000),
+                method: 'personal_sign',
+                params: params.params || []
+              };
+              const controller = new AbortController();
+              const timeout = setTimeout(() => controller.abort(), 5000);
+              const resp = await fetch(rpcUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: controller.signal
+              });
+              clearTimeout(timeout);
+              if (resp.ok) {
+                const json = await resp.json();
+                if (json && Object.prototype.hasOwnProperty.call(json, 'result')) {
+                  return json.result;
+                }
+              }
+            } catch (e) {
+              console.warn('⚠️ personal_sign proxy failed, falling back to mock', e);
+            }
+            // Mock signature fallback
             const sig = '0x' + Math.random().toString(16).substring(2).padEnd(130, '0');
-            console.log('✍️ personal_sign - returning:', sig);
+            console.log('✍️ personal_sign - returning mock:', sig);
             return sig;
           case 'eth_getBalance':
             // Return some mock balance
             const balance = '0x' + (1000000000000000000n).toString(16); // 1 ETH
             console.log('💰 eth_getBalance - returning:', balance);
             return balance;
-          default:
-            console.log(`❓ Mock ethereum - unsupported method: ${params.method}`);
-            return null;
+              default:
+                console.log(`❓ Mock ethereum - unsupported method: ${params.method} -> proxying to local RPC`);
+                try {
+                  // Proxy unknown JSON-RPC methods to a local node (Hardhat) so the app can perform on-chain reads
+                  const rpcUrl = typeof process !== 'undefined' && (process as any).env && (process as any).env.E2E_RPC_URL
+                    ? (process as any).env.E2E_RPC_URL
+                    : 'http://localhost:8545';
+
+                  const body = {
+                    jsonrpc: '2.0',
+                    id: Math.floor(Math.random() * 100000),
+                    method: params.method,
+                    params: params.params || []
+                  };
+
+                  // Use fetch to the local RPC; make this request synchronous from the page context perspective
+                  const controller = new AbortController();
+                  const timeout = setTimeout(() => controller.abort(), 5000);
+                  const resp = await fetch(rpcUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
+                  });
+                  clearTimeout(timeout);
+
+                  if (!resp.ok) {
+                    console.warn('⚠️ RPC proxy returned non-ok status', resp.status);
+                    return null;
+                  }
+                  const json = await resp.json();
+                  if (json && Object.prototype.hasOwnProperty.call(json, 'result')) {
+                    return json.result;
+                  }
+                  console.warn('⚠️ RPC proxy response missing result', json);
+                  return null;
+                } catch (err) {
+                  console.warn('⚠️ RPC proxy error', err);
+                  return null;
+                }
         }
       },
       
@@ -187,8 +285,8 @@ export async function setupMetaMask(): Promise<MetaMaskHelper> {
       _connectHandlers: [] as Function[]
     };
 
-    // Set ethereum provider BEFORE any React initialization
-    (window as any).ethereum = mockEthereum;
+  // Set ethereum provider BEFORE any React initialization
+  (window as any).ethereum = mockEthereum;
 
     // Make ethereum available globally and detect providers
     if (!(window as any).web3) {
@@ -204,8 +302,8 @@ export async function setupMetaMask(): Promise<MetaMaskHelper> {
       chainId: mockEthereum.chainId
     });
 
-    // Announce the provider to the window for React apps to detect
-    window.dispatchEvent(new Event('ethereum#initialized'));
+  // Announce the provider to the window for React apps to detect
+  window.dispatchEvent(new Event('ethereum#initialized'));
     
     // Also dispatch a connect event immediately
     setTimeout(() => {
@@ -214,6 +312,27 @@ export async function setupMetaMask(): Promise<MetaMaskHelper> {
       }));
     }, 100);
   });
+
+  // Create a page for our operations after the init script is registered
+  const page = await context.newPage();
+
+  // Also register the same init script at the page level to be extra robust
+  await page.addInitScript(() => {
+    // small check to verify injection — set a flag the page can expose to console
+    try {
+      (window as any).__ETH_INJECT_CHECK__ = !!(window as any).ethereum;
+    } catch (e) {}
+  });
+
+  // Log the injection check value once the page is created
+  try {
+    const injected = await page.evaluate(() => {
+      return (window as any).__ETH_INJECT_CHECK__ || !!(window as any).ethereum;
+    });
+    console.log('[MetaMaskHelper] window.ethereum present at page creation:', injected);
+  } catch (e) {
+    console.log('[MetaMaskHelper] Failed to evaluate injection check:', e);
+  }
 
   return {
     page,

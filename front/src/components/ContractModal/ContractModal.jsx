@@ -1135,11 +1135,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             onCancel={onConfirmCancel} 
             busy={confirmBusy} 
           />
-          <div style={{ marginTop: 12 }}>
-            <button className="btn btn-ghost" onClick={() => setShowAppealEvidenceModal(true)} disabled={actionLoading}>
-              Start Cancel w/ Appeal
-            </button>
-          </div>
+          {/* Top-level quick actions removed to keep actions inside the Actions tab */}
         </div>
 
         {showDebugPanel && (
@@ -1361,10 +1357,11 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             {activeTab === 'actions' && (
               <div className="tab-content">
                 <h3>Contract Actions</h3>
-                <div className="actions-grid">
-                  {contractDetails.type === 'Rental' ? (
-                    <div style={{display:'flex', flexDirection:'column', gap:'12px'}}>
-                      <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
+                <div className="actions-panel-grid">
+                  <div>
+                    {contractDetails.type === 'Rental' ? (
+                      <div style={{display:'flex', flexDirection:'column', gap:'12px'}}>
+                        <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
                         {contractDetails?.isActive && (
                           <button 
                             onClick={handleRentSign}
@@ -1411,11 +1408,10 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                           </button>
                         )}
                         {(isLandlord || isTenant) && (
-                          <button className="btn-action" onClick={async () => {
+                          <button className="btn-action" title="Open appeal modal to add evidence before starting cancellation" onClick={async () => {
                             try {
-                              if (!confirm('Start cancellation (this will either initiate or approve cancellation). Continue?')) return;
-                              await handleStartCancellationWithAppeal();
-                            } catch (e) { console.error('Start cancel+appeal failed', e); alert('Failed: ' + (e?.message || e)); }
+                              setShowAppealEvidenceModal(true);
+                            } catch (e) { console.error('Open appeal modal failed', e); }
                           }} disabled={readOnly || actionLoading}>
                             Start Cancel w/ Appeal
                           </button>
@@ -1449,16 +1445,21 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                       Deactivate NDA
                     </button>
                   )}
-                  <button className="btn-action" onClick={handleExport}>
-                    <i className="fas fa-file-export"></i>
-                    Export PDF
-                  </button>
-                  <button className="btn-action" onClick={handleCopyAddress}>
-                    <i className="fas fa-copy"></i>
-                    Copy Address
-                  </button>
+                    <button className="btn-action" onClick={handleCopyAddress}>
+                      <i className="fas fa-copy"></i>
+                      Copy Address
+                    </button>
+                  </div>
+
+                  {/* Right column: compact export / info panel */}
+                  <div className="export-panel">
+                    <button className="btn-action" onClick={handleExport}>
+                      <i className="fas fa-file-export"></i>
+                      Export PDF
+                    </button>
+                    <div style={{marginTop: 12, color: '#666', fontSize: 13}}>Download contract as PDF</div>
+                  </div>
                 </div>
-                {/* Additional action sections would go here */}
               </div>
             )}
             {activeTab === 'evidence' && (
@@ -1484,7 +1485,39 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         {showDisputeForm && (
           <div className="dispute-form-overlay" onClick={() => setShowDisputeForm(false)}>
             <div className="dispute-form" onClick={(e) => e.stopPropagation()}>
-              {/* ...existing code... */}
+              <h3>Report Dispute / Submit Appeal</h3>
+              <p style={{marginTop:6, marginBottom:12}}>Provide a short description or link (CID) as evidence. The reporter bond will be calculated below.</p>
+
+              <label>Type</label>
+              <select value={disputeForm.dtype} onChange={(e) => setDisputeForm(s => ({ ...s, dtype: Number(e.target.value) }))}>
+                <option value={0}>Rent not paid</option>
+                <option value={1}>Deposit dispute</option>
+                <option value={2}>Property damage</option>
+                <option value={3}>Other contractual breach</option>
+                <option value={4}>General appeal / claim</option>
+              </select>
+
+              <label style={{marginTop:8}}>Requested amount (ETH)</label>
+              <input type="number" step="any" className="text-input" value={disputeForm.amountEth} onChange={(e) => setDisputeForm(s => ({ ...s, amountEth: e.target.value }))} />
+
+              <label style={{marginTop:8}}>Evidence (text, CID or digest)</label>
+              <textarea className="text-input" rows={6} value={disputeForm.evidence} onChange={(e) => setDisputeForm(s => ({ ...s, evidence: e.target.value }))} />
+
+              <div style={{marginTop:8, marginBottom:8}}><strong>Reporter bond estimate:</strong> <span style={{direction:'ltr', display:'inline-block'}}>{computedReporterBondEth} ETH</span></div>
+
+              <div className="dispute-form-actions">
+                <button className="btn-action secondary" onClick={() => setShowDisputeForm(false)} disabled={actionLoading}>Cancel</button>
+                <button className="btn-action primary" onClick={async () => {
+                  try {
+                    if (!confirm('Submit dispute now? This will send a transaction and incur gas/bond costs.')) return;
+                    await submitDisputeForm();
+                    // submitDisputeForm will close the overlay on success; ensure we clear state
+                    setDisputeForm({ dtype: 4, amountEth: '0', evidence: '' });
+                  } catch (e) {
+                    console.error('Dispute submit failed (UI):', e);
+                  }
+                }} disabled={actionLoading}>{actionLoading ? 'Submitting...' : 'Submit Dispute'}</button>
+              </div>
             </div>
           </div>
         )}
@@ -1494,7 +1527,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         <div className="modal-backdrop">
           <div className="modal-card">
             <h3>Start Cancellation with Appeal Evidence</h3>
-            <p>Optionally paste or type the evidence/summary for the appeal. This will be uploaded and attached to the cancellation request.</p>
+            <p>Paste or type the evidence/summary for the appeal. You can Save it for later or Start cancellation now.</p>
             <textarea
               rows={6}
               value={appealEvidenceInput}
@@ -1504,7 +1537,26 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             />
             <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button className="btn" onClick={() => { setShowAppealEvidenceModal(false); setAppealEvidenceInput(''); }} disabled={actionLoading}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleStartCancellationWithAppeal} disabled={actionLoading}>Submit</button>
+              <button className="btn" title="Save this evidence locally for this contract" onClick={() => {
+                try {
+                  const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+                  const raw = localStorage.getItem(key);
+                  const arr = raw ? JSON.parse(raw) : [];
+                  if (appealEvidenceInput && String(appealEvidenceInput).trim()) {
+                    arr.push({ ref: appealEvidenceInput.trim(), createdAt: Date.now() });
+                    localStorage.setItem(key, JSON.stringify(arr));
+                    alert('Evidence saved locally');
+                  } else {
+                    alert('No evidence to save');
+                  }
+                } catch (e) { console.error('Save appeal evidence failed', e); alert('Failed to save evidence'); }
+              }} disabled={actionLoading}>Save Evidence</button>
+              <button className="btn btn-primary" title="Start cancellation now using the current evidence" onClick={async () => {
+                try {
+                  if (!confirm('Start cancellation now? This will submit the transaction.')) return;
+                  await handleStartCancellationWithAppeal();
+                } catch (e) { console.error(e); alert('Failed to start cancellation'); }
+              }} disabled={actionLoading}>Start Cancellation Now</button>
             </div>
           </div>
         </div>

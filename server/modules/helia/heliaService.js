@@ -15,7 +15,19 @@ export async function getHelia() {
 
 export async function addEvidenceToHelia(evidence, filename = 'evidence.json') {
   const { fs } = await getHelia();
-  const data = typeof evidence === 'string' ? evidence : JSON.stringify(evidence);
+  // Accept string, object, Buffer, or Uint8Array
+  if (typeof evidence === 'string') {
+    const cid = await fs.addBytes(new TextEncoder().encode(evidence));
+    return { cid: cid.toString(), size: evidence.length };
+  }
+  if (evidence instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(evidence))) {
+    // add raw bytes
+    const bytes = evidence instanceof Uint8Array ? evidence : new Uint8Array(evidence);
+    const cid = await fs.addBytes(bytes);
+    return { cid: cid.toString(), size: bytes.length };
+  }
+  // fallback: JSON stringify objects
+  const data = typeof evidence === 'object' ? JSON.stringify(evidence) : String(evidence);
   const cid = await fs.addBytes(new TextEncoder().encode(data));
   return { cid: cid.toString(), size: data.length };
 }

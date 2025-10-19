@@ -32,7 +32,7 @@ export default function WalletConnector({ onWallet }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const { account, signer, chainId, provider } = useEthers();
+  const { account, signer, chainId, provider, connectWallet: connectWalletCtx, disconnectWallet: disconnectWalletCtx } = useEthers();
   const role = useAdminRole(account, signer, chainId);
 
   async function connectWallet() {
@@ -40,11 +40,15 @@ export default function WalletConnector({ onWallet }) {
     setError(null);
     setIsConnecting(true);
     try {
-      if (window.ethereum) {
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        if (onWallet) onWallet(accounts[0]);
+      // Delegate to global EthersContext connect so provider/signer/account are set globally
+      if (typeof connectWalletCtx === 'function') {
+        await connectWalletCtx();
+        try {
+          const accounts = window.ethereum ? await window.ethereum.request({ method: 'eth_accounts' }) : [];
+          if (onWallet) onWallet(accounts && accounts[0]);
+        } catch (_) { if (onWallet) onWallet(null); }
       } else {
-        setError('לא נמצא ספק Ethereum (כמו MetaMask)');
+        setError('Wallet connect not available');
       }
     } catch (e) {
       setError(e.message || String(e));
@@ -55,6 +59,9 @@ export default function WalletConnector({ onWallet }) {
   }
 
   function disconnectWallet() {
+    try {
+      if (typeof disconnectWalletCtx === 'function') disconnectWalletCtx();
+    } catch (e) { /* ignore */ }
     if (onWallet) onWallet(null);
   }
 
