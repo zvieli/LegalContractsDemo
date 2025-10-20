@@ -141,16 +141,19 @@ async function main(){
       } catch(e){}
 
       // Ensure offender has deposit >= minDeposit: fetch minDeposit and deposit via signer for offender by using account 1 private key if available.
-      let minDep = ethers.Zero;
+      let minDep = 0n;
       try { minDep = await nda.minDeposit(); } catch(e) { console.warn('Could not read minDeposit', e.message || e); }
-      console.log('minDeposit=', minDep.toString());
+      // normalize to BigInt if ethers returns an object or string
+      if (typeof minDep === 'object' && typeof minDep.valueOf === 'function') minDep = BigInt(minDep.toString());
+      else minDep = BigInt(minDep || 0);
+      console.log('minDeposit=', String(minDep));
 
-      // If minDep > 0 and offender is an unlocked account in Hardhat, send funds from account[0] to offender so they can deposit
-      if (!minDep.isZero()){
+      // If minDep > 0 and offender is an unlocked account in Hardhat, we could fund the offender and call deposit from that account in a separate flow.
+      if (minDep > 0n){
         const accounts = await provider.send('eth_accounts', []);
         if (accounts && accounts[1]){
-          console.log('Funding offender with minDeposit from signer');
-          // send ETH from signer to offender then call deposit from offender is not trivial here; we only check revert reason by submitting as reporter
+          console.log('Offender is an unlocked account; a full deposit flow would send ETH to offender and call deposit from that account.');
+          // For this repro we won't perform the offender-side deposit programmatically; we'll attempt reportBreach as reporter to surface revert reasons.
         }
       }
 

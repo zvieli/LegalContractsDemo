@@ -52,21 +52,52 @@ export async function addEvidenceToLocalHelia(content, filename = 'evidence.json
       try {
         const addResult = comps.addAll([{ path: filename, content: buffer }]);
         let last = null;
+
+        // Async iterable
         if (addResult && typeof addResult[Symbol.asyncIterator] === 'function') {
           for await (const entry of addResult) {
             last = entry;
           }
+
+        // Synchronous iterable
+        } else if (addResult && typeof addResult[Symbol.iterator] === 'function') {
+          for (const entry of addResult) {
+            last = entry;
+          }
+
+        // Promise -> await and then inspect
+        } else if (addResult && typeof addResult.then === 'function') {
+          try {
+            const resolved = await addResult;
+            if (resolved && typeof resolved[Symbol.asyncIterator] === 'function') {
+              for await (const entry of resolved) last = entry;
+            } else if (resolved && typeof resolved[Symbol.iterator] === 'function') {
+              for (const entry of resolved) last = entry;
+            } else if (Array.isArray(resolved)) {
+              last = resolved[resolved.length - 1];
+            } else {
+              last = resolved;
+            }
+          } catch (e) {
+            console.warn('heliaLocal: addAll promise resolved with error:', e && e.message ? e.message : e);
+          }
+
+        // Array-like
         } else if (Array.isArray(addResult)) {
           last = addResult[addResult.length - 1];
-        } else if (addResult && typeof addResult.then === 'function') {
-          const resolved = await addResult;
-          if (Array.isArray(resolved)) last = resolved[resolved.length - 1];
-          else last = resolved;
+
+        // Single object or other return types
         } else {
           last = addResult;
         }
+
+        // If last is a Buffer/Uint8Array/string, we can't extract cid; log shape for debugging
+        if (last && (typeof last === 'string' || last instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(last)))) {
+          console.warn('heliaLocal: components.addAll returned raw data instead of entry; shape:', typeof last);
+        }
+
         if (last) {
-          cidString = last.cid && last.cid.toString ? last.cid.toString() : String(last.cid || last.hash || '');
+          cidString = last.cid && last.cid.toString ? last.cid.toString() : String(last.cid || last.hash || last || '');
           size = last.size ?? buffer.length;
         }
       } catch (e) {
@@ -135,10 +166,48 @@ export async function getEvidenceFromLocalHelia(cid) {
       throw new Error('heliaLocal: no cat implementation available on unixfsModule or heliaInstance');
     }
 
-    for await (const chunk of catSrc) {
-      chunks.push(Buffer.from(chunk));
+    // catSrc may be an async iterable, a sync iterable, a Promise that resolves to one of those,
+    // or even a Buffer/string in some runtime variants. Handle all cases defensively.
+    if (catSrc == null) {
+      throw new Error('heliaLocal: cat returned null/undefined for cid ' + cid);
     }
-    return Buffer.concat(chunks).toString('utf8');
+
+    // If it's a Promise, await it
+    if (typeof catSrc.then === 'function') {
+      try {
+        catSrc = await catSrc;
+      } catch (e) {
+        throw new Error('heliaLocal: cat promise rejected: ' + (e && e.message ? e.message : String(e)));
+      }
+    }
+
+    // If it's a raw Buffer / Uint8Array, return directly
+    if (typeof catSrc === 'string') {
+      return catSrc;
+    }
+    if (catSrc instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(catSrc))) {
+      return Buffer.from(catSrc).toString('utf8');
+    }
+
+    // If it's a synchronous iterable (Array or other), iterate
+    if (Array.isArray(catSrc) || typeof catSrc[Symbol.iterator] === 'function') {
+      for (const chunk of catSrc) {
+        chunks.push(Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks).toString('utf8');
+    }
+
+    // If it's an async iterable
+    if (typeof catSrc[Symbol.asyncIterator] === 'function') {
+      for await (const chunk of catSrc) {
+        chunks.push(Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks).toString('utf8');
+    }
+
+    // Unknown shape
+    console.error('heliaLocal.getEvidenceFromLocalHelia: unsupported cat result shape:', typeof catSrc, catSrc && catSrc.constructor && catSrc.constructor.name);
+    throw new Error('heliaLocal: unsupported cat result shape');
   } catch (err) {
     console.error('heliaLocal.getEvidenceFromLocalHelia error:', err && err.message ? err.message : err);
     throw err;

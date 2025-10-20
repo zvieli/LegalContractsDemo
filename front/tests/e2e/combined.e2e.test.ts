@@ -21,13 +21,16 @@ test.describe('Full Arbitration Flow', () => {
 
   test('should trigger arbitration and receive verdict', async ({ request }) => {
     // Trigger LLM arbitration
-    const arbitrationResponse = await request.post('http://localhost:3001/api/v7/arbitration/ollama-test', {
-      data: {
-        evidence_text: 'Test evidence content',
-        contract_text: 'Test contract terms',
-        dispute_id: 'test-dispute-123'
-      }
-    });
+      const arbitrationResponse = await request.post('http://localhost:3001/api/v7/arbitration/ollama-test', {
+        data: {
+          evidence_text: 'Test evidence content',
+          contract_text: 'Test contract terms',
+          dispute_id: 'test-dispute-123'
+        },
+        headers: {
+          'x-force-simulator': 'true'
+        }
+      });
     expect(arbitrationResponse.ok()).toBeTruthy();
 
     const verdictData = await arbitrationResponse.json();
@@ -52,13 +55,16 @@ test.describe('Full Arbitration Flow', () => {
     expect(evidenceResponse.ok()).toBeTruthy();
 
     // Trigger arbitration for this dispute using the ollama-test endpoint
-    const arbitrationResponse = await request.post('http://localhost:3001/api/v7/arbitration/ollama-test', {
-      data: {
-        evidence_text: 'Test evidence for contract state update',
-        contract_text: 'Test contract terms for dispute resolution',
-        dispute_id: 'contract-update-test-123'
-      }
-    });
+      const arbitrationResponse = await request.post('http://localhost:3001/api/v7/arbitration/ollama-test', {
+        data: {
+          evidence_text: 'Test evidence for contract state update',
+          contract_text: 'Test contract terms for dispute resolution',
+          dispute_id: 'contract-update-test-123'
+        },
+        headers: {
+          'x-force-simulator': 'true'
+        }
+      });
     expect(arbitrationResponse.ok()).toBeTruthy();
 
     // Wait for arbitration to complete

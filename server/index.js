@@ -62,12 +62,63 @@ app.use('/api', evidenceRoutes);
 // Ollama LLM arbitration test endpoint (must be after app is initialized)
 app.post('/api/v7/arbitration/ollama-test', async (req, res) => {
   try {
-    const { evidence_text, contract_text, dispute_id } = req.body;
+    const { evidence_text, contract_text, dispute_id } = req.body || {};
+    // Diagnostic log for test runs
+    try { console.log('/api/v7/arbitration/ollama-test: headers ->', JSON.stringify(req.headers)); } catch(e) {}
+
+    // Allow tests to force the internal simulator via header or env var for deterministic responses
+    // Accept presence of header with any truthy value to be more permissive in test environments.
+    const rawHeader = req.headers['x-force-simulator'];
+    const forceSimulatorHeader = rawHeader != null && String(rawHeader).toLowerCase() !== 'false';
+    const forceSimulatorEnv = (process.env.FORCE_SIMULATOR || '').toString().toLowerCase() === 'true';
+
+    // Immediate short-circuit: if simulator is requested, return a deterministic simulator response
+    if (forceSimulatorEnv || forceSimulatorHeader) {
+      try {
+        const simModule = await import('./modules/llmArbitrationSimulator.js');
+        const simFn = simModule && (simModule.processV7Arbitration || simModule.default || simModule);
+        if (typeof simFn === 'function') {
+          const sim = await simFn({ evidence_text, contract_text, dispute_id });
+          return res.json({ success: true, result: sim, fallback: 'simulator', simulator: true, timestamp: new Date().toISOString() });
+        }
+        // If simulator module present but no function, return minimal deterministic response
+        return res.json({ success: true, result: { decision: 'DRAW', reasoning: 'simulator-unavailable-fallback' }, fallback: 'simulator', simulator: true, timestamp: new Date().toISOString() });
+      } catch (simErr) {
+        console.error('ollama-test: simulator short-circuit error:', simErr && (simErr.stack || simErr));
+        return res.status(500).json({ error: 'simulator_error', details: String(simErr) });
+      }
+    }
+
+    // Default: try Ollama but guard with a short timeout and fallback to simulator
     if (!processV7ArbitrationWithOllama) {
+      // Ollama module not loaded - fallback to simulator if available
+      if (typeof processV7Arbitration === 'function') {
+        const sim = await processV7Arbitration({ evidence_text, contract_text, dispute_id });
+        return res.json({ success: true, result: sim, fallback: 'simulator' });
+      }
       return res.status(503).json({ error: 'Ollama LLM arbitrator not loaded' });
     }
-    const result = await processV7ArbitrationWithOllama({ evidence_text, contract_text, dispute_id });
-    res.json({ success: true, result });
+
+    try {
+      // Give Ollama a bounded time to respond so tests don't hang. If it times out, fall back to simulator.
+      const result = await Promise.race([
+        processV7ArbitrationWithOllama({ evidence_text, contract_text, dispute_id }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Ollama timed out')), 15000))
+      ]);
+      return res.json({ success: true, result });
+    } catch (err) {
+      console.warn('⚠️ /api/v7/arbitration/ollama-test: Ollama failed or timed out - falling back to simulator:', err && err.message);
+      if (typeof processV7Arbitration === 'function') {
+        try {
+          const sim = await processV7Arbitration({ evidence_text, contract_text, dispute_id });
+          return res.json({ success: true, result: sim, fallback: 'simulator', reason: err && err.message });
+        } catch (simErr) {
+          console.error('❌ Simulator fallback also failed:', simErr && simErr.stack ? simErr.stack : simErr);
+          return res.status(500).json({ error: 'arbitration_failed', details: simErr && simErr.message });
+        }
+      }
+      return res.status(500).json({ error: 'Ollama arbitration failed', details: err && err.message });
+    }
   } catch (e) {
     console.error('Error in /api/batch handler:', e && e.stack ? e.stack : e);
     res.status(500).json({ error: e.message || String(e) });

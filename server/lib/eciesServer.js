@@ -1,74 +1,43 @@
-import fs from 'fs';
-import path from 'path';
+import { encryptWithAdminPubKey, decryptWithAdminPrivKey } from './crypto.js';
 
-// Try to reuse canonical ECIES implementation if present under tools/admin or crypto
-let canonical = null;
-async function loadCanonical() {
-  if (canonical) return canonical;
-  try {
-    const mod = await import('../../tools/admin/../crypto/ecies.js');
-    canonical = mod && (mod.default || mod);
-    return canonical;
-  } catch (e) {
-    try {
-      const mod2 = await import('../../tools/admin/decryptHelper.js');
-      canonical = mod2 && (mod2.default || mod2);
-      return canonical;
-    } catch (e2) {
-      canonical = null;
-      return null;
-    }
-  }
+export async function encryptForAdmin(plaintext, adminPubPem) {
+  return await encryptWithAdminPubKey(plaintext, adminPubPem);
 }
 
-// Helper: encrypt plaintext string to admin public key using hybrid envelope
-// Returns { ciphertextEnvelope (object), digest }
-export async function encryptForAdmin(plaintext, adminPublicKeyHex) {
-  if (!plaintext) throw new Error('plaintext required');
-  if (!adminPublicKeyHex) throw new Error('adminPublicKeyHex required');
-
-  const can = await loadCanonical();
-  // If canonical module provides encryptWithPublicKey, use it
-  if (can && typeof can.encryptWithPublicKey === 'function') {
-    // Some canonical modules expect non-0x hex
-    const pub = String(adminPublicKeyHex).startsWith('0x') ? String(adminPublicKeyHex).slice(2) : String(adminPublicKeyHex);
-    const enc = await can.encryptWithPublicKey(pub, String(plaintext));
-    const envelope = (typeof enc === 'string') ? JSON.parse(enc) : enc;
-    // compute digest using keccak256 if available on module, otherwise leave null
-    let digest = null;
+export async function decryptForAdmin(envelope, adminPrivPem) {
+  // Try the X25519-based decrypt first
+  try {
+    return await decryptWithAdminPrivKey(envelope, adminPrivPem);
+  } catch (e) {
+    // If adminPrivPem appears to be an Ethereum/secp256k1 key (0x...), try eth-crypto fallback
     try {
-      const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.ethers ? m.ethers.keccak256 : m.keccak256, toUtf8Bytes: m.toUtf8Bytes ? m.toUtf8Bytes : (s)=>Buffer.from(String(s),'utf8') }));
-      // Use ethers.keccak256 if available
-      if (typeof digest === 'undefined' || digest === null) {
+      const maybeHex = String(adminPrivPem || '').trim();
+      if (/^0x[0-9a-fA-F]{64}$/.test(maybeHex)) {
+        // dynamic import eth-crypto
+        const EthCrypto = (await import('eth-crypto')).default || (await import('eth-crypto'));
+        // eth-crypto expects ciphertext object with iv, ephemPublicKey, ciphertext, mac or similar
+        // Our envelope may already be that object (from frontend). Try decryptWithPrivateKey directly.
         try {
-          const e = await import('ethers');
-          digest = e.ethers ? e.ethers.keccak256(e.ethers.toUtf8Bytes(JSON.stringify(envelope))) : e.keccak256(e.toUtf8Bytes(JSON.stringify(envelope)));
-        } catch (e) {
-          // fallback
-          digest = null;
+          const env = envelope;
+          // if envelope has older key names, try to normalize
+          const normalized = env && (env.epk || env.ephemeralPublicKey || env.ephemPublicKey) ? {
+            iv: env.iv,
+            ephemPublicKey: env.epk || env.ephemeralPublicKey || env.ephemPublicKey,
+            ciphertext: env.ciphertext || env.cipher || env.data,
+            mac: env.mac
+          } : env;
+          const privNo0x = maybeHex.startsWith('0x') ? maybeHex.slice(2) : maybeHex;
+          const decrypted = await EthCrypto.decryptWithPrivateKey(privNo0x, normalized);
+          return typeof decrypted === 'string' ? decrypted : JSON.stringify(decrypted);
+        } catch (e2) {
+          // fall through to throw outer
         }
       }
-    } catch (e) {}
-    return { envelope: envelope, digest };
+    } catch (e3) {
+      // ignore and rethrow original
+    }
+    throw e;
   }
-
-  // Fallback: attempt to use eth-crypto via dynamic import
-  let EthCrypto = null;
-  try {
-    EthCrypto = (await import('eth-crypto')).default || (await import('eth-crypto'));
-  } catch (e) {
-    throw new Error('No ECIES implementation available on server. Install canonical ECIES under tools/admin/crypto or add `eth-crypto` to server deps.');
-  }
-  const pubNo0x = String(adminPublicKeyHex).startsWith('0x') ? String(adminPublicKeyHex).slice(2) : String(adminPublicKeyHex);
-  const ct = await EthCrypto.encryptWithPublicKey(pubNo0x, String(plaintext));
-  const envelope = ct && typeof ct === 'string' ? JSON.parse(ct) : ct;
-  // compute digest using ethers if available
-  let digest = null;
-  try {
-    const e = await import('ethers');
-    digest = e.ethers ? e.ethers.keccak256(e.ethers.toUtf8Bytes(JSON.stringify(envelope))) : e.keccak256(e.toUtf8Bytes(JSON.stringify(envelope)));
-  } catch (e) {}
-  return { envelope, digest };
 }
 
-export default { encryptForAdmin };
+export default { encryptForAdmin, decryptForAdmin };

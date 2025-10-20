@@ -2,6 +2,7 @@
 
 
 import { ethers } from 'ethers';
+import { getProviderSync } from '../lib/getProvider.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -31,7 +32,12 @@ export class CCIPArbitrationIntegration {
 
   async initializeProvider() {
     try {
-      this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
+      // prefer local or env-configured RPC
+      try {
+        this.provider = getProviderSync();
+      } catch (e) {
+        this.provider = new ethers.JsonRpcProvider(this.config.rpcUrl);
+      }
       this.signer = new ethers.Wallet(this.config.privateKey, this.provider);
       
       await this.loadContracts();

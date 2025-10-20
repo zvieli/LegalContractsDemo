@@ -83,6 +83,41 @@ async function main() {
     throw e;
   }
 
+  // === Deploy Local Chainlink Mocks (for hardhat/localhost) ===
+  let mockV3Address = null;
+  let mockLinkAddress = null;
+  let mockRouterAddress = null;
+  try {
+    if (network.name === 'hardhat' || network.name === 'localhost') {
+      console.log('\n🧩 Deploying local Chainlink mocks (MockV3Aggregator, MockLinkToken, MockCCIPRouter)...');
+
+      const MockV3Aggregator = await ethers.getContractFactory('MockV3Aggregator');
+      // decimals=8, initial price = 3000 * 10^8
+      const initial = ethers.parseUnits('3000', 8);
+      const mockV3 = await MockV3Aggregator.deploy(8, initial);
+      await mockV3.waitForDeployment();
+      mockV3Address = await mockV3.getAddress();
+      console.log('✅ MockV3Aggregator deployed to:', mockV3Address);
+
+      const MockLinkToken = await ethers.getContractFactory('MockLinkToken');
+      const mockLink = await MockLinkToken.deploy(ethers.parseEther('1000000'));
+      await mockLink.waitForDeployment();
+      mockLinkAddress = await mockLink.getAddress();
+      console.log('✅ MockLinkToken deployed to:', mockLinkAddress);
+
+      const MockCCIPRouter = await ethers.getContractFactory('MockCCIPRouter');
+      // fixedFee: small native amount (wei) - use 0 for simplicity or 1e15 (0.001)
+      const mockRouter = await MockCCIPRouter.deploy(ethers.parseEther('0.001'));
+      await mockRouter.waitForDeployment();
+      mockRouterAddress = await mockRouter.getAddress();
+      console.log('✅ MockCCIPRouter deployed to:', mockRouterAddress);
+    } else {
+      console.log('\nℹ️ Skipping local mock deployment on network:', network.name);
+    }
+  } catch (e) {
+    console.warn('⚠️ Local mock deployment failed (continuing):', e.message || e);
+  }
+
   console.log("\n📦 Deploying Core Infrastructure...");
   console.log("DEBUG: Deploying MerkleEvidenceManager...");
   const MerkleEvidenceManager = await ethers.getContractFactory('MerkleEvidenceManager');
@@ -148,99 +183,92 @@ async function main() {
 
   // === CCIP Oracle Arbitration Integration ===
   console.log("DEBUG: Deploying CCIP Oracle Arbitration system...");
-  
-  // Mainnet CCIP addresses (available on fork)
-  const MAINNET_CCIP_ROUTER = "0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D";
-  const MAINNET_LINK_TOKEN = "0x514910771AF9Ca656af840dff83E8264EcF986CA";
-  const FORK_CHAIN_SELECTOR = "31337"; // Our local fork chain ID
-  
-  // Verify CCIP Router exists on fork
-  const routerCode = await ethers.provider.getCode(MAINNET_CCIP_ROUTER);
-  if (routerCode === "0x") {
-    throw new Error("CCIP Router not found on fork. Are we connected to mainnet fork?");
-  }
-  console.log("✅ CCIP Router verified on mainnet fork");
-  
-  let ccipSenderAddress = null;
-  let ccipReceiverAddress = null;
-  
+  const localDeploymentPath = path.join(frontendContractsDir, 'deployment-summary.json');
+  let localDeployment = null;
   try {
-    console.log("📤 Deploying CCIPArbitrationSender...");
-    const CCIPArbitrationSender = await ethers.getContractFactory("CCIPArbitrationSender");
-    const ccipSender = await CCIPArbitrationSender.deploy(
-      MAINNET_CCIP_ROUTER,
-      MAINNET_LINK_TOKEN,
-      FORK_CHAIN_SELECTOR,
-      deployer.address // Use deployer as initial receiver for testing
-    );
-    await ccipSender.waitForDeployment();
-    ccipSenderAddress = await ccipSender.getAddress();
-    console.log("✅ CCIPArbitrationSender deployed to:", ccipSenderAddress);
-
-    console.log("📥 Deploying CCIPArbitrationReceiver...");
-    const CCIPArbitrationReceiver = await ethers.getContractFactory("CCIPArbitrationReceiver");
-    const ccipReceiver = await CCIPArbitrationReceiver.deploy(
-      MAINNET_CCIP_ROUTER,
-      arbitrationServiceAddress
-    );
-    await ccipReceiver.waitForDeployment();
-    ccipReceiverAddress = await ccipReceiver.getAddress();
-    console.log("✅ CCIPArbitrationReceiver deployed to:", ccipReceiverAddress);
-
-    // Configure CCIP authorizations
-    console.log("🔑 Setting up CCIP authorizations...");
-    
-    // Authorize receiver to call ArbitrationService
-    const authTx = await arbitrationService.authorizeCCIPReceiver(ccipReceiverAddress, true);
-    await authTx.wait();
-    console.log("✅ Authorized CCIP receiver in ArbitrationService");
-
-    // Configure sender with receiver
-    const configTx = await ccipSender.updateOracleConfig(FORK_CHAIN_SELECTOR, ccipReceiverAddress);
-    await configTx.wait();
-    console.log("✅ Configured Oracle in CCIP sender");
-
-    // Check LINK balance and mint if needed (fork allows this)
-    const linkToken = await ethers.getContractAt(
-      ["function balanceOf(address) view returns (uint256)", "function transfer(address,uint256) returns (bool)"],
-      MAINNET_LINK_TOKEN
-    );
-    const linkBalance = await linkToken.balanceOf(deployer.address);
-    console.log("🔗 LINK Balance:", ethers.formatEther(linkBalance), "LINK");
-    
-    // On mainnet fork, we can simulate having LINK by impersonating a whale
-    if (linkBalance < ethers.parseEther("10")) {
-      console.log("💰 Simulating LINK transfer from whale account...");
-      try {
-        // Impersonate a whale account that has LINK
-        const whaleAddress = "0x98C63b7B319dFBDF3d811530F2ab9DcE4983B9cD"; // Binance wallet with lots of LINK
-        await network.provider.request({
-          method: "hardhat_impersonateAccount",
-          params: [whaleAddress]
-        });
-        
-        const whale = await ethers.getSigner(whaleAddress);
-        const whaleBalance = await linkToken.balanceOf(whaleAddress);
-        
-        if (whaleBalance > ethers.parseEther("100")) {
-          await linkToken.connect(whale).transfer(deployer.address, ethers.parseEther("100"));
-          console.log("✅ Transferred 100 LINK from whale to deployer");
-        }
-        
-        await network.provider.request({
-          method: "hardhat_stopImpersonatingAccount", 
-          params: [whaleAddress]
-        });
-      } catch (e) {
-        console.log("⚠️ Could not simulate LINK transfer:", e.message);
-      }
+    if (fs.existsSync(localDeploymentPath)) {
+      localDeployment = JSON.parse(fs.readFileSync(localDeploymentPath, 'utf8'));
     }
-    
-    console.log("✅ CCIP Oracle Arbitration system deployed successfully!");
+  } catch (e) {
+    console.warn('Could not read local deployment summary:', e.message || e);
+  }
 
-  } catch (error) {
-    console.warn("⚠️ CCIP deployment failed (continuing without Oracle):", error.message);
-    console.log("💡 Contracts will work in traditional arbitration mode");
+  // Determine CCIP router and LINK token addresses (prefer local mocks)
+  const FORK_CHAIN_SELECTOR = '31337';
+  let CCIP_ROUTER_ADDR = localDeployment?.contracts?.MockRouter?.address || '0x80226fc0Ee2b096224EeAc085Bb9a8cba1146f7D';
+  let LINK_TOKEN_ADDR = localDeployment?.contracts?.LinkToken?.address || '0x514910771AF9Ca656af840dff83E8264EcF986CA';
+
+  // Check if router exists on provider; if not, skip CCIP deployment
+  const routerCode = await ethers.provider.getCode(CCIP_ROUTER_ADDR);
+  if (!routerCode || routerCode === '0x') {
+    console.warn('⚠️ CCIP Router not found on provider at', CCIP_ROUTER_ADDR, '; skipping CCIP deployment.');
+  } else {
+    let ccipSenderAddress = null;
+    let ccipReceiverAddress = null;
+    try {
+      console.log('📤 Deploying CCIPArbitrationSender...');
+      const CCIPArbitrationSender = await ethers.getContractFactory('CCIPArbitrationSender');
+      const ccipSender = await CCIPArbitrationSender.deploy(
+        CCIP_ROUTER_ADDR,
+        LINK_TOKEN_ADDR,
+        FORK_CHAIN_SELECTOR,
+        deployer.address
+      );
+      await ccipSender.waitForDeployment();
+      ccipSenderAddress = await ccipSender.getAddress();
+      console.log('✅ CCIPArbitrationSender deployed to:', ccipSenderAddress);
+
+      console.log('📥 Deploying CCIPArbitrationReceiver...');
+      const CCIPArbitrationReceiver = await ethers.getContractFactory('CCIPArbitrationReceiver');
+      const ccipReceiver = await CCIPArbitrationReceiver.deploy(
+        CCIP_ROUTER_ADDR,
+        arbitrationServiceAddress
+      );
+      await ccipReceiver.waitForDeployment();
+      ccipReceiverAddress = await ccipReceiver.getAddress();
+      console.log('✅ CCIPArbitrationReceiver deployed to:', ccipReceiverAddress);
+
+      console.log('🔑 Setting up CCIP authorizations...');
+      const authTx = await arbitrationService.authorizeCCIPReceiver(ccipReceiverAddress, true);
+      await authTx.wait();
+      console.log('✅ Authorized CCIP receiver in ArbitrationService');
+
+      const configTx = await ccipSender.updateOracleConfig(FORK_CHAIN_SELECTOR, ccipReceiverAddress);
+      await configTx.wait();
+      console.log('✅ Configured Oracle in CCIP sender');
+
+      // If we deployed a MockLinkToken earlier, mint and approve some LINK for the deployer to use in tests
+      try {
+        if (mockLinkAddress) {
+          console.log('🔧 Minting and approving mock LINK for deployer...');
+          const mockLink = await ethers.getContractAt(['function mint(address,uint256)', 'function approve(address,uint256)'], mockLinkAddress);
+          const mintTx = await mockLink.mint(deployer.address, ethers.parseEther('100'));
+          await mintTx.wait();
+          const approveTx = await mockLink.approve(ccipSenderAddress, ethers.parseEther('100'));
+          await approveTx.wait();
+          console.log('✅ Minted and approved mock LINK for deployer');
+        }
+      } catch (e) {
+        console.warn('⚠️ Could not mint/approve mock LINK:', e.message || e);
+      }
+
+      // Attempt LINK balance check if LINK token exists
+      try {
+        const linkToken = await ethers.getContractAt(
+          ['function balanceOf(address) view returns (uint256)', 'function transfer(address,uint256) returns (bool)'],
+          LINK_TOKEN_ADDR
+        );
+        const linkBalance = await linkToken.balanceOf(deployer.address);
+        console.log('🔗 LINK Balance:', ethers.formatEther(linkBalance), 'LINK');
+      } catch (e) {
+        console.warn('Could not query LINK token at', LINK_TOKEN_ADDR, e.message || e);
+      }
+
+      console.log('✅ CCIP Oracle Arbitration system deployed successfully!');
+    } catch (error) {
+      console.warn('⚠️ CCIP deployment failed (continuing without Oracle):', error.message);
+      console.log('💡 Contracts will work in traditional arbitration mode');
+    }
   }
 
   // Deploy ArbitrationContractV2 with real Chainlink Functions Router address
@@ -281,14 +309,30 @@ async function main() {
   console.log("DEBUG: Contracts configured. Setting up price feed...");
   console.log("\n🔗 Setting up Chainlink Price Feed...");
   let priceFeedAddress;
-  if (network.name === "mainnet" || network.name === "hardhat" || network.name === "localhost") {
-    priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
-    console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
-  } else if (network.name === "sepolia") {
-    priceFeedAddress = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
-    console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
-  } else {
-    throw new Error("Unsupported network for price feed. Use mainnet, hardhat fork, sepolia, or localhost.");
+  // Prefer local mock if available
+  try {
+    const localDeploymentPath = path.join(frontendContractsDir, 'deployment-summary.json');
+    if (fs.existsSync(localDeploymentPath)) {
+      const localDeployment = JSON.parse(fs.readFileSync(localDeploymentPath, 'utf8'));
+      if (localDeployment && localDeployment.contracts && localDeployment.contracts.MockV3Aggregator && localDeployment.contracts.MockV3Aggregator.address) {
+        priceFeedAddress = localDeployment.contracts.MockV3Aggregator.address;
+        console.log(`✅ Using local MockV3Aggregator price feed: ${priceFeedAddress}`);
+      }
+    }
+  } catch (e) {
+    console.warn('Could not read local deployment for price feed:', e.message || e);
+  }
+
+  if (!priceFeedAddress) {
+    if (network.name === "mainnet" || network.name === "hardhat" || network.name === "localhost") {
+      priceFeedAddress = "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
+      console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
+    } else if (network.name === "sepolia") {
+      priceFeedAddress = "0x694AA1769357215DE4FAC081bf1f309aDC325306";
+      console.log(`✅ Using Chainlink price feed: ${priceFeedAddress}`);
+    } else {
+      throw new Error("Unsupported network for price feed. Use mainnet, hardhat, sepolia, or localhost.");
+    }
   }
 
   // === 4. Test Merkle Evidence System ===
@@ -365,6 +409,7 @@ async function main() {
       RecipientKeyRegistry: keyRegistryAddress,
       Arbitrator: arbitratorAddress,
       EnhancedRentContract: enhancedRentContractAddress
+      // Mock addresses (if deployed) are appended below
     },
     ccip: {
       enabled: ccipSenderAddress && ccipReceiverAddress,
@@ -378,9 +423,29 @@ async function main() {
     }
   };
 
+  // Attach mock addresses if available
+  if (mockV3Address || mockLinkAddress || mockRouterAddress) {
+    deploymentData.contracts = deploymentData.contracts || {};
+    if (mockV3Address) deploymentData.contracts.MockV3Aggregator = { address: mockV3Address };
+    if (mockLinkAddress) deploymentData.contracts.MockLinkToken = { address: mockLinkAddress };
+    if (mockRouterAddress) deploymentData.contracts.MockRouter = { address: mockRouterAddress };
+
+    // Prefer mocks for CCIP/router & link token
+    if (mockRouterAddress) deploymentData.ccip.router = mockRouterAddress;
+    if (mockLinkAddress) deploymentData.ccip.linkToken = mockLinkAddress;
+  }
+
   // Write main deployment file
   const deploymentFile = path.join(frontendContractsDir, "deployment-summary.json");
   try {
+    // Attempt to include the deploy block number so consumers can limit log queries
+    try {
+      const blockNumber = await ethers.provider.getBlockNumber();
+      deploymentData.fromBlock = Number(blockNumber);
+    } catch (e) {
+      console.warn('Could not determine blockNumber for deployment summary:', e.message || e);
+    }
+
     fs.writeFileSync(deploymentFile, JSON.stringify(deploymentData, null, 2));
     console.log("✅ Deployment summary saved:", deploymentFile);
   } catch (e) {

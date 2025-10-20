@@ -52,18 +52,16 @@
     "hardhat": "^2.26.3",
     "hardhat-deploy": "^1.0.4",
     "hardhat-gas-reporter": "^2.3.0",
+    "jsdom": "^21.1.1",
     "solidity-coverage": "^0.8.16",
-    "typechain": "^8.3.2"
-  ,
-  "jsdom": "^21.1.1",
-  "vitest": "^3.2.4"
+    "typechain": "^8.3.2",
+    "vitest": "^3.2.4"
   },
+  "optionalDependencies": {},
   "dependencies": {
     "@chainlink/contracts": "^1.5.0",
     "@chainlink/contracts-ccip": "^1.6.2",
-    "@chainlink/local": "^0.2.6",
     "@helia/unixfs": "^5.1.0",
-    "@noble/secp256k1": "^3.0.0",
     "@openzeppelin/contracts": "^5.4.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
@@ -79,7 +77,6 @@
     "merkletreejs": "^0.6.0",
     "multiformats": "^13.4.1",
     "node-fetch": "^3.3.2",
-    "secp256k1": "^5.0.1",
     "tsyringe": "^4.10.0",
     "uint8arrays": "^5.1.0",
     "uuid": "^13.0.0"

@@ -73,7 +73,9 @@ $forkUrl = $env:MAINNET_FORK_URL
 if ($forkUrl -and $forkUrl -ne "" -and $forkUrl -ne "YOUR_FORK_URL") {
     Write-Host "Starting Hardhat node with mainnet fork..." -ForegroundColor Yellow
     Write-Host "Fork URL: $forkUrl" -ForegroundColor Gray
-    Start-NewWindow "Hardhat Node" "npx hardhat node --fork $forkUrl"
+    # Start-NewWindow "Hardhat Node" "npx hardhat node --fork $forkUrl"
+        Start-NewWindow "Hardhat Node" "npx hardhat node "
+
 } else {
     Write-Host "Starting Hardhat node (local, no fork)..." -ForegroundColor Yellow
     Write-Host "Note: Running without mainnet fork. CCIP contracts will be mocked." -ForegroundColor Orange
