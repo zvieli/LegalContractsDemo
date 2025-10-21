@@ -1,52 +1,61 @@
-const { execSync } = require('child_process');
-const path = require('path');
+import path from 'path';
+import { execFileSync } from 'child_process';
+import { fileURLToPath } from 'url';
 
-// Playwright global setup: ensure an Active NDA exists before tests run.
-// Behavior:
-// 1. Run nda-activate.cjs (quiet by default). If it reports Active, done.
-// 2. If not active or the script fails, run nda-setup.cjs to deploy a fresh NDA
-//    and then run nda-activate again to sign/deposit for the fresh instance.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
+// Playwright global setup (ESM): runs the unified nda-ensure script, with fallbacks
 const repoRoot = path.resolve(__dirname, '..', '..');
-const ndaActivate = path.join(repoRoot, 'scripts', 'debug', 'nda-activate.cjs');
-const ndaSetup = path.join(repoRoot, 'scripts', 'debug', 'nda-setup.cjs');
+const ndaEnsure = path.join(repoRoot, 'scripts', 'debug', 'nda-ensure.js');
+const ndaActivate = path.join(repoRoot, 'scripts', 'debug', 'nda-activate.js');
+const ndaSetup = path.join(repoRoot, 'scripts', 'debug', 'nda-setup.js');
 
-function runNodeScript(scriptPath, args = []) {
-  const cmd = process.execPath; // node executable
-  const finalArgs = [scriptPath, ...args];
-  console.log('Running:', cmd, finalArgs.join(' '));
-  return execSync([cmd, ...finalArgs].join(' '), {
+function runNodeScript(scriptPath, args = [], envOverrides = {}) {
+  const nodeExe = process.execPath; // absolute node path
+  const fullArgs = [scriptPath, ...args];
+  console.log('Running:', nodeExe, fullArgs.join(' '));
+  const res = execFileSync(nodeExe, fullArgs, {
     stdio: 'inherit',
     cwd: repoRoot,
-    env: process.env,
+    env: Object.assign({}, process.env, envOverrides),
     windowsHide: true,
   });
+  return res;
 }
 
-module.exports = async () => {
+export default async function globalSetup() {
   try {
-    // Try to activate existing NDA (quiet)
-    console.log('Global setup: attempting NDA activation (quiet)...');
+    console.log('Global setup: attempting unified nda-ensure...');
     try {
-      runNodeScript(ndaActivate);
-      console.log('nda-activate completed. Please check logs above to confirm Active state.');
+      runNodeScript(ndaEnsure, []);
+      console.log('nda-ensure completed.');
       return;
     } catch (err) {
-      console.warn('nda-activate failed or did not reach Active. Will deploy fresh NDA.');
+      console.warn('nda-ensure failed; falling back to activate/setup flow:', err && err.message ? err.message : err);
     }
 
-    // Deploy a fresh NDA and activate it
-    console.log('Global setup: deploying fresh NDA via nda-setup.cjs...');
+    // Try activation; if it fails deploy and then activate
+    try {
+      runNodeScript(ndaActivate);
+      console.log('nda-activate completed. NDA should be active.');
+      return;
+    } catch (err) {
+      console.warn('nda-activate failed; will deploy fresh NDA:', err && err.message ? err.message : err);
+    }
+
+    // Deploy fresh NDA
+    console.log('Global setup: deploying fresh NDA via nda-setup.js...');
     runNodeScript(ndaSetup);
 
-    // After deploy, run activate again (debug mode for visibility)
-    console.log('Global setup: running nda-activate (debug) for the freshly deployed NDA...');
+    // Activate freshly deployed NDA
+    console.log('Global setup: running nda-activate for freshly deployed NDA...');
     runNodeScript(ndaActivate, ['--debug']);
 
     console.log('Global setup: NDA deployment + activation done.');
   } catch (e) {
     console.error('Global setup failed:', e && e.message ? e.message : e);
-    // Re-throw to fail Playwright setup so the test run fails loudly in CI
     throw e;
   }
-};
+}
+

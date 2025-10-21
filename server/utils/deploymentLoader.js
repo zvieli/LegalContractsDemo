@@ -7,13 +7,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 
 export function getContractAddress(name) {
-  // 1) try deployment-summary.json
+  // 1) Prefer server-side deployment-summary.json (written by deploy.js)
+  try {
+    const serverDeploymentPath = path.resolve(__dirname, './deployment-summary.json');
+    if (fs.existsSync(serverDeploymentPath)) {
+      const deployment = JSON.parse(fs.readFileSync(serverDeploymentPath, 'utf8'));
+      if (deployment && deployment.contracts && deployment.contracts[name]) return deployment.contracts[name];
+      if (name === 'CCIPArbitrationSender' && deployment.ccip && deployment.ccip.contracts && deployment.ccip.contracts.CCIPArbitrationSender) return deployment.ccip.contracts.CCIPArbitrationSender;
+      if (name === 'CCIPArbitrationReceiver' && deployment.ccip && deployment.ccip.contracts && deployment.ccip.contracts.CCIPArbitrationReceiver) return deployment.ccip.contracts.CCIPArbitrationReceiver;
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  // 1b) Fallback to frontend deployment-summary.json (older setups)
   try {
     const deploymentPath = path.resolve(__dirname, '../../front/src/utils/contracts/deployment-summary.json');
     if (fs.existsSync(deploymentPath)) {
       const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
       if (deployment && deployment.contracts && deployment.contracts[name]) return deployment.contracts[name];
-      // ccip contracts nested
       if (name === 'CCIPArbitrationSender' && deployment.ccip && deployment.ccip.contracts && deployment.ccip.contracts.CCIPArbitrationSender) return deployment.ccip.contracts.CCIPArbitrationSender;
       if (name === 'CCIPArbitrationReceiver' && deployment.ccip && deployment.ccip.contracts && deployment.ccip.contracts.CCIPArbitrationReceiver) return deployment.ccip.contracts.CCIPArbitrationReceiver;
     }

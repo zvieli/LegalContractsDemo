@@ -7,8 +7,8 @@ process.env.VITE_E2E_TESTING = 'true'; // Enable E2E mode
 
 export default defineConfig({
   testDir: './tests/e2e',
-  // Use a string path to the CommonJS global setup so Playwright can import it in ESM mode
-  globalSetup: './tests/global-setup.cjs',
+  // Use a string path to the ESM global setup
+  globalSetup: './tests/global-setup.js',
   testMatch: '**/*.e2e.test.ts',
   timeout: 120_000, // Increased for MetaMask interactions
   expect: { timeout: 15000 },

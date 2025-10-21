@@ -22,11 +22,11 @@ export default {
   networks: {
     hardhat: {
       chainId: 31337,
-      forking: {
-        url: process.env.ALCHEMY_URL || "https://eth-mainnet.g.alchemy.com/v2/C71xjjRnVc5bmInmm-AQ3",
-        enabled: (process.env.USE_FORK === 'true') || false,
-        blockNumber: process.env.FORK_BLOCK_NUMBER ? Number(process.env.FORK_BLOCK_NUMBER) : 20500000
-      },
+      // forking: {
+      //   url: process.env.ALCHEMY_URL || "https://eth-mainnet.g.alchemy.com/v2/C71xjjRnVc5bmInmm-AQ3",
+      //   enabled: (process.env.USE_FORK === 'true') || false,
+      //   blockNumber: process.env.FORK_BLOCK_NUMBER ? Number(process.env.FORK_BLOCK_NUMBER) : 20500000
+      // },
       // Fix ProviderError: Transaction maxFeePerGas is too low
       mining: {
         auto: true,

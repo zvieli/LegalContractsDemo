@@ -4,6 +4,7 @@ import { computeMerkleRoot, verifyMerkleProof } from '../../utils/merkleHelper.j
 import EvidenceCard from './EvidenceCard.jsx';
 import { getHelia } from '../../utils/heliaClient.js';
 import EvidenceBadgeLegend from './EvidenceBadgeLegend.jsx';
+import { ethers } from 'ethers';
 import BatchDashboardAdvanced from '../Dashboard/BatchDashboardAdvanced.jsx';
 import { subscribeToEvents } from '../../services/contractService.js';
 import { useEthers } from '../../contexts/EthersContext';
@@ -55,10 +56,9 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
       console.log('EvidenceList: missing contractAddress or provider');
       return;
     }
-    let contractInstance = null;
-    let arbitrationInstance = null;
-    let listeners = [];
-    const ethers = require('ethers');
+  let contractInstance = null;
+  let arbitrationInstance = null;
+  let listeners = [];
     // EnhancedRentContract events
     try {
       contractInstance = new ethers.Contract(contractAddress, rentAbi, provider);

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {CCIPArbitrationTypes} from "../Arbitration/ccip/CCIPArbitrationTypes.sol";
+
 // Minimal shim of Chainlink Client library types used by CCIP contracts
 library Client {
     struct EVMTokenAmount {
@@ -69,20 +71,69 @@ contract MockCCIPRouter is IRouterClientLocal {
             receiverAddress = address(uint160(uint256(dataWord)));
         }
 
-        // If we have a receiver address, try to call its ccipReceive function to simulate callback
-        if (receiverAddress != address(0)) {
-            // Build ABI encoded Any2EVMMessage as expected by CCIPArbitrationReceiver: (bytes32 messageId, uint64 sourceChainSelector, bytes sender, bytes data)
-            bytes memory senderEncoded = abi.encode(msg.sender);
-            uint64 sourceChainSelector = 0;
-            // Prepare values to call receiver.ccipReceive(Any2EVMMessage)
-            bytes4 selector = bytes4(keccak256("ccipReceive((bytes32,uint64,bytes,bytes))"));
-            (bool ok, ) = receiverAddress.call(abi.encodeWithSelector(selector, messageId, sourceChainSelector, senderEncoded, message.data));
-            // ignore success/failure but emit an event for visibility if failed
-            // optionally, could emit an event here - but keep it simple
-            // Note: some receivers may implement ccipReceive with an actual `Client.Any2EVMMessage` struct type; ABI encoding above should match expected tuple layout
-            // If the call fails, tests can still manually call receiver functions to simulate behavior.
-        }
+        // In this local mock we emit the CCIPSent event only. We do not call the receiver
+        // immediately to better emulate asynchronous CCIP delivery. Tests should use
+        // `simulateDecisionTo` to trigger delivery of DECISION messages later.
 
         return messageId;
+    }
+
+    /// @notice Simulate delivering a DECISION message to a receiver (for local E2E tests)
+    function simulateDecisionTo(
+        address receiver,
+        bytes32 messageId,
+        uint64 sourceChainSelector,
+        address requestSender,
+        bytes32 disputeId,
+        bool approved,
+        uint256 appliedAmount,
+        address beneficiary,
+        string calldata rationale,
+        bytes32 oracleId,
+        address targetContract,
+        uint256 caseId
+    ) external {
+        // Build ArbitrationDecision struct ABI encoding
+        CCIPArbitrationTypes.ArbitrationDecision memory decision = CCIPArbitrationTypes.ArbitrationDecision({
+            disputeId: disputeId,
+            approved: approved,
+            appliedAmount: appliedAmount,
+            beneficiary: beneficiary,
+            rationale: rationale,
+            oracleId: oracleId,
+            timestamp: block.timestamp,
+            targetContract: targetContract,
+            caseId: caseId
+        });
+
+        // Build CCIPMessage of type DECISION
+        CCIPArbitrationTypes.CCIPMessage memory ccipMsg = CCIPArbitrationTypes.CCIPMessage({
+            messageType: CCIPArbitrationTypes.MessageType.DECISION,
+            data: abi.encode(decision)
+        });
+
+        // ABI encode the message that receivers expect: Any2EVMMessage(messageId, sourceChainSelector, abi.encode(sender), abi.encode(ccipMsg))
+    // Use the provided requestSender (the original contract that issued the request) as the encoded sender
+    bytes memory senderEncoded = abi.encode(requestSender);
+    bytes memory payload = abi.encode(messageId, sourceChainSelector, senderEncoded, abi.encode(ccipMsg));
+
+        // Call the receiver
+        bytes4 selector = bytes4(keccak256("ccipReceive((bytes32,uint64,bytes,bytes))"));
+        // swallow failures to keep simulation non-fatal
+    // Call the receiver via the raw entrypoint we added for testing: ccipReceiveRaw(bytes32,uint64,bytes,bytes)
+    bytes4 rawSelector = bytes4(keccak256("ccipReceiveRaw(bytes32,uint64,bytes,bytes)"));
+    (bool ok, bytes memory ret) = receiver.call(abi.encodeWithSelector(rawSelector, messageId, sourceChainSelector, senderEncoded, abi.encode(ccipMsg)));
+        if (!ok) {
+            // If the receiver reverted with a reason, bubble it up for easier debugging
+            if (ret.length > 0) {
+                // revert with the same reason
+                assembly {
+                    let returndata_size := mload(ret)
+                    let returndata_ptr := add(ret, 32)
+                    revert(returndata_ptr, returndata_size)
+                }
+            }
+            revert("simulateDecision: receiver call failed");
+        }
     }
 }

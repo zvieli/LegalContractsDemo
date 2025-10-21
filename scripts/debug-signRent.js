@@ -1,4 +1,6 @@
-const { ethers } = require("hardhat");
+#!/usr/bin/env node
+import hre from 'hardhat';
+const { ethers } = hre;
 
 async function main() {
   // כתובת החוזה לבדיקה
@@ -13,17 +15,13 @@ async function main() {
   console.log("\n--- contract properties ---");
   console.log(Object.keys(contract));
 
-  // בדוק אם contract.interface קיים
   if (!contract.interface) {
     console.error("contract.interface is undefined!");
     return;
-  }
 
-  // דיאגנוסטיקה: הדפס את כל המאפיינים של contract.interface
   console.log("\n--- contract.interface properties ---");
   console.log(Object.keys(contract.interface));
 
-  // בדוק אם fragments קיים
   if (!contract.interface.fragments) {
     console.error("contract.interface.fragments is undefined!");
     return;
@@ -114,6 +112,8 @@ async function main() {
   } catch (err) {
     console.error("signRent call failed (צפוי):", err.message || err);
   }
+}
+
 }
 
 main().catch((error) => {

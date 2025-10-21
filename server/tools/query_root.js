@@ -1,6 +1,10 @@
-const fs = require('fs');
-const path = require('path');
-const ethers = require('ethers');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { ethers } from 'ethers';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 (async () => {
   try {
@@ -12,7 +16,7 @@ const ethers = require('ethers');
       console.error('Missing merkleManager.json');
       process.exit(1);
     }
-    const config = require(configPath);
+    const config = JSON.parse(fs.readFileSync(configPath));
     const abi = JSON.parse(fs.readFileSync(abiPath));
 
     if (!fs.existsSync(dataPath)) {
@@ -44,7 +48,6 @@ const ethers = require('ethers');
               console.log('No receipt found for', b.txHash);
             } else {
               console.log('tx receipt status:', receipt.status, 'blockNumber:', receipt.blockNumber, 'logs:', receipt.logs.length);
-              // print first log topics for quick inspection
               for (let i = 0; i < Math.min(receipt.logs.length, 3); i++) {
                 console.log(' log', i, 'topics', receipt.logs[i].topics);
               }
@@ -62,3 +65,130 @@ const ethers = require('ethers');
     process.exit(1);
   }
 })();
+import fs from 'fs';
+import path from 'path';
+import { ethers } from 'ethers';
+
+(async () => {
+  try {
+    const configPath = path.join(new URL(import.meta.url).pathname, '..', '..', 'config', 'merkleManager.json');
+    const abiPath = path.join(new URL(import.meta.url).pathname, '..', '..', 'config', 'MerkleEvidenceManager.json');
+    const dataPath = path.join(new URL(import.meta.url).pathname, '..', '..', 'data', 'evidence_batches.json');
+
+    if (!fs.existsSync(configPath)) {
+      console.error('Missing merkleManager.json');
+      process.exit(1);
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const abi = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
+
+    if (!fs.existsSync(dataPath)) {
+      console.error('No evidence_batches.json found at', dataPath);
+      process.exit(1);
+    }
+
+    const batchesObj = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    const provider = new ethers.providers.JsonRpcProvider(config.rpcUrl);
+    const contract = new ethers.Contract(config.address, abi, provider);
+
+    for (const [caseId, arr] of Object.entries(batchesObj)) {
+      for (const b of arr) {
+        console.log('--- case', caseId);
+        console.log('merkleRoot:', b.merkleRoot);
+        console.log('txHash  :', b.txHash || '<none>');
+
+        try {
+          const res = await contract.rootToBatchId(b.merkleRoot);
+          console.log('rootToBatchId =>', res.toString());
+        } catch (e) {
+          console.error('rootToBatchId call failed:', e && e.message ? e.message : e);
+        }
+
+        if (b.txHash) {
+          try {
+            const receipt = await provider.getTransactionReceipt(b.txHash);
+            if (!receipt) {
+              console.log('No receipt found for', b.txHash);
+            } else {
+              console.log('tx receipt status:', receipt.status, 'blockNumber:', receipt.blockNumber, 'logs:', receipt.logs.length);
+              for (let i = 0; i < Math.min(receipt.logs.length, 3); i++) {
+                console.log(' log', i, 'topics', receipt.logs[i].topics);
+              }
+            }
+          } catch (e) {
+            console.error('getTransactionReceipt failed:', e && e.message ? e.message : e);
+          }
+        }
+
+        console.log('');
+      }
+    }
+  } catch (err) {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  }
+})();
+import fs from 'fs';
+import path from 'path';
+import { ethers } from 'ethers';
+
+(async () => {
+  try {
+    const configPath = path.join(__dirname, '..', 'config', 'merkleManager.json');
+    const abiPath = path.join(__dirname, '..', 'config', 'MerkleEvidenceManager.json');
+    const dataPath = path.join(__dirname, '..', 'data', 'evidence_batches.json');
+
+    if (!fs.existsSync(configPath)) {
+      console.error('Missing merkleManager.json');
+      process.exit(1);
+    }
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const abi = JSON.parse(fs.readFileSync(abiPath, 'utf8'));
+
+    if (!fs.existsSync(dataPath)) {
+      console.error('No evidence_batches.json found at', dataPath);
+      process.exit(1);
+    }
+
+    const batchesObj = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+    const provider = new ethers.providers.JsonRpcProvider(config.rpcUrl);
+    const contract = new ethers.Contract(config.address, abi, provider);
+
+    for (const [caseId, arr] of Object.entries(batchesObj)) {
+      for (const b of arr) {
+        console.log('--- case', caseId);
+        console.log('merkleRoot:', b.merkleRoot);
+        console.log('txHash  :', b.txHash || '<none>');
+
+        try {
+          const res = await contract.rootToBatchId(b.merkleRoot);
+          console.log('rootToBatchId =>', res.toString());
+        } catch (e) {
+          console.error('rootToBatchId call failed:', e && e.message ? e.message : e);
+        }
+
+        if (b.txHash) {
+          try {
+            const receipt = await provider.getTransactionReceipt(b.txHash);
+            if (!receipt) {
+              console.log('No receipt found for', b.txHash);
+            } else {
+              console.log('tx receipt status:', receipt.status, 'blockNumber:', receipt.blockNumber, 'logs:', receipt.logs.length);
+              for (let i = 0; i < Math.min(receipt.logs.length, 3); i++) {
+                console.log(' log', i, 'topics', receipt.logs[i].topics);
+              }
+            }
+          } catch (e) {
+            console.error('getTransactionReceipt failed:', e && e.message ? e.message : e);
+          }
+        }
+
+        console.log('');
+      }
+    }
+  } catch (err) {
+    console.error('Fatal error:', err);
+    process.exit(1);
+  }
+})();
+

@@ -48,6 +48,8 @@ library CCIPArbitrationTypes {
         string rationale;
         bytes32 oracleId;
         uint256 timestamp;
+        address targetContract;
+        uint256 caseId;
     }
 
     /**

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/dev/v1_X/FunctionsClient.sol";
-import {ConfirmedOwner} from "@chainlink/contracts/src/v0.8/shared/access/ConfirmedOwner.sol";
-import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {CCIPArbitrationTypes} from "./ccip/CCIPArbitrationTypes.sol";
+import {IRouterClientLocal, Client} from "../mocks/MockCCIPRouter.sol";
 
 interface IArbitrationService {
     function applyResolutionToTarget(address targetContract, uint256 caseId, bool approve, uint256 appliedAmount, address beneficiary) external payable;
@@ -13,54 +13,50 @@ interface IArbitrationService {
 /// @notice This contract serves as the Chainlink client that receives arbitration decisions
 /// and forwards them to the ArbitrationService dispatcher. Implements security mitigations
 /// per V7 specification.
-contract ArbitrationContractV2 is FunctionsClient, ConfirmedOwner {
-    using FunctionsRequest for FunctionsRequest.Request;
-    
+contract ArbitrationContractV2 is Ownable {
+    using Client for Client.EVM2AnyMessage;
+
     address public service; // ArbitrationService address
-    bytes32 public donId; // DON ID for Chainlink Functions
-    uint64 public subscriptionId; // Chainlink Functions subscription ID
-    uint32 public gasLimit; // Gas limit for Functions requests
-    string public sourceCode; // JavaScript code for the LLM arbitration function
-    bool public testMode; // For testing - bypasses Chainlink Functions
+    IRouterClientLocal public router; // local CCIP router/mock
+    uint64 public destinationChainSelector; // chain selector for CCIP sends (0 for local)
+    uint32 public gasLimit; // gas limit hint for CCIP extra args
+    bool public testMode; // For testing - allow local simulated flows
     
     // Mitigation 4.2: Track processed requests to prevent replay attacks
     mapping(bytes32 => bool) public processedRequests;
-    mapping(bytes32 => ArbitrationRequest) public pendingRequests;
+    mapping(bytes32 => ArbitrationRequest) public pendingRequests; // keyed by CCIP messageId
     
     struct ArbitrationRequest {
         address target;
         uint256 caseId;
         address requester;
         uint256 timestamp;
+        bytes32 disputeId;
     }
 
     event ArbitrationRequested(address indexed requester, address indexed target, uint256 indexed caseId, bytes32 requestId);
     event ArbitrationFulfilled(bytes32 requestId, bool approve, uint256 appliedAmount, address beneficiary);
     event RequestProcessed(bytes32 indexed requestId, address indexed target, uint256 indexed caseId);
 
-    constructor(address _service, address router) FunctionsClient(router) ConfirmedOwner(msg.sender) {
+    constructor(address _service, address routerAddress) Ownable(msg.sender) {
+        // Owner initialized via Ownable(msg.sender)
         service = _service;
+        router = IRouterClientLocal(routerAddress);
+        destinationChainSelector = 0; // local by default
         gasLimit = 300000; // Default gas limit
     }
 
     /// @notice Set the DON ID for Chainlink Functions
-    function setDonId(bytes32 _donId) external onlyOwner {
-        donId = _donId;
-    }
-
-    /// @notice Set the subscription ID for Chainlink Functions
-    function setSubscriptionId(uint64 _subscriptionId) external onlyOwner {
-        subscriptionId = _subscriptionId;
-    }
-
-    /// @notice Set the gas limit for Functions requests
     function setGasLimit(uint32 _gasLimit) external onlyOwner {
         gasLimit = _gasLimit;
     }
 
-    /// @notice Set the JavaScript source code for the LLM arbitration function
-    function setSourceCode(string calldata _sourceCode) external onlyOwner {
-        sourceCode = _sourceCode;
+    function setRouter(address routerAddress) external onlyOwner {
+        router = IRouterClientLocal(routerAddress);
+    }
+
+    function setDestinationChainSelector(uint64 sel) external onlyOwner {
+        destinationChainSelector = sel;
     }
 
     /// @notice Enable test mode to bypass Chainlink Functions (FOR TESTING ONLY)
@@ -77,91 +73,92 @@ contract ArbitrationContractV2 is FunctionsClient, ConfirmedOwner {
     /// @param caseId The dispute case ID
     /// @param metadata Additional metadata for the arbitration request
     /// @return requestId The Chainlink Functions request ID
-    function requestArbitration(address target, uint256 caseId, bytes calldata metadata) external returns (bytes32) {
+    function requestArbitration(address target, uint256 caseId, bytes calldata metadata) external payable returns (bytes32) {
         require(target != address(0), "Invalid target");
-        
-        bytes32 requestId;
-        
-        if (testMode) {
-            // In test mode, generate a mock request ID and emit event
-            requestId = keccak256(abi.encodePacked(msg.sender, target, caseId, block.timestamp, metadata));
-        } else {
-            // Production mode - use Chainlink Functions
-            require(donId != bytes32(0), "DON ID not set");
-            require(subscriptionId != 0, "Subscription ID not set");
-            require(bytes(sourceCode).length > 0, "Source code not set");
-            
-            // Create Functions request
-            FunctionsRequest.Request memory req;
-            req.initializeRequestForInlineJavaScript(sourceCode);
-            
-            // Set arguments: [target, caseId, metadata]
-            string[] memory args = new string[](3);
-            args[0] = addressToString(target);
-            args[1] = uint256ToString(caseId);
-            args[2] = string(metadata);
-            req.setArgs(args);
-            
-            // Send the request
-            requestId = _sendRequest(
-                req.encodeCBOR(),
-                subscriptionId,
-                gasLimit,
-                donId
-            );
-        }
-        
-        // Store pending request
-        pendingRequests[requestId] = ArbitrationRequest({
+
+        // Build dispute id and arbitration request payload
+        bytes32 disputeId = keccak256(abi.encodePacked(msg.sender, target, caseId, block.timestamp, metadata));
+
+        CCIPArbitrationTypes.ArbitrationRequest memory arReq = CCIPArbitrationTypes.ArbitrationRequest({
+            disputeId: disputeId,
+            contractAddress: target,
+            caseId: caseId,
+            requester: msg.sender,
+            evidenceHash: keccak256(metadata),
+            evidenceURI: "",
+            requestedAmount: 0,
+            timestamp: block.timestamp
+        });
+
+        CCIPArbitrationTypes.CCIPMessage memory ccipMsg = CCIPArbitrationTypes.CCIPMessage({
+            messageType: CCIPArbitrationTypes.MessageType.REQUEST,
+            data: abi.encode(arReq)
+        });
+
+        Client.EVM2AnyMessage memory message;
+        message.receiver = abi.encode(address(this));
+        message.data = abi.encode(ccipMsg);
+        message.tokenAmounts = new Client.EVMTokenAmount[](0);
+        message.feeToken = address(0);
+        message.extraArgs = Client._argsToBytes(Client.EVMExtraArgsV1({gasLimit: gasLimit}));
+
+        // ask router for fee and forward it
+        uint256 fee = router.getFee(destinationChainSelector, message);
+        require(msg.value >= fee, "Insufficient fee provided");
+
+        bytes32 messageId = router.ccipSend{value: fee}(destinationChainSelector, message);
+
+        pendingRequests[messageId] = ArbitrationRequest({
             target: target,
             caseId: caseId,
             requester: msg.sender,
-            timestamp: block.timestamp
+            timestamp: block.timestamp,
+            disputeId: disputeId
         });
-        
-        emit ArbitrationRequested(msg.sender, target, caseId, requestId);
-        return requestId;
+
+        emit ArbitrationRequested(msg.sender, target, caseId, messageId);
+        return messageId;
     }
 
-    /// @notice Chainlink Functions callback - called when the LLM arbitration completes
-    /// @param requestId The request ID
-    /// @param response The arbitration response from the LLM
-    /// @param err Any error from the Functions execution
-    function _fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
-        require(pendingRequests[requestId].target != address(0), "Request not found");
-        require(!processedRequests[requestId], "Request already processed");
-        
-        ArbitrationRequest memory request = pendingRequests[requestId];
-        processedRequests[requestId] = true;
-        
-        if (err.length > 0) {
-            // Handle error case - could emit error event or use default resolution
-            emit RequestProcessed(requestId, request.target, request.caseId);
+    /// @notice CCIP router entrypoint - called when the LLM arbitration completes (local test router calls this)
+    /// @param messageId The CCIP message ID generated by the router
+    /// @param sourceChainSelector The source chain selector provided by the router
+    /// @param senderEncoded ABI-encoded sender (usually abi.encode(requester))
+    /// @param payload ABI-encoded CCIPMessage (ccip messageType + data)
+    /// @notice Entrypoint used by CCIP router (local mock) to deliver raw messages
+    /// The MockCCIPRouter.simulateDecisionTo calls this raw receiver method in tests
+    function ccipReceiveRaw(bytes32 messageId, uint64 sourceChainSelector, bytes calldata senderEncoded, bytes calldata payload) external {
+        // In a production setup you'd restrict this to the router address. For local tests the router can call freely.
+        // require(msg.sender == address(router), "Only router can call");
+
+        require(!processedRequests[messageId], "Request already processed");
+        require(pendingRequests[messageId].target != address(0), "Request not found");
+
+        // payload is abi.encode(CCIPMessage)
+        (CCIPArbitrationTypes.MessageType mType, bytes memory data) = abi.decode(payload, (CCIPArbitrationTypes.MessageType, bytes));
+        if (mType != CCIPArbitrationTypes.MessageType.DECISION) {
+            emit RequestProcessed(messageId, pendingRequests[messageId].target, pendingRequests[messageId].caseId);
             return;
         }
-        
-        require(response.length > 0, "Empty response");
-        
-        // Decode response - expecting JSON encoded arbitration decision
-        // Format: {"approve": true, "appliedAmount": "1000000000000000000", "beneficiary": "0x..."}
-        (bool approve, uint256 appliedAmount, address beneficiary) = parseArbitrationResponse(response);
-        
-        require(beneficiary != address(0), "Invalid beneficiary");
-        
-        // Forward the decision to the ArbitrationService dispatcher
+
+        CCIPArbitrationTypes.ArbitrationDecision memory decision = abi.decode(data, (CCIPArbitrationTypes.ArbitrationDecision));
+
+        ArbitrationRequest memory request = pendingRequests[messageId];
+        processedRequests[messageId] = true;
+
+        // Use the decision to apply resolution
         IArbitrationService(service).applyResolutionToTarget(
-            request.target, 
-            request.caseId, 
-            approve, 
-            appliedAmount, 
-            beneficiary
+            request.target,
+            request.caseId,
+            decision.approved,
+            decision.appliedAmount,
+            decision.beneficiary
         );
 
-        emit ArbitrationFulfilled(requestId, approve, appliedAmount, beneficiary);
-        emit RequestProcessed(requestId, request.target, request.caseId);
-        
-        // Clean up
-        delete pendingRequests[requestId];
+        emit ArbitrationFulfilled(messageId, decision.approved, decision.appliedAmount, decision.beneficiary);
+        emit RequestProcessed(messageId, request.target, request.caseId);
+
+        delete pendingRequests[messageId];
     }
 
     /// @notice Parse the JSON response from the LLM arbitration function
@@ -230,7 +227,39 @@ contract ArbitrationContractV2 is FunctionsClient, ConfirmedOwner {
 
     /// @notice Test-only function to simulate fulfillment (DO NOT USE IN PRODUCTION)
     function simulateResponse(bytes32 requestId, bytes memory response) external onlyOwner {
-        _fulfillRequest(requestId, response, "");
+        // Build a decision from the provided response bytes using the same
+        // parse logic used for real LLM responses. Then deliver it via the
+        // same raw CCIP receiver entrypoint used by the MockCCIPRouter.
+        ArbitrationRequest memory request = pendingRequests[requestId];
+        require(request.target != address(0), "Request not found");
+
+        (bool approve, uint256 appliedAmount, address beneficiary) = parseArbitrationResponse(response);
+
+        CCIPArbitrationTypes.ArbitrationDecision memory decision = CCIPArbitrationTypes.ArbitrationDecision({
+            disputeId: request.disputeId,
+            approved: approve,
+            appliedAmount: appliedAmount,
+            beneficiary: beneficiary,
+            rationale: "",
+            oracleId: bytes32(0),
+            timestamp: block.timestamp,
+            targetContract: request.target,
+            caseId: request.caseId
+        });
+
+        CCIPArbitrationTypes.CCIPMessage memory ccipMsg = CCIPArbitrationTypes.CCIPMessage({
+            messageType: CCIPArbitrationTypes.MessageType.DECISION,
+            data: abi.encode(decision)
+        });
+
+        // Call the raw receive entrypoint as the router would. Use the stored
+        // requester as the encoded sender for realism.
+        bytes memory senderEncoded = abi.encode(request.requester);
+        bytes memory payload = abi.encode(ccipMsg);
+
+        // Deliver the decision locally by invoking the receiver entrypoint.
+        // This mirrors MockCCIPRouter.simulateDecisionTo behavior.
+        this.ccipReceiveRaw(requestId, destinationChainSelector, senderEncoded, payload);
     }
 
     /// @notice Fallback to receive ETH

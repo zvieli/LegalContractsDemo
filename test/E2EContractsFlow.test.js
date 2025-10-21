@@ -7,7 +7,7 @@ const { ethers } = pkg;
 import { MerkleEvidenceHelper } from '../utils/merkleEvidenceHelper.js';
 
 describe('E2E Contracts Flow', function () {
-  let factory, rentContract, ndaContract, landlord, tenant, partyA, partyB, arbitrationService, merkleEvidenceManager, ccipSender;
+  let factory, rentContract, ndaContract, landlord, tenant, partyA, partyB, arbitrationService, merkleEvidenceManager, ccipSender, mockPriceFeed;
 
   before(async function () {
     // Deploy signers
@@ -36,6 +36,13 @@ describe('E2E Contracts Flow', function () {
     );
     await ccipSender.waitForDeployment();
 
+    // Deploy a local mock price feed so tests running on localhost don't rely on mainnet feed
+    const MockV3Aggregator = await ethers.getContractFactory('MockV3Aggregator');
+    // decimals = 8, initial price = 3000 * 10^8
+    const initialAnswer = BigInt(3000) * BigInt(10 ** 8);
+    mockPriceFeed = await MockV3Aggregator.deploy(8, initialAnswer);
+    await mockPriceFeed.waitForDeployment();
+
     // Deploy Factory
     const Factory = await ethers.getContractFactory('ContractFactory');
     factory = await Factory.deploy();
@@ -60,10 +67,11 @@ describe('E2E Contracts Flow', function () {
     dueDate = Math.floor(Date.now() / 1000) + 86400;
     propertyId = 12345;
 
+    const priceFeedAddr = mockPriceFeed.target ?? mockPriceFeed.address;
     const tx = await factory.connect(landlord).createEnhancedRentContract(
       tenant.address,
       rentAmount,
-      '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419',
+      priceFeedAddr,
       dueDate,
       propertyId
     );
@@ -603,10 +611,11 @@ describe('E2E Contracts Flow', function () {
     const dueDate = Math.floor(Date.now() / 1000) + 86400;
 
     // Create a fresh contract for edge cases testing
+    const priceFeedAddr = mockPriceFeed.target ?? mockPriceFeed.address;
     const tx = await factory.connect(landlord).createEnhancedRentContract(
       tenant.address,
       rentAmount,
-      '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419', // price feed
+      priceFeedAddr, // price feed
       dueDate,
       12345 // propertyId
     );
@@ -704,7 +713,7 @@ describe('E2E Contracts Flow', function () {
     const cancelTx = await factory.connect(landlord).createEnhancedRentContract(
       tenant.address,
       rentAmount,
-      '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419', // price feed
+      priceFeedAddr, // price feed
       dueDate,
       12346 // propertyId
     );

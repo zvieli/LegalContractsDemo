@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
+// Use local lightweight Client shim for editor/compile compatibility
+import {Client} from "./LocalClient.sol";
 import {CCIPArbitrationTypes} from "./CCIPArbitrationTypes.sol";
 
 // Interface for CCIP Router (simplified)
@@ -26,6 +27,21 @@ interface IArbitrationService {
         uint256 appliedAmount, 
         address beneficiary
     ) external payable;
+    
+    // Receiver entrypoint used for CCIP-forwarded decisions
+    function receiveCCIPDecision(
+        bytes32 messageId,
+        address targetContract,
+        uint256 caseId,
+        CCIPArbitrationTypes.ArbitrationDecision memory decision
+    ) external;
+        // Raw entrypoint accepting ABI-encoded decision bytes (added for local compatibility)
+        function receiveCCIPDecisionRaw(
+            bytes32 messageId,
+            address targetContract,
+            uint256 caseId,
+            bytes calldata decisionEncoded
+        ) external;
 }
 
 /**
@@ -69,6 +85,7 @@ contract CCIPArbitrationReceiver {
         uint256 appliedAmount,
         address beneficiary
     );
+    event ArbitrationForwardFailed(bytes32 indexed messageId, bytes reason);
     
     event SourceChainAuthorized(uint64 chainSelector, bool authorized);
     event SenderAuthorized(address sender, bool authorized);
@@ -103,13 +120,35 @@ contract CCIPArbitrationReceiver {
     function ccipReceive(
         Client.Any2EVMMessage calldata message
     ) external {
-        
+        _handleMessage(message);
+    }
+
+    /**
+     * @notice Alternate entrypoint that accepts raw tuple params (easier to call from test router)
+     */
+    function ccipReceiveRaw(
+        bytes32 messageId,
+        uint64 sourceChainSelector,
+        bytes calldata sender,
+        bytes calldata data
+    ) external {
+        Client.Any2EVMMessage memory message = Client.Any2EVMMessage({
+            messageId: messageId,
+            sourceChainSelector: sourceChainSelector,
+            sender: sender,
+            data: data
+        });
+
+        _handleMessage(message);
+    }
+
+    function _handleMessage(Client.Any2EVMMessage memory message) internal {
         // Verify source authorization
         require(
             authorizedSourceChains[message.sourceChainSelector],
             "Unauthorized source chain"
         );
-        
+
         address sender = abi.decode(message.sender, (address));
         require(authorizedSenders[sender], "Unauthorized sender");
 
@@ -163,8 +202,8 @@ contract CCIPArbitrationReceiver {
 
         // Execute arbitration via ArbitrationService
         // Note: We need to map disputeId back to contract address and caseId
-        // This would typically be stored in a mapping or derived from disputeId
-        _executeArbitration(decision);
+        // The decision now includes targetContract and caseId to allow on‑chain execution
+        _executeArbitration(messageId, decision);
     }
 
     /**
@@ -202,27 +241,65 @@ contract CCIPArbitrationReceiver {
      * @param decision Arbitration decision to execute
      */
     function _executeArbitration(
+        bytes32 messageId,
         CCIPArbitrationTypes.ArbitrationDecision memory decision
     ) internal {
-        
-        // Decode contract address and caseId from disputeId
-        // For now, we'll extract from the disputeId structure
-        // Format: keccak256(abi.encodePacked(contractAddress, caseId, timestamp))
-        
-        // This is a simplified approach - in production you'd want a proper mapping
-        // For demonstration, we'll emit the event and let off-chain handle the mapping
-        
+        // Decision now contains targetContract and caseId
+        address target = decision.targetContract;
+        uint256 caseId = decision.caseId;
+
         emit ArbitrationExecuted(
             decision.disputeId,
-            address(0), // Would be decoded from disputeId
-            0,          // Would be decoded from disputeId
+            target,
+            caseId,
             decision.approved,
             decision.appliedAmount,
             decision.beneficiary
         );
 
-        // TODO: Implement proper contract address and caseId extraction
-        // TODO: Call arbitrationService.applyResolutionToTarget()
+        // Call ArbitrationService.receiveCCIPDecisionRaw with ABI-encoded decision bytes to avoid struct encoding mismatches
+        bytes memory encodedDecision = abi.encode(decision);
+        // Use a low-level call so we can support services that return a small status
+        // payload (e.g. 0 = failure, 1 = success) without reverting. Treat either
+        // a failing call or a returned payload with leading 0 as a forward failure.
+        bytes memory payload = abi.encodeWithSelector(
+            bytes4(keccak256("receiveCCIPDecisionRaw(bytes32,address,uint256,bytes)")),
+            messageId,
+            target,
+            caseId,
+            encodedDecision
+        );
+
+        (bool ok, bytes memory returned) = address(arbitrationService).call(payload);
+
+        // If the call failed (ok == false) or the service returned a leading 0 byte,
+        // treat this as a forward failure and emit the event. Then attempt local fallbacks.
+        bool consideredFailure = false;
+        if (!ok) {
+            consideredFailure = true;
+        } else if (returned.length >= 1) {
+            // interpret first byte: 0 == failure, non-zero == success
+            if (returned[0] == 0x00) consideredFailure = true;
+        }
+
+        if (consideredFailure) {
+            emit ArbitrationForwardFailed(messageId, returned);
+
+            // As a best-effort fallback for local testing, attempt to apply the resolution
+            // directly to the target using common template entrypoints. This prevents
+            // stuck decisions in the local simulation when the ArbitrationService
+            // forwarding fails due to ABI mismatches. Errors are swallowed so the
+            // original failure event remains visible.
+            (ok, returned) = target.call(
+                abi.encodeWithSignature("serviceResolve(uint256,bool,uint256,address)", caseId, decision.approved, decision.appliedAmount, decision.beneficiary)
+            );
+            if (ok) return;
+            // try extended resolveDisputeFinal
+            (ok, returned) = target.call(
+                abi.encodeWithSignature("resolveDisputeFinal(uint256,bool,uint256,address,string,string)", caseId, decision.approved, decision.appliedAmount, decision.beneficiary, "", decision.rationale)
+            );
+            return;
+        }
     }
 
     /**
@@ -289,7 +366,7 @@ contract CCIPArbitrationReceiver {
         processedMessages[messageId] = true;
         executedDecisions[messageId] = decision;
         
-        _executeArbitration(decision);
+        _executeArbitration(messageId, decision);
     }
 
     /**

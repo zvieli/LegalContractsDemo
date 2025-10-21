@@ -11,8 +11,7 @@ function Footer() {
     async function checkAdmin() {
       try {
         if (!account || !signer || !chainId) { setIsAdmin(false); return; }
-  const { provider } = require('../../contexts/EthersContext').useEthers();
-  const contractService = new ContractService(provider, signer, chainId);
+        const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }

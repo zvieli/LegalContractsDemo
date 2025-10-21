@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { describe, beforeAll, test, expect } from 'vitest';
 
 describe('End-to-End Merkle Batch Flow (Real)', () => {
-  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3002';
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:3001';
   const hardhatRpc = 'http://127.0.0.1:8545';
   let caseId = `case-${Date.now()}`;
   let evidenceItems = [];
@@ -30,12 +30,12 @@ describe('End-to-End Merkle Batch Flow (Real)', () => {
     provider = new ethers.JsonRpcProvider(hardhatRpc);
     wallet = new ethers.Wallet(WALLET_0.privateKey, provider); // admin for contract actions
     // Deploy contract and get address (assume deploy.js writes to file)
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const configPath = path.join(__dirname, '../../config/merkleManager.json');
-    const config = JSON.parse(fs.readFileSync(configPath));
-    contractAddress = config.address;
-    expect(contractAddress).toBeDefined();
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const configPath = path.join(__dirname, '../../config/MerkleEvidenceManager.json');
+  const config = JSON.parse(fs.readFileSync(configPath));
+  contractAddress = config.address;
+  expect(contractAddress).toBeDefined();
   });
 
   test('Given evidence files, When uploading, Then backend stores CID/hash/timestamp', async () => {
@@ -65,21 +65,38 @@ describe('End-to-End Merkle Batch Flow (Real)', () => {
       .post('/api/batch')
       .send({ caseId, evidenceItems })
       .expect(200);
-    batchResult = res.body;
-    expect(batchResult.merkleRoot).toBeDefined();
-    expect(batchResult.rootSignature).toMatch(/^0x[0-9a-fA-F]+$/);
-    expect(batchResult.status).toBe('onchain_submitted');
-    expect(batchResult.txHash).toMatch(/^0x[0-9a-fA-F]+$/);
+  batchResult = res.body;
+  console.log("Batch result:", batchResult);
+  if (batchResult.txError) console.error("TX Error:", batchResult.txError);
+  expect(batchResult.merkleRoot).toBeDefined();
+  expect(batchResult.rootSignature).toMatch(/^0x[0-9a-fA-F]+$/);
+  expect(batchResult.status).toBe('onchain_submitted');
+  expect(batchResult.txHash).toMatch(/^0x[0-9a-fA-F]+$/);
   });
 
   test('Then contract on Hardhat node contains submitted root', async () => {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-  const abi = JSON.parse(fs.readFileSync(path.join(__dirname, '../../config/MerkleEvidenceManager.json')));
-    const contract = new ethers.Contract(contractAddress, abi, provider);
-    const batchOnChain = await contract.rootToBatchId(batchResult.merkleRoot);
-    expect(batchOnChain).toBeDefined();
-    expect(Number(batchOnChain)).toBeGreaterThan(0);
+  const abiObj = JSON.parse(fs.readFileSync(path.join(__dirname, '../../config/MerkleEvidenceManager.json')));
+  console.log("Test: batchResult.merkleRoot =", batchResult.merkleRoot);
+  // Log the root used for submission and lookup
+  console.log("Test: Merkle root for contract lookup =", batchResult.merkleRoot);
+  // Assert strict equality (hex string)
+  if (typeof batchResult.merkleRoot !== 'string' || !batchResult.merkleRoot.startsWith('0x')) {
+    throw new Error('Merkle root is not a hex string: ' + batchResult.merkleRoot);
+  }
+  // Optionally, log the type and length
+  console.log("Type of merkleRoot:", typeof batchResult.merkleRoot, "Length:", batchResult.merkleRoot.length);
+  const contract = new ethers.Contract(contractAddress, abiObj.abi, provider);
+  // Log contract address and ABI length
+  console.log("Contract address for lookup:", contractAddress);
+  console.log("ABI length:", abiObj.abi.length);
+  // Wait for 2 blocks to ensure state is updated
+  await new Promise(r => setTimeout(r, 2000));
+  const batchOnChain = await contract.getBatchIdByRoot(batchResult.merkleRoot);
+  console.log("Test: batchOnChain =", batchOnChain);
+  expect(batchOnChain).toBeDefined();
+  expect(Number(batchOnChain)).toBeGreaterThan(0);
   });
 
   test('Then dispute history contains all fields and is consistent', async () => {

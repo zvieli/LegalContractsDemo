@@ -1170,9 +1170,11 @@ app.get('/api/batch/:caseId', (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, async () => {
-  console.log(`🚀 ArbiTrust V7 Server running on port ${PORT}`);
+// Start server (guard against duplicate starts in test environment)
+if (!global.__ARBI_SERVER_STARTED) {
+  app.listen(PORT, async () => {
+    console.log(`🚀 ArbiTrust V7 Server running on port ${PORT}`);
+    global.__ARBI_SERVER_STARTED = true;
   console.log(`📡 Health check: http://localhost:${PORT}/api/v7/arbitration/health`);
   
   // 🏭 Helia node is used for evidence storage in production mode
@@ -1196,7 +1198,7 @@ app.listen(PORT, async () => {
     console.log('⚪ Legacy Mode: Using original evidence validation');
   }
   
-  // Load Ollama module after server starts
+    // Load Ollama module after server starts
   const ollamaLoaded = await loadOllamaModule();
   
   // Initialize CCIP Integration
@@ -1256,8 +1258,11 @@ app.get('/api/v7/ccip/status', async (req, res) => {
     console.log('   • Upload evidence: Use API or Helia tools');
     console.log('   • Use returned CID in API calls');
   }
-  console.log('');
-});
+    console.log('');
+  });
+} else {
+  console.log('⚠️ Server start skipped because __ARBI_SERVER_STARTED is set');
+}
 
 // Graceful shutdown
 process.on('SIGINT', async () => {
@@ -1291,11 +1296,12 @@ app.get('/api/v7/arbitration/status', async (req, res) => {
       healthy: true,
       mode: ollamaLLMArbitrator ? 'production' : 'simulation'
     };
-    res.json(status);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
   }
-});
+);
 
 // V7 Arbitration Decisions History API
 app.get('/api/v7/arbitration/decisions', async (req, res) => {
@@ -1310,7 +1316,7 @@ app.get('/api/v7/arbitration/decisions', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
-});
+})
 
 // 404 handler (registered last)
 app.use((req, res) => {

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {IRouterClient} from "@chainlink/contracts-ccip/contracts/interfaces/IRouterClient.sol";
-import {Client} from "@chainlink/contracts-ccip/contracts/libraries/Client.sol";
-import {LinkTokenInterface} from "@chainlink/contracts/src/v0.8/shared/interfaces/LinkTokenInterface.sol";
+// Use local shims for editor and local testing
+import {IRouterClientLocal as IRouterClient} from "./IRouterClientLocal.sol";
+import {Client} from "./LocalClient.sol";
+import {LinkTokenInterface} from "./LinkTokenInterface.sol";
 import {CCIPArbitrationTypes} from "./CCIPArbitrationTypes.sol";
 
 /**
@@ -178,7 +179,9 @@ contract CCIPArbitrationSender {
                 beneficiary: beneficiary,
                 rationale: rationale,
                 oracleId: oracleId,
-                timestamp: block.timestamp
+                timestamp: block.timestamp,
+                targetContract: address(0),
+                caseId: 0
             });
 
         // Encode as CCIP message

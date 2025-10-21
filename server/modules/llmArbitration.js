@@ -86,27 +86,56 @@ async function integratedLLMArbitration(requestId, disputeData) {
 
 async function simulateLLMArbitration(requestId, disputeData) {
   console.log(`🧪 Simulating LLM arbitration for ${requestId}`);
-  
-  // Simulate processing delay
+
+  // Produce the mock LLM result synchronously for deterministic behavior
+  const mockResult = generateMockLLMResult(disputeData);
+
+  // If a CCIP router address is configured, attempt on-chain delivery via MockCCIPRouter
+  const routerAddr = process.env.MOCK_CCIP_ROUTER_ADDRESS;
+  if (routerAddr) {
+    console.log(`[33mSimulating on-chain CCIP delivery to router ${routerAddr} for request ${requestId}[0m`);
+    const params = {
+      receiver: disputeData.receiver || disputeData.contractAddress,
+      messageId: ethers.utils.keccak256(ethers.utils.toUtf8Bytes(requestId)),
+      sourceChainSelector: 0,
+      requestSender: disputeData.requester || ethers.constants.AddressZero,
+      disputeId: disputeData.disputeId || ethers.utils.keccak256(ethers.utils.toUtf8Bytes(requestId)),
+      approved: mockResult.final_verdict === 'PARTY_A_WINS',
+      appliedAmount: mockResult.reimbursement_amount_dai || 0,
+      beneficiary: disputeData.beneficiary || ethers.constants.AddressZero,
+      rationale: mockResult.rationale_summary || '',
+      oracleId: ethers.constants.HashZero,
+      targetContract: disputeData.contractAddress,
+      caseId: disputeData.caseId || 0
+    };
+
+    try {
+      const receipt = await simulateDecisionTo(routerAddr, params);
+      await handleLLMResponse(requestId, mockResult, disputeData.contractAddress, disputeData.disputeId);
+      return { requestId, status: 'completed', method: 'on-chain-simulation', receipt };
+    } catch (err) {
+      console.error('On-chain CCIP simulation failed:', err);
+      // fallback to local processing
+      await handleLLMResponse(requestId, mockResult, disputeData.contractAddress, disputeData.disputeId);
+      return { requestId, status: 'completed', method: 'simulation-fallback' };
+    }
+  }
+
+  // Default in-process simulation with short delay
   setTimeout(async () => {
     try {
-      // Simulate LLM decision making
-      const mockResult = generateMockLLMResult(disputeData);
-      
-      // Process the simulated response
       await handleLLMResponse(requestId, mockResult, disputeData.contractAddress, disputeData.disputeId);
-      
-      console.log(`✅ Simulated LLM arbitration completed for ${requestId}`);
+      console.log(`[32mSimulated LLM arbitration completed for ${requestId}[0m`);
     } catch (error) {
       console.error(`❌ Simulated LLM arbitration failed for ${requestId}:`, error);
     }
-  }, 5000); // 5 second delay
-  
+  }, 2000);
+
   return {
     requestId,
     status: 'initiated',
     method: 'simulation',
-    estimatedCompletion: Date.now() + 5000
+    estimatedCompletion: Date.now() + 2000
   };
 }
 

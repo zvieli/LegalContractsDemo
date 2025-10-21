@@ -8,8 +8,7 @@ function useAdminRole(account, signer, chainId) {
     async function checkRole() {
       if (!account) { setRole('guest'); return; }
       try {
-  const { provider } = require('../../../contexts/EthersContext').useEthers();
-  const contractService = new ContractService(provider, signer, chainId);
+        const contractService = new ContractService(signer ? signer.provider : null, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch { owner = null; }

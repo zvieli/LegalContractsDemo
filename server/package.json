@@ -41,6 +41,9 @@
   "engines": {
     "node": ">=16.0.0"
   },
+  "vitest": {
+    "setupFiles": "./vitest.setup.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/zvieli/LegalContractsDemo.git"

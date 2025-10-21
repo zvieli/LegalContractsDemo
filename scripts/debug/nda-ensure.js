@@ -1,11 +1,7 @@
 #!/usr/bin/env node
-// Unified NDA ensure script: will try to activate an existing NDA (sign + deposit).
-// If none exists or activation fails, deploy a fresh NDA via ContractFactory and then activate it.
-// On success, writes NDATemplate address into front/src/utils/contracts/deployment-summary.json
-
-const fs = require('fs');
-const path = require('path');
-const { ethers } = require('ethers');
+import fs from 'fs';
+import path from 'path';
+import { ethers } from 'ethers';
 
 function readJsonLenient(p) {
   let s = fs.readFileSync(p, 'utf8').trim();
@@ -16,7 +12,6 @@ function readJsonLenient(p) {
     s = lines.join('\n');
   }
   try { return JSON.parse(s); } catch (e) {}
-  // fallback: extract first balanced object
   const start = s.indexOf('{'); if (start === -1) throw e;
   let depth=0, inString=false, prev='';
   for (let i=start;i<s.length;i++){ const ch=s[i]; if (ch==='"' && prev!=='\\') inString=!inString; if(!inString){ if(ch==='{') depth++; else if(ch==='}') depth--; if(depth===0){ const sub=s.slice(start,i+1); return JSON.parse(sub);} } prev=ch; }
@@ -116,7 +111,6 @@ async function deployNDA(provider, creatorPk, offenderAddress){
   const factoryAbi = readJsonLenient(factoryAbiPath).abi || readJsonLenient(factoryAbiPath);
   const creator = new ethers.Wallet(creatorPk, provider);
   const factory = new ethers.Contract(factoryAddr, factoryAbi, creator);
-  // defaults
   const now = Math.floor(Date.now()/1000);
   const expiry = now + 60*60*24*30;
   const penaltyBps = 100;
@@ -125,12 +119,10 @@ async function deployNDA(provider, creatorPk, offenderAddress){
   const payFeesIn = 0;
   const tx = await factory.createNDA(offenderAddress, expiry, penaltyBps, customs, minDeposit, payFeesIn);
   const rec = await tx.wait();
-  // parse NDACreated
   const iface = new ethers.Interface(factoryAbi);
   let newAddr = null;
   for (const log of rec.logs){ try{ const parsed = iface.parseLog(log); if (parsed.name==='NDACreated'){ newAddr = parsed.args && parsed.args[0]; break; } }catch(e){} }
   if (!newAddr) {
-    // try events
     if (rec && rec.events){ for (const ev of rec.events){ if (ev.event==='NDACreated' && ev.args) { newAddr = ev.args[0]; break; } } }
   }
   if (!newAddr) throw new Error('Could not derive NDA address from createNDA tx');
@@ -153,7 +145,6 @@ async function main(){
   const provider = new ethers.JsonRpcProvider(providerUrl);
   try { await provider.getNetwork(); } catch(e){ console.error('RPC not reachable at', providerUrl); process.exit(2); }
 
-  // Try to read NDA address from deployment-summary.json
   const deployPath = path.join(workspaceRoot,'front','src','utils','contracts','deployment-summary.json');
   let ndaAddr = null;
   if (fs.existsSync(deployPath)){
@@ -169,7 +160,6 @@ async function main(){
   const [pkA, pkB] = keys;
 
   if (ndaAddr) {
-    // try activation
     try {
       await ensureActivation(ndaAddr, provider, pkA, pkB, false);
       console.log('Existing NDA activated:', ndaAddr);
@@ -181,17 +171,13 @@ async function main(){
     }
   }
 
-  // deploy new NDA using pkA as creator, pkB's address as offender
   const creatorPk = '0x'+pkA.replace(/^0x/,'');
   const offenderWallet = new ethers.Wallet('0x'+pkB.replace(/^0x/,''), provider);
   const offenderAddr = await offenderWallet.getAddress();
   const newAddr = await deployNDA(provider, creatorPk, offenderAddr);
   console.log('Deployed NDATemplate at', newAddr);
-  // persist
   await writeDeploymentSummary(newAddr);
   console.log('Wrote new NDATemplate to deployment-summary.json');
-
-  // activate newly created NDA
   await ensureActivation(newAddr, provider, pkA, pkB, true);
   console.log('Activation complete for', newAddr);
   process.exit(0);

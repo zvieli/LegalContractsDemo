@@ -43,105 +43,41 @@ export async function addEvidenceToLocalHelia(content, filename = 'evidence.json
     const data = typeof content === 'string' ? content : JSON.stringify(content);
     const buffer = toBuffer(data);
 
-    const comps = unixfsModule && unixfsModule.components ? unixfsModule.components : null;
     let cidString = null;
     let size = null;
 
-    // Primary path: components.addAll (often an async iterable)
-    if (comps && typeof comps.addAll === 'function') {
+    // Primary path: unixfsModule.addAll (async iterable)
+    if (unixfsModule && typeof unixfsModule.addAll === 'function') {
       try {
-        const addResult = comps.addAll([{ path: filename, content: buffer }]);
+        const addResult = unixfsModule.addAll([
+          { path: filename, content: buffer }
+        ]);
         let last = null;
-
-        // Async iterable
-        if (addResult && typeof addResult[Symbol.asyncIterator] === 'function') {
-          for await (const entry of addResult) {
-            last = entry;
-          }
-
-        // Synchronous iterable
-        } else if (addResult && typeof addResult[Symbol.iterator] === 'function') {
-          for (const entry of addResult) {
-            last = entry;
-          }
-
-        // Promise -> await and then inspect
-        } else if (addResult && typeof addResult.then === 'function') {
-          try {
-            const resolved = await addResult;
-            if (resolved && typeof resolved[Symbol.asyncIterator] === 'function') {
-              for await (const entry of resolved) last = entry;
-            } else if (resolved && typeof resolved[Symbol.iterator] === 'function') {
-              for (const entry of resolved) last = entry;
-            } else if (Array.isArray(resolved)) {
-              last = resolved[resolved.length - 1];
-            } else {
-              last = resolved;
-            }
-          } catch (e) {
-            console.warn('heliaLocal: addAll promise resolved with error:', e && e.message ? e.message : e);
-          }
-
-        // Array-like
-        } else if (Array.isArray(addResult)) {
-          last = addResult[addResult.length - 1];
-
-        // Single object or other return types
-        } else {
-          last = addResult;
+        for await (const entry of addResult) {
+          last = entry;
         }
-
-        // If last is a Buffer/Uint8Array/string, we can't extract cid; log shape for debugging
-        if (last && (typeof last === 'string' || last instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(last)))) {
-          console.warn('heliaLocal: components.addAll returned raw data instead of entry; shape:', typeof last);
-        }
-
         if (last) {
           cidString = last.cid && last.cid.toString ? last.cid.toString() : String(last.cid || last.hash || last || '');
           size = last.size ?? buffer.length;
         }
       } catch (e) {
-        console.warn('heliaLocal: components.addAll attempt failed:', e && e.message ? e.message : e);
+        console.warn('heliaLocal: addAll attempt failed:', e && e.message ? e.message : e);
       }
     }
 
-    // Secondary path: components.add
-    if (!cidString && comps && typeof comps.add === 'function') {
+    // Secondary path: unixfsModule.addBytes (for raw bytes, no filename)
+    if (!cidString && unixfsModule && typeof unixfsModule.addBytes === 'function') {
       try {
-        const added = await comps.add({ path: filename, content: buffer });
-        const last = Array.isArray(added) ? added[added.length - 1] : added;
-        cidString = last.cid && last.cid.toString ? last.cid.toString() : String(last.cid || last.hash || '');
-        size = last.size ?? buffer.length;
-      } catch (e) {
-        console.warn('heliaLocal: components.add attempt failed:', e && e.message ? e.message : e);
-      }
-    }
-
-    // Tertiary path: unixfsModule.write (some runtimes expose a write helper)
-    if (!cidString && unixfsModule && typeof unixfsModule.write === 'function') {
-      try {
-        const c = await unixfsModule.write(filename, buffer);
-        cidString = c && c.toString ? c.toString() : String(c || '');
+        const cid = await unixfsModule.addBytes(buffer);
+        cidString = cid && cid.toString ? cid.toString() : String(cid || '');
         size = buffer.length;
       } catch (e) {
-        console.warn('heliaLocal: unixfsModule.write attempt failed:', e && e.message ? e.message : e);
-      }
-    }
-
-    // Quaternary fallback: heliaInstance.add (if exposed)
-    if (!cidString && heliaInstance && typeof heliaInstance.add === 'function') {
-      try {
-        const added = await heliaInstance.add(buffer);
-        const last = Array.isArray(added) ? added[added.length - 1] : added;
-        cidString = last.cid && last.cid.toString ? last.cid.toString() : String(last.cid || last.hash || '');
-        size = last.size ?? buffer.length;
-      } catch (e) {
-        console.warn('heliaLocal: heliaInstance.add attempt failed:', e && e.message ? e.message : e);
+        console.warn('heliaLocal: addBytes attempt failed:', e && e.message ? e.message : e);
       }
     }
 
     if (!cidString) {
-      throw new Error('heliaLocal: unsupported unixfs module API (no add/addAll/write succeeded)');
+      throw new Error('heliaLocal: unsupported unixfs module API (no addAll/addBytes succeeded)');
     }
 
     return { cid: cidString, size };

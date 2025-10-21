@@ -60,7 +60,7 @@
   "optionalDependencies": {},
   "dependencies": {
     "@chainlink/contracts": "^1.5.0",
-    "@chainlink/contracts-ccip": "^1.6.2",
+  "@chainlink/contracts-ccip": "^1.6.2",
     "@helia/unixfs": "^5.1.0",
     "@openzeppelin/contracts": "^5.4.0",
     "ajv": "^8.17.1",

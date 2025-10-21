@@ -2,7 +2,7 @@ import request from 'supertest';
 import fs from 'fs';
 import path from 'path';
 import { test, describe, beforeAll, afterAll, expect } from 'vitest';
-import deploymentSummary from '../../../front/src/utils/contracts/deployment-summary.json';
+import deploymentSummary from '../../config/deployment-summary.json';
 import { getLLMResult } from '../test/test_multi_llm.js';
 import { ethers } from 'ethers';
 import { CCIPEventListener } from '../../ccip/ccipEventListener.js';
@@ -24,14 +24,14 @@ const hardhatAccounts = [
 ];
 
 const BACKEND_URL = 'http://localhost:3001';
-const contractFactoryAbi = require('../../../artifacts/contracts/ContractFactory.sol/ContractFactory.json').abi;
-const enhancedRentContractAbi = require('../../../artifacts/contracts/Rent/EnhancedRentContract.sol/EnhancedRentContract.json').abi;
-const arbitrationServiceAbi = require('../../../artifacts/contracts/Arbitration/ArbitrationService.sol/ArbitrationService.json').abi;
+const contractFactoryAbi = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../config/contracts/ContractFactory.json'), 'utf8')).abi;
+const enhancedRentContractAbi = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../config/contracts/EnhancedRentContract.json'), 'utf8')).abi;
+const arbitrationServiceAbi = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../config/contracts/ArbitrationService.json'), 'utf8')).abi;
 
 const contractFactoryAddress = deploymentSummary.contracts.ContractFactory;
 const arbitrationServiceAddress = deploymentSummary.contracts.ArbitrationService;
 const receiverAddress = deploymentSummary.ccip.contracts.CCIPArbitrationReceiver;
-const receiverAbi = require('../../../artifacts/contracts/Arbitration/ccip/CCIPArbitrationReceiver.sol/CCIPArbitrationReceiver.json').abi;
+const receiverAbi = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../config/contracts/CCIPArbitrationReceiver.json'), 'utf8')).abi;
 
 let receiverContract;
 let ccipListener;
@@ -40,18 +40,18 @@ let partyA, partyB, factory, priceFeedAddress, arbitrationService;
 const deployedContracts = {};
 
 const cases = [
-  { file: 'server/tests/test/evidence1.json', expected: 'PARTY_A_WINS', type: 'NDA' },
-  { file: 'server/tests/test/evidence2.json', expected: 'PARTY_B_WINS', type: 'Rent' },
-  { file: 'server/tests/test/evidence3.json', expected: 'NO_PENALTY', type: 'NDA' },
-  { file: 'server/tests/test/evidence4.json', expected: 'DRAW', type: 'Rent' },
-  { file: 'server/tests/test/evidence5.json', expected: 'PARTY_A_WINS', type: 'NDA' },
-  { file: 'server/tests/test/evidence6.json', expected: 'NO_PENALTY', type: 'Rent' },
-  { file: 'server/tests/test/evidence7.json', expected: 'DRAW', type: 'NDA' },
-  { file: 'server/tests/test/evidence8.json', expected: 'PARTY_B_WINS', type: 'Rent' },
-  { file: 'server/tests/test/evidence9.json', expected: 'NO_PENALTY', type: 'NDA' },
-  { file: 'server/tests/test/evidence10.json', expected: 'NO_PENALTY', type: 'Rent' },
-  { file: 'server/tests/test/evidence11.json', expected: 'DRAW', type: 'NDA' },
-  { file: 'server/tests/test/evidence12.json', expected: 'NO_PENALTY', type: 'Rent' },
+  { file: path.resolve(__dirname, '../test/evidence1.json'), expected: 'PARTY_A_WINS', type: 'NDA' },
+  { file: path.resolve(__dirname, '../test/evidence2.json'), expected: 'PARTY_B_WINS', type: 'Rent' },
+  { file: path.resolve(__dirname, '../test/evidence3.json'), expected: 'NO_PENALTY', type: 'NDA' },
+  { file: path.resolve(__dirname, '../test/evidence4.json'), expected: 'DRAW', type: 'Rent' },
+  { file: path.resolve(__dirname, '../test/evidence5.json'), expected: 'PARTY_A_WINS', type: 'NDA' },
+  { file: path.resolve(__dirname, '../test/evidence6.json'), expected: 'NO_PENALTY', type: 'Rent' },
+  { file: path.resolve(__dirname, '../test/evidence7.json'), expected: 'DRAW', type: 'NDA' },
+  { file: path.resolve(__dirname, '../test/evidence8.json'), expected: 'PARTY_B_WINS', type: 'Rent' },
+  { file: path.resolve(__dirname, '../test/evidence9.json'), expected: 'NO_PENALTY', type: 'NDA' },
+  { file: path.resolve(__dirname, '../test/evidence10.json'), expected: 'NO_PENALTY', type: 'Rent' },
+  { file: path.resolve(__dirname, '../test/evidence11.json'), expected: 'DRAW', type: 'NDA' },
+  { file: path.resolve(__dirname, '../test/evidence12.json'), expected: 'NO_PENALTY', type: 'Rent' },
 ];
 
 beforeAll(async () => {
@@ -138,11 +138,12 @@ describe('E2E LLM Arbitration & Blockchain Flow', () => {
       const contractAddress = contractInfo.address;
       const provider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
 
-      const abiPath = testCase.type === 'Rent' ?
-        '../../../artifacts/contracts/Rent/EnhancedRentContract.sol/EnhancedRentContract.json' :
-        '../../../artifacts/contracts/NDA/NDATemplate.sol/NDATemplate.json';
+      const abiRelPath = testCase.type === 'Rent' ?
+        path.join('..', '..', '..', 'artifacts', 'contracts', 'Rent', 'EnhancedRentContract.sol', 'EnhancedRentContract.json') :
+        path.join('..', '..', '..', 'artifacts', 'contracts', 'NDA', 'NDATemplate.sol', 'NDATemplate.json');
 
-      const contractAbi = require(abiPath).abi;
+      const contractAbiPath = path.resolve(__dirname, abiRelPath);
+      const contractAbi = JSON.parse(fs.readFileSync(contractAbiPath, 'utf8')).abi;
       const signer = new ethers.Wallet(hardhatAccounts[2].privateKey, provider);
       const contract = new ethers.Contract(contractAddress, contractAbi, signer);
       if (!contract) throw new Error(`Contract instance undefined for ${testCase.file}`);
@@ -202,8 +203,11 @@ afterAll(() => {
   if (receiverContract?.provider) {
     receiverContract.provider.removeAllListeners();
   }
-  fs.writeFileSync(path.resolve(process.cwd(), 'server/data/dispute_history.json'), '[]');
-  fs.writeFileSync(path.resolve(process.cwd(), 'server/data/evidence_batches.json'), '[]');
+  // Ensure data directory inside server exists and clear files
+  const serverDataDir = path.resolve(__dirname, '..', '..', 'data');
+  try { if (!fs.existsSync(serverDataDir)) fs.mkdirSync(serverDataDir, { recursive: true }); } catch (e) {}
+  fs.writeFileSync(path.resolve(serverDataDir, 'dispute_history.json'), '[]');
+  fs.writeFileSync(path.resolve(serverDataDir, 'evidence_batches.json'), '[]');
   const end = Date.now();
   console.log(`🏁 All tests completed in ${(end - start)/1000}s`);
 });

@@ -10,14 +10,18 @@ let serverModule = null;
 let baseUrl = null;
 
 beforeAll(async () => {
-  // import server (it will call app.listen)
-  serverModule = await import('../index.js');
+  // explicitly start the server so tests control lifecycle
+  const mod = await import('../index.js');
+  serverModule = mod;
+  await mod.startServer(process.env.SERVER_PORT);
   const port = process.env.SERVER_PORT;
   baseUrl = `http://localhost:${port}`;
 });
 
 afterAll(async () => {
-  // attempt to close process by killing; server index uses process.exit on shutdown so we can't reliably stop it here.
+  if (serverModule && typeof serverModule.stopServer === 'function') {
+    await serverModule.stopServer();
+  }
 });
 
 describe('/api/dev/cleanup-evidence', () => {

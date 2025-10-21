@@ -93,8 +93,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const refreshDisputeState = async () => {
     try {
       if (!resolvedAddress || !signer) return;
-  const { provider } = require('../../contexts/EthersContext').useEthers();
-  const svc = new ContractService(provider, signer, chainId);
+      const svc = new ContractService(provider, signer, chainId);
       const rent = await svc.getRentContract(resolvedAddress);
       const count = Number(await rent.getDisputesCount().catch(() => 0));
       if (count > 0) {
