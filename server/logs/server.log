@@ -283,3 +283,501 @@ REIMBURSEMENT: 0.000000000000000288 ETH
     at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
     at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+📡 CCIP Endpoints:
+🔗 CCIP Integration initialized successfully
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Status: http://localhost:3001/api/v7/ccip/status
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 CCIP Event Listener started successfully
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+  isProduction: true
+🚀 ArbiTrust V7 Server running on port 3001
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+📡 CCIP Endpoints:
+🔗 CCIP Integration initialized successfully
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 CCIP Event Listener started successfully
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=19
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=23
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=23
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=23
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=23
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=23
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=23
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+📋 CCIP Contracts loaded:
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=23
+[STUB] POST /api/v7/dispute/report called
+Headers: {
+  "user-agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.6899",
+  "content-type": "application/json",
+  "host": "localhost:3001",
+  "content-length": "23",
+  "expect": "100-continue",
+  "connection": "Keep-Alive"
+}
+Body: {
+  "test": true
+}
+RawBody: {
+    "test":  true
+}
+[REQ] GET /api/v7/ccip/status content-type= content-length=
+[REQ] GET /favicon.ico content-type= content-length=
+[REQ] GET /api/v7/ccip/start content-type= content-length=
+[REQ] GET /api/v7/ccip/test content-type= content-length=
+[REQ] GET /api/v7/arbitration/health content-type= content-length=
+[REQ] GET /api/v7/ccip/test content-type= content-length=
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+🔗 CCIP Integration initialized successfully
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[REQ] POST /api/v7/dispute/report content-type=application/json content-length=80
+[API] POST /api/v7/dispute/report called
+Headers: {
+  "user-agent": "Mozilla/5.0 (Windows NT; Windows NT 10.0; en-US) WindowsPowerShell/5.1.26100.6899",
+  "content-type": "application/json",
+  "host": "localhost:3001",
+  "content-length": "80",
+  "connection": "Keep-Alive"
+}
+Body: {
+  "caseId": "case_123",
+  "evidence": {
+    "text": "sample evidence"
+  },
+  "autoArbitrate": true
+}
+RawBody: {"caseId":"case_123","evidence":{"text":"sample evidence"},"autoArbitrate":true}
+🟡 [callOllama] Sending prompt to Ollama: EVIDENCE:
+
+CONTRACT:
+GENERIC CONTRACT FOR TESTING
+DISPUTE_ID: case_123
+
+You are an arbitrator. In this dispute, PARTY_A is the client/claimant who initiated the contract, and PARTY_B is the contractor/supplier who was hired to perform the work. Analyze the evidence and contract dispute above. Determine if PARTY_A wins (breach by PARTY_B), PARTY_B wins (breach by PARTY_A), NO_PENALTY (no breach or mutual agreement), or DRAW (insufficient evidence). Key guidelines: - PARTY_A_WINS if PARTY_B breached the contract causing material harm to PARTY_A. - NO_PENALTY if deliverables were accepted and no material financial loss occurred. - PARTY_B_WINS if PARTY_A breached. - DRAW if evidence is insufficient or ambiguous. Provide your decision in EXACTLY this format:
+
+VERDICT: [PARTY_A_WINS or PARTY_B_WINS or NO_PENALTY or DRAW]
+RATIONALE: [brief explanation]
+CONFIDENCE: [0.0-1.0 or percentage]
+REIMBURSEMENT: [amount or NONE]
+🟢 [callOllama] Ollama response: {"model":"llama3.2:latest","created_at":"2025-10-21T21:53:34.2145125Z","response":"VERDICT: PARTY_A_WINS\nRATIONALE: The contract specifies that PARTY_B is responsible for delivering a certain product, and the dispute revolves around the quality of this delivery. If PARTY_B breached the contract by providing substandard goods, it would cause material harm to PARTY_A.\nCONFIDENCE: 0.8\nREIMBURSEMENT: $100,000","done":true,"done_reason":"stop","context":[128006,9125,128007,271,38766,1303,33025,2696,25,6790,220,2366,18,271,128009,128006,882,128007,271,36,7635,10360,1473,5910,42205,512,11332,37016,17564,4716,96635,198,21894,93443,3533,25,1162,62,4513,271,2675,527,459,59057,859,13,763,420,26086,11,64327,1596,374,279,3016,14,8017,519,889,33230,279,5226,11,323,64327,1702,374,279,31072,2754,72791,889,574,22163,311,2804,279,990,13,38527,3059,279,6029,323,5226,26086,3485,13,31001,422,64327,1596,15160,320,21152,613,555,64327,1702,705,64327,1702,15160,320,21152,613,555,64327,1596,705,5782,1106,965,984,22875,320,2201,31471,477,27848,9306,705,477,72752,320,1354,27781,6029,570,5422,17959,25,482,64327,1596,2832,9751,422,64327,1702,82166,279,5226,14718,3769,11682,311,64327,1596,13,482,5782,1106,965,984,22875,422,6493,4893,1051,11928,323,912,3769,6020,4814,10222,13,482,64327,1702,2832,9751,422,64327,1596,82166,13,482,72752,422,6029,374,39413,477,55861,13,40665,701,5597,304,4154,6966,9109,420,3645,1473,3848,35,15149,25,510,34590,56,1596,2832,9751,477,64327,1702,2832,9751,477,5782,1106,965,984,22875,477,72752,933,55871,25940,25,510,6796,16540,933,39734,926,10360,25,510,15,13,15,12,16,13,15,477,11668,933,793,1829,86194,937,5441,25,510,6173,477,43969,60,128009,128006,78191,128007,271,3848,35,15149,25,64327,1596,2832,9751,198,55871,25940,25,578,5226,30202,430,64327,1702,374,8647,369,24944,264,3738,2027,11,323,279,26086,79476,2212,279,4367,315,420,9889,13,1442,64327,1702,82166,279,5226,555,8405,1207,20885,11822,11,433,1053,5353,3769,11682,311,64327,1596,627,39734,926,10360,25,220,15,13,23,198,793,1829,86194,937,5441,25,400,1041,11,931],"total_duration":27249547700,"load_duration":5599205400,"prompt_eval_count":260,"prompt_eval_duration":14274764400,"eval_count":78,"eval_duration":6797967600}
+[NLP Mapping flags] strongCompletion:false, exculpatory:false, accepted:false, conclusiveCompletion:false
+[NLP Mapping] evidenceFound: {} rationaleFound: { PARTY_A_WINS: [ 'substandard' ] } mappedVerdict: PARTY_A_WINS confidence: 0.75 foundKeywords: [ 'substandard' ]
+[MERGE] Rationale keywords found: []
+[MERGE] LLM verdict: undefined NLP mapped verdict: PARTY_A_WINS LLM confidence: 0 NLP confidence: 0.75
+[MERGE] Final merged verdict: PARTY_A_WINS Confidence: 0.75 Source: NLP_HIGH_CONFIDENCE
+[MERGE] Final merged rationale (truncated 1000 chars): VERDICT: PARTY_A_WINS
+RATIONALE: The contract specifies that PARTY_B is responsible for delivering a certain product, and the dispute revolves around the quality of this delivery. If PARTY_B breached the contract by providing substandard goods, it would cause material harm to PARTY_A.
+CONFIDENCE: 0.8
+REIMBURSEMENT: $100,000

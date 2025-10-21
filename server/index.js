@@ -28,6 +28,16 @@ const app = express();
 // Enable CORS for frontend requests (must be before any route definitions)
 app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
 
+// Simple request logger to help debug incoming client requests (PowerShell vs curl differences)
+app.use((req, res, next) => {
+  try {
+    const ct = req.headers['content-type'] || '';
+    const cl = req.headers['content-length'] || '';
+    console.log(`[REQ] ${req.method} ${req.url} content-type=${ct} content-length=${cl}`);
+  } catch (e) { /* best effort logging */ }
+  return next();
+});
+
 // Admin API endpoints for frontend integration
 app.get('/api/v7/admin/authorized', async (req, res) => {
   const address = (req.query.address || '').toLowerCase();
@@ -55,8 +65,13 @@ app.get('/api/v7/admin/nonce', async (req, res) => {
   res.json({ address, nonce });
 });
 // Ensure JSON body parsing is enabled before any routes are registered
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Capture rawBody to help debug malformed client payloads (PowerShell quoting issues)
+app.use(express.json({
+  verify: (req, res, buf) => {
+    try { req.rawBody = buf && buf.toString(); } catch (e) { req.rawBody = undefined; }
+  }
+}));
+app.use(express.urlencoded({ extended: true, verify: (req, res, buf) => { try { req.rawBody = buf && buf.toString(); } catch (e) { req.rawBody = undefined; } } }));
 // Mount evidence routes (submit-appeal)
 import evidenceRoutes from './routes/evidence.js';
 app.use('/api', evidenceRoutes);
@@ -190,29 +205,16 @@ app.post('/api/evidence/upload', async (req, res) => {
       amount: '1.5 ETH'
     };
 
-    // Compute digest for customClause as SHA-256 of JSON.stringify({ customClauses })
+    // Compute digest for customClause only. Do NOT compute a fallback contentDigest for all evidence.
+    // Rationale: we prefer relying on content-addressed CID (Helia/IPFS). If callers need a content digest
+    // they should provide it explicitly. This avoids duplicating/deriving on-chain digests that may differ
+    // depending on canonicalization rules.
     let contentDigest = null;
     if (evidenceOut.type === 'customClause' && evidenceOut.content) {
       const { webcrypto } = await import('crypto');
       const encoder = new TextEncoder();
       const hashBuffer = await webcrypto.subtle.digest('SHA-256', encoder.encode(JSON.stringify({ customClauses: evidenceOut.content })));
       contentDigest = Buffer.from(hashBuffer).toString('hex');
-    } else {
-      // fallback: keccak256 over canonicalized evidence
-      const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
-      const canonicalize = (obj) => {
-        if (obj === null || obj === undefined) return 'null';
-        if (typeof obj !== 'object') return JSON.stringify(obj);
-        if (Array.isArray(obj)) return '[' + obj.map(canonicalize).join(',') + ']';
-        const keys = Object.keys(obj).sort();
-        return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
-      };
-      const canonStr = (typeof evidenceOut === 'string') ? evidenceOut : canonicalize(evidenceOut);
-      try {
-        contentDigest = keccak256(toUtf8Bytes(canonStr));
-      } catch (err) {
-        try { contentDigest = keccak256(toUtf8Bytes(JSON.stringify(evidenceOut))); } catch (e) { contentDigest = null; }
-      }
     }
 
     // If Helia is available, add evidence to Helia and return real CID
@@ -221,14 +223,14 @@ app.post('/api/evidence/upload', async (req, res) => {
       const cid = addResult.cid;
       const size = addResult.size || (decoded ? JSON.stringify(decoded).length : 0);
 
-      // store metadata locally for quick retrieval if needed
+      // store metadata locally for quick retrieval if needed (do NOT persist full evidence into dispute record)
       evidenceStore[cid] = evidenceOut;
 
-      // compute cidHash (keccak of CID string)
+      // compute cidHash (keccak of CID string) - useful if you want a compact on‑chain reference
       const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
       let cidHash = null;
       try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
-      return res.json({ cid, contentDigest, cidHash, evidence: evidenceOut, stored: true, size });
+      return res.json({ cid, cidHash, contentDigest: contentDigest || null, evidence: { type: evidenceOut.type, description: evidenceOut.description, metadata: evidenceOut.metadata }, stored: true, size });
     } catch (err) {
       // Helia not available - fallback to in-memory storage with mock CID
       const cid = 'QmMockEvidence' + Math.floor(Math.random() * 1e16).toString(16);
@@ -236,7 +238,8 @@ app.post('/api/evidence/upload', async (req, res) => {
       const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
       let cidHash = null;
       try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
-      return res.json({ cid, contentDigest, cidHash, evidence: evidenceOut, stored: !!decoded, size: decoded ? JSON.stringify(decoded).length : 42 });
+      // Return CID and cidHash; do not invent a contentDigest when Helia is not available
+      return res.json({ cid, cidHash, contentDigest: contentDigest || null, evidence: { type: evidenceOut.type, description: evidenceOut.description, metadata: evidenceOut.metadata }, stored: !!decoded, size: decoded ? JSON.stringify(decoded).length : 42 });
     }
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
@@ -1115,6 +1118,77 @@ app.get('/api/v7/arbitration/health', async (req, res) => {
   }
 });
 
+// Backwards-compatible health alias used by older scripts/tools
+app.get('/api/v7/health', async (req, res) => {
+  try {
+    try {
+      // Reuse the same heuristics as /api/v7/arbitration/health
+      let isHealthy = false;
+      let stats = {};
+
+      if (ollamaLLMArbitrator && typeof ollamaLLMArbitrator.getStats === 'function') {
+        try {
+          stats = await ollamaLLMArbitrator.getStats();
+          isHealthy = typeof stats.health !== 'undefined' ? (stats.health === 'healthy' || stats.health === true) : true;
+        } catch (e) {
+          console.warn('⚠️ Ollama getStats failed (health alias):', e.message);
+          stats = {};
+          isHealthy = false;
+        }
+      }
+
+      if ((!stats || Object.keys(stats).length === 0) && llmArbitrationSimulator) {
+        try {
+          isHealthy = await llmArbitrationSimulator.checkHealth();
+        } catch (e) {
+          isHealthy = false;
+        }
+        stats = llmArbitrationSimulator.getStats() || {};
+      }
+
+      const outStats = stats && typeof stats === 'object' && Object.keys(stats).length > 0 ? stats : {
+        mode: (ollamaLLMArbitrator ? 'production' : 'simulation'),
+        responseTime: 2000,
+        health: isHealthy ? 'healthy' : 'unhealthy',
+        version: '1.0.0'
+      };
+
+      res.json({
+        status: isHealthy ? 'healthy' : 'unhealthy',
+        version: 'v7',
+        healthy: isHealthy,
+        health: isHealthy ? 'healthy' : 'unhealthy',
+        stats: outStats,
+        timestamp: new Date().toISOString(),
+        aliasedFrom: '/api/v7/arbitration/health'
+      });
+    } catch (err) {
+      res.json({
+        status: 'unhealthy',
+        version: 'v7',
+        healthy: false,
+        stats: {
+          mode: 'simulation',
+          responseTime: 2000,
+          health: 'unhealthy',
+          version: '1.0.0'
+        },
+        error: err.message,
+        timestamp: new Date().toISOString()
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      version: 'v7',
+      healthy: false,
+      stats: {},
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 app.get('/api/v7/debug/time/:timestamp', (req, res) => {
   try {
     const { timestamp } = req.params;
@@ -1277,11 +1351,23 @@ process.on('SIGTERM', async () => {
 });
 
 // Error handling middleware (placed at end so routes are registered first)
-app.use((error, req, res, next) => {
-  console.error('Unhandled error:', error);
+// Body-parser JSON error handler: return helpful 400 when clients send invalid JSON
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.parse.failed') {
+    // err.body may contain the raw text that failed to parse
+    console.warn('JSON parse error on request:', err && err.body ? String(err.body).slice(0, 200) : '<no body>');
+    return res.status(400).json({
+      error: 'Invalid JSON in request body',
+      message: err.message,
+      rawBody: err.body,
+      hint: 'Ensure JSON keys and string values are double-quoted. In PowerShell, use ConvertTo-Json or pass -ContentType and a properly quoted body.'
+    });
+  }
+  // Fallback generic error handler
+  console.error('Unhandled error:', err);
   res.status(500).json({ 
     error: 'Internal server error',
-    message: error.message 
+    message: err && err.message ? err.message : String(err)
   });
 });
 
@@ -1317,6 +1403,179 @@ app.get('/api/v7/arbitration/decisions', async (req, res) => {
   }
 })
 
+// NOTE: 404 handler moved to end of file so real routes and stubs are reachable
+
+// --------------------------------------------------
+// Stubbed endpoints (not fully implemented yet)
+// These exist to avoid 404s for frontends/tools and provide clear error messages
+// TODO: replace stubs with full implementations that create disputes, process appeals, and calculate rent payments
+// --------------------------------------------------
+// Minimal in-memory disputes store for dev/testing
+const disputes = {}; // disputeId -> { id, caseId, evidence, evidenceCid, metadata, status, createdAt, history }
+
+app.post('/api/v7/dispute/report', async (req, res) => {
+  // Accept payload: { caseId?, evidenceCid?, evidence?, metadata?, autoArbitrate?: boolean }
+  try {
+    console.log('[API] POST /api/v7/dispute/report called');
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    if (req.rawBody !== undefined) console.log('RawBody:', req.rawBody);
+
+    const payload = req.body || {};
+    const disputeId = payload.disputeId || `d_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+    // Only store evidence CID reference (content is stored in Helia/IPFS). If client provided raw evidence,
+    // we will not persist it inside the dispute record to avoid duplicating large content and to keep
+    // the on-chain / persisted dispute record minimal and privacy-preserving.
+    const record = {
+      id: disputeId,
+      caseId: payload.caseId || null,
+      evidenceCid: payload.evidenceCid || null,
+      // legacy: allow metadata, but do not store full evidence blob in dispute
+      metadata: payload.metadata || {},
+      status: 'reported',
+      createdAt: Date.now(),
+      history: []
+    };
+    disputes[disputeId] = record;
+
+    // Optionally run arbitration immediately (in-process) if requested
+    let arbitrationResult = null;
+    if (payload.autoArbitrate) {
+      try {
+        const arbitrationPayload = {
+          caseId: record.caseId || disputeId,
+          batchId: null,
+          merkleRoot: null,
+          proofs: [],
+          evidenceItems: record.evidence ? [record.evidence] : (record.evidenceCid ? [{ cid: record.evidenceCid }] : []),
+          disputeType: record.metadata?.disputeType || 'GENERAL',
+          requestedAmount: record.metadata?.requestedAmount || 0,
+          category: record.metadata?.category || '',
+          requestReasoning: record.metadata?.reason || ''
+        };
+        // Prefer Ollama if available, otherwise simulator
+        if (typeof processV7ArbitrationWithOllama === 'function') {
+          arbitrationResult = await processV7ArbitrationWithOllama(arbitrationPayload);
+        } else if (typeof processV7Arbitration === 'function') {
+          arbitrationResult = await processV7Arbitration(arbitrationPayload);
+        }
+        record.status = 'arbitrated';
+        record.history.push({ type: 'arbitration', result: arbitrationResult, ts: Date.now() });
+      } catch (err) {
+        console.warn('Auto-arbitrate failed:', err && err.message ? err.message : err);
+        record.status = 'reported';
+        record.history.push({ type: 'arbitration_error', error: String(err), ts: Date.now() });
+      }
+    }
+
+  const resp = { success: true, disputeId, stored: true, status: record.status, evidenceCid: record.evidenceCid };
+  if (arbitrationResult) resp.arbitration = arbitrationResult;
+  return res.json(resp);
+  } catch (e) {
+    console.error('/api/v7/dispute/report error:', e && e.stack ? e.stack : e);
+    return res.status(500).json({ error: e && e.message ? e.message : String(e) });
+  }
+});
+
+app.post('/api/v7/dispute/appeal', async (req, res) => {
+  try {
+    console.log('[API] POST /api/v7/dispute/appeal called');
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    if (req.rawBody !== undefined) console.log('RawBody:', req.rawBody);
+
+    const { disputeId, appealEvidenceCid, evidence, reason, autoArbitrate } = req.body || {};
+    if (!disputeId || !disputes[disputeId]) return res.status(404).json({ error: 'dispute_not_found' });
+    const rec = disputes[disputeId];
+    const appeal = {
+      ts: Date.now(),
+      evidenceCid: appealEvidenceCid || null,
+      evidence: evidence || null,
+      reason: reason || null
+    };
+    rec.history.push({ type: 'appeal', appeal });
+    rec.status = 'appealed';
+
+    // Optionally re-run arbitration
+    let arbitrationResult = null;
+    if (autoArbitrate) {
+      try {
+        const arbitrationPayload = {
+          caseId: rec.caseId || disputeId,
+          batchId: null,
+          merkleRoot: null,
+          proofs: [],
+          evidenceItems: rec.evidence ? [rec.evidence] : (appeal.evidence ? [appeal.evidence] : []),
+          disputeType: rec.metadata?.disputeType || 'GENERAL',
+          requestedAmount: rec.metadata?.requestedAmount || 0,
+        };
+        if (typeof processV7ArbitrationWithOllama === 'function') {
+          arbitrationResult = await processV7ArbitrationWithOllama(arbitrationPayload);
+        } else if (typeof processV7Arbitration === 'function') {
+          arbitrationResult = await processV7Arbitration(arbitrationPayload);
+        }
+        rec.history.push({ type: 'appeal_arbitration', result: arbitrationResult, ts: Date.now() });
+        rec.status = 'arbitrated';
+      } catch (err) {
+        console.warn('Appeal auto-arbitrate failed:', err && err.message ? err.message : err);
+        rec.history.push({ type: 'appeal_arbitration_error', error: String(err), ts: Date.now() });
+      }
+    }
+
+    const resp = { success: true, disputeId, status: rec.status };
+    if (arbitrationResult) resp.arbitration = arbitrationResult;
+    return res.json(resp);
+  } catch (e) {
+    console.error('/api/v7/dispute/appeal error:', e && e.stack ? e.stack : e);
+    return res.status(500).json({ error: e && e.message ? e.message : String(e) });
+  }
+});
+
+app.post('/api/v7/rent/calculate-payment', async (req, res) => {
+  try {
+    console.log('[API] POST /api/v7/rent/calculate-payment called');
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    const { dueDate, rentAmount, payments = [], gracePeriod = 0, lateFeeRate = 0 } = req.body || {};
+    if (!dueDate || !rentAmount) return res.status(400).json({ error: 'missing_fields', hint: 'dueDate and rentAmount required' });
+
+    const due = new Date(dueDate).getTime();
+    const now = Date.now();
+    const paid = Array.isArray(payments) ? payments.reduce((s, p) => s + (Number(p.amount) || 0), 0) : 0;
+    const baseDue = Number(rentAmount) || 0;
+    let lateFee = 0;
+    if (now > due + (Number(gracePeriod) || 0) * 24 * 3600 * 1000) {
+      // simple flat late fee: lateFeeRate percent of baseDue
+      lateFee = (Number(lateFeeRate) || 0) * baseDue / 100;
+    }
+    const amountDue = Math.max(0, baseDue + lateFee - paid);
+    return res.json({ success: true, baseDue, paid, lateFee, amountDue });
+  } catch (e) {
+    console.error('/api/v7/rent/calculate-payment error:', e && e.stack ? e.stack : e);
+    return res.status(500).json({ error: e && e.message ? e.message : String(e) });
+  }
+});
+
+app.post('/api/v7/llm/callback', async (req, res) => {
+  try {
+    console.log('[API] POST /api/v7/llm/callback called');
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+    const payload = req.body || {};
+    // Accept: { disputeId, finalVerdict, reasoning }
+    if (!payload.disputeId) return res.status(400).json({ error: 'missing_disputeId' });
+    const rec = disputes[payload.disputeId];
+    if (!rec) return res.status(404).json({ error: 'dispute_not_found' });
+    rec.history.push({ type: 'llm_callback', payload, ts: Date.now() });
+    rec.status = payload.finalVerdict ? 'resolved' : rec.status;
+    return res.json({ success: true, disputeId: payload.disputeId, status: rec.status });
+  } catch (e) {
+    console.error('/api/v7/llm/callback error:', e && e.stack ? e.stack : e);
+    return res.status(500).json({ error: e && e.message ? e.message : String(e) });
+  }
+});
+
+export { startServer, stopServer };
+export default app;
+
 // 404 handler (registered last)
 app.use((req, res) => {
   res.status(404).json({ 
@@ -1336,6 +1595,3 @@ app.use((req, res) => {
     ]
   });
 });
-
-export { startServer, stopServer };
-export default app;

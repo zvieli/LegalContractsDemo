@@ -4,7 +4,7 @@ import { dirname } from 'path';
 import path from 'path';
 import { spawn } from 'child_process';
 import net from 'net';
-import { existsSync, mkdirSync } from 'fs';
+import fs, { existsSync, mkdirSync } from 'fs';
 import chalk from 'chalk';
 
 // Load environment variables FIRST
@@ -225,13 +225,42 @@ async function startCCIPEventListener() {
     const { CCIPEventListener } = await import('./ccip/ccipEventListener.js');
     const { getContractAddress } = await import('./utils/deploymentLoader.js');
     
+    // If receiver address is missing in dev, attempt to populate from deployment-summary or run a local deploy
+    let receiverAddress = getContractAddress('CCIPArbitrationReceiver') || process.env.CCIP_RECEIVER_ADDRESS;
+    let senderAddress = getContractAddress('CCIPArbitrationSender') || process.env.CCIP_SENDER_ADDRESS;
+    if (!receiverAddress && (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined)) {
+      try {
+        const summaryPath = path.join(__dirname, 'config', 'deployment-summary.json');
+        if (existsSync(summaryPath)) {
+          const json = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+          receiverAddress = receiverAddress || json?.contracts?.CCIPArbitrationReceiver?.address;
+          senderAddress = senderAddress || json?.contracts?.CCIPArbitrationSender?.address;
+          console.log(chalk.green('[CCIP] Loaded addresses from deployment-summary.json'));
+        } else {
+          // Try running local deploy script (best-effort, non-blocking)
+          console.log(chalk.yellow('[CCIP] No deployment-summary found. Attempting local deploy (this may take a few seconds)...'));
+          const deployProc = spawn('node', [path.join(__dirname, '..', 'scripts', 'deploy.js'), '--localhost'], { stdio: 'ignore', env: { ...process.env } });
+          // give the deploy a short time to produce config
+          await new Promise(r => setTimeout(r, 6000));
+          if (existsSync(summaryPath)) {
+            const json = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+            receiverAddress = receiverAddress || json?.contracts?.CCIPArbitrationReceiver?.address;
+            senderAddress = senderAddress || json?.contracts?.CCIPArbitrationSender?.address;
+            console.log(chalk.green('[CCIP] Loaded addresses after local deploy'));
+          }
+        }
+      } catch (e) {
+        console.warn(chalk.yellow('[CCIP] Auto-deploy or read of deployment-summary failed:'), e && e.message ? e.message : e);
+      }
+    }
+
     const ccipListener = new CCIPEventListener({
       rpcUrl: process.env.RPC_URL || 'http://127.0.0.1:8545',
       chainId: parseInt(process.env.CHAIN_ID) || 31337,
       pollingInterval: 5000,
       enableLLM: true,
-      receiverAddress: getContractAddress('CCIPArbitrationReceiver') || process.env.CCIP_RECEIVER_ADDRESS,
-      senderAddress: getContractAddress('CCIPArbitrationSender') || process.env.CCIP_SENDER_ADDRESS,
+      receiverAddress: receiverAddress,
+      senderAddress: senderAddress,
       arbitrationServiceAddress: getContractAddress('ArbitrationService') || process.env.ARBITRATION_SERVICE_ADDRESS,
       privateKey: process.env.PRIVATE_KEY
     });

@@ -350,27 +350,32 @@ async function main() {
   let mockV3Address = null;
   let mockLinkAddress = null;
   let mockRouterAddress = null;
-  
-  console.log('\n🧩 Deploying local Chainlink mocks...');
 
-  const MockV3Aggregator = await ethers.getContractFactory('MockV3Aggregator');
-  const initial = ethers.parseUnits('3000', 8);
-  const mockV3 = await MockV3Aggregator.deploy(8, initial);
-  await mockV3.waitForDeployment();
-  mockV3Address = await mockV3.getAddress();
-  console.log('✅ MockV3Aggregator deployed to:', mockV3Address);
+  const USE_CHAINLINK_MOCKS = (process.env.USE_CHAINLINK_MOCKS === 'true');
+  if (USE_CHAINLINK_MOCKS) {
+    console.log('\n🧩 Deploying local Chainlink mocks...');
 
-  const MockLinkToken = await ethers.getContractFactory('MockLinkToken');
-  const mockLink = await MockLinkToken.deploy(ethers.parseEther('1000000'));
-  await mockLink.waitForDeployment();
-  mockLinkAddress = await mockLink.getAddress();
-  console.log('✅ MockLinkToken deployed to:', mockLinkAddress);
+    const MockV3Aggregator = await ethers.getContractFactory('MockV3Aggregator');
+    const initial = ethers.parseUnits('3000', 8);
+    const mockV3 = await MockV3Aggregator.deploy(8, initial);
+    await mockV3.waitForDeployment();
+    mockV3Address = await mockV3.getAddress();
+    console.log('✅ MockV3Aggregator deployed to:', mockV3Address);
 
-  const MockCCIPRouter = await ethers.getContractFactory('MockCCIPRouter');
-  const mockRouter = await MockCCIPRouter.deploy(ethers.parseEther('0.001'));
-  await mockRouter.waitForDeployment();
-  mockRouterAddress = await mockRouter.getAddress();
-  console.log('✅ MockCCIPRouter deployed to:', mockRouterAddress);
+    const MockLinkToken = await ethers.getContractFactory('MockLinkToken');
+    const mockLink = await MockLinkToken.deploy(ethers.parseEther('1000000'));
+    await mockLink.waitForDeployment();
+    mockLinkAddress = await mockLink.getAddress();
+    console.log('✅ MockLinkToken deployed to:', mockLinkAddress);
+
+    const MockCCIPRouter = await ethers.getContractFactory('MockCCIPRouter');
+    const mockRouter = await MockCCIPRouter.deploy(ethers.parseEther('0.001'));
+    await mockRouter.waitForDeployment();
+    mockRouterAddress = await mockRouter.getAddress();
+    console.log('✅ MockCCIPRouter deployed to:', mockRouterAddress);
+  } else {
+    console.log('\nℹ️ Skipping local Chainlink mocks deployment (USE_CHAINLINK_MOCKS is not true)');
+  }
 
   // === 2. Deploy Core Infrastructure ===
   console.log("\n📦 Deploying Core Infrastructure...");
@@ -416,11 +421,15 @@ async function main() {
   // השתמש ב-Mock price feed במקום כתובת מייננט
   const dueDate = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
   const propertyId = 1;
+  // If mock price feed wasn't deployed, fall back to zero-address to avoid null argument errors.
+  const priceFeedAddr = mockV3Address || ethers.ZeroAddress;
+  if (!mockV3Address) console.log('ℹ️ No mock price feed deployed; using ZeroAddress for EnhancedRentContract price feed (replace with real feed if needed)');
+
   const enhancedRentContract = await EnhancedRentContract.deploy(
     deployer.address,
     tenant.address,
     rentAmount,
-    mockV3Address, // השתמש ב-Mock price feed
+    priceFeedAddr,
     dueDate,
     propertyId,
     arbitrationServiceAddress,
@@ -435,7 +444,7 @@ async function main() {
   
   const FORK_CHAIN_SELECTOR = '31337';
   // השתמש רק ב-Mock addresses - לא בכתובות מייננט
-  let CCIP_ROUTER_ADDR = mockRouterAddress;
+  let CCIP_ROUTER_ADDR = mockRouterAddress || ethers.ZeroAddress;
   let LINK_TOKEN_ADDR = mockLinkAddress;
   let ccipSenderAddress = null;
   let ccipReceiverAddress = null;

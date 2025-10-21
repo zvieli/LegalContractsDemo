@@ -116,7 +116,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Start-Sleep 3
-Start-NewWindow "V7 Backend" "cd server; node index.js"
+Start-NewWindow "V7 Backend" "cd server; node start-v7.js"
 Start-Sleep 3
 Start-NewWindow "Frontend" "cd front; npm run dev"
 Start-Sleep 3
@@ -125,7 +125,7 @@ Start-NewWindow "Tests" "npx hardhat test"
 Write-Host ""
 Write-Host "ArbiTrust V7 Started Successfully!" -ForegroundColor Green
 Write-Host "Hardhat: http://localhost:8545" -ForegroundColor White
-Write-Host "Backend: http://localhost:3002" -ForegroundColor White  
+Write-Host "Backend: http://localhost:3001" -ForegroundColor White
 Write-Host "Frontend: http://localhost:5173" -ForegroundColor White
 Write-Host ""
 Read-Host "Press Enter to exit"

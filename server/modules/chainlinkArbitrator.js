@@ -5,11 +5,17 @@
 export const ARBITRATOR_API_URL = process.env.ARBITRATOR_API_URL || 'http://localhost:8000/arbitrate';
 // FAILURE_CODE per spec: MAX_UINT256 - 1 (Mitigation 4.5)
 export const FAILURE_CODE = (BigInt(2) ** BigInt(256)) - BigInt(2);
+const USE_CHAINLINK = (process.env.USE_CHAINLINK === 'true');
 
 
 
 export async function handleRequest(args) {
   try {
+    // Guard: only allow Chainlink handler to run if explicitly enabled
+    if (!USE_CHAINLINK) {
+      console.error('Chainlink Functions handler invoked but USE_CHAINLINK is not true. Aborting.');
+      return FAILURE_CODE.toString();
+    }
     // Input validation
     if (!args || args.length !== 3) {
       console.error('Invalid arguments length:', args?.length);

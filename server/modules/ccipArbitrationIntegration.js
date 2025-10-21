@@ -370,25 +370,19 @@ export class CCIPArbitrationIntegration {
 
   async callLLMArbitration(disputeData) {
     try {
-      // Import LLM arbitrator
-      const { processV7ArbitrationWithOllama } = await import('./ollamaLLMArbitrator.js');
-
-      // Prepare arbitration request
+      // Use the local mock/Ollama adapter for arbitration (centralized adapter)
+      const { resolveArbitration } = await import('./mockArbitrationAdapter.js');
       const arbitrationRequest = {
-        contract_text: `CCIP Cross-Chain Arbitration Request
-        Dispute Type: ${disputeData.disputeType}
-        Requested Amount: ${disputeData.requestedAmount} ETH
-        Additional Context: ${disputeData.additionalContext}`,
+        contract_text: `CCIP Cross-Chain Arbitration Request\nDispute Type: ${disputeData.disputeType}\nRequested Amount: ${disputeData.requestedAmount} ETH\nAdditional Context: ${disputeData.additionalContext}`,
         evidence_text: disputeData.evidenceDescription,
         dispute_question: 'Based on the cross-chain dispute, what is the appropriate resolution?',
         requested_amount: parseFloat(disputeData.requestedAmount) || 0
       };
 
-      // Always call LLM unless an actual error occurs
-      const result = await processV7ArbitrationWithOllama(arbitrationRequest);
+      const result = await resolveArbitration(arbitrationRequest);
 
       return {
-        verdict: result.final_verdict || result.decision || 'DRAW',
+        verdict: result.final_verdict || result.verdict || 'DRAW',
         reimbursementAmount: result.reimbursement_amount_dai || result.reimbursement || 0,
         reasoning: result.rationale_summary || result.reasoning || 'CCIP arbitration completed',
         confidence: result.confidence || 85
