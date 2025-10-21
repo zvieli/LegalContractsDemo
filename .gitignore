@@ -47,3 +47,4 @@ server/data/CLEANUP_LOG.txt
 .github/copilot-instructions.md
 /logs
 docs/16_10_25.md
+server/config/

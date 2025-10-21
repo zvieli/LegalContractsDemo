@@ -119,61 +119,89 @@ async function createBatch(caseId, evidenceItems) {
         console.log('createBatch: attempting on-chain submit to', config.address, 'via', config.rpcUrl);
       const rpcUrl = config.rpcUrl || config.rpc;
       const provider = new ethersModule.JsonRpcProvider(rpcUrl);
-      const wallet = new ethersModule.Wallet(config.privateKey, provider);
-      // Sign Merkle root (sign raw bytes of the bytes32 root)
+      // Prefer explicit privateKey from config, otherwise try provider.getSigner(0) for local test nodes
+      let signer = null;
       try {
-        rootSignature = await wallet.signMessage(ethersModule.arrayify(batchData.merkleRoot));
-      } catch (signErr) {
-        console.warn('evidenceBatch: arrayify sign failed:', signErr && signErr.message ? signErr.message : signErr);
-        try {
-          rootSignature = await wallet.signMessage(ethersModule.toUtf8Bytes(String(batchData.merkleRoot)));
-        } catch (e) {
-          console.warn('evidenceBatch: utf8 sign fallback failed:', e && e.message ? e.message : e);
+        if (config.privateKey) {
+          signer = new ethersModule.Wallet(config.privateKey, provider);
+        } else {
+          try {
+            // provider.getSigner may throw if not supported by the provider
+            signer = provider.getSigner ? provider.getSigner(0) : null;
+          } catch (e) {
+            console.warn('evidenceBatch: provider.getSigner failed:', e && e.message ? e.message : e);
+            signer = null;
+          }
+        }
+      } catch (e) {
+        console.warn('evidenceBatch: signer creation failed:', e && e.message ? e.message : e);
+        signer = null;
+      }
+      // Sign Merkle root (sign raw bytes of the bytes32 root) using available signer
+      try {
+        if (signer && typeof signer.signMessage === 'function') {
+          try {
+            rootSignature = await signer.signMessage(ethersModule.arrayify(batchData.merkleRoot));
+          } catch (signErr) {
+            console.warn('evidenceBatch: arrayify sign failed:', signErr && signErr.message ? signErr.message : signErr);
+            try {
+              rootSignature = await signer.signMessage(ethersModule.toUtf8Bytes(String(batchData.merkleRoot)));
+            } catch (e) {
+              console.warn('evidenceBatch: utf8 sign fallback failed:', e && e.message ? e.message : e);
+              rootSignature = null;
+            }
+          }
+        } else {
           rootSignature = null;
         }
+      } catch (e) {
+        console.warn('evidenceBatch: unexpected signing error:', e && e.message ? e.message : e);
+        rootSignature = null;
       }
       // ensure rootSignature is a defined string to avoid undefined in tests
       if (!rootSignature) rootSignature = '0x' + '00'.repeat(65);
       console.log('evidenceBatch: rootSignature=', rootSignature);
       batchData.rootSignature = rootSignature;
-      // Submit to contract (if ABI/contract supports submitEvidenceBatch)
+      // Submit to contract (if ABI/contract supports submitEvidenceBatch) using signer if available
       try {
-        const contract = new ethersModule.Contract(config.address, config.abi, wallet);
-        if (typeof contract.submitEvidenceBatch === 'function') {
-          // Try sending with current nonce and retry on nonce errors
+        const contract = new ethersModule.Contract(config.address, config.abi, provider);
+        const contractWithSigner = signer ? contract.connect(signer) : null;
+        if (contractWithSigner && typeof contractWithSigner.submitEvidenceBatch === 'function') {
+          // Try sending and retry on transient errors (nonce/rpc flakiness)
           let attempts = 0;
-          const maxAttempts = 3;
+          const maxAttempts = 4;
           let lastErr = null;
           while (attempts < maxAttempts) {
             attempts++;
             try {
-              // use 'pending' to include pending txs when calculating the next nonce
-              const currentNonce = await provider.getTransactionCount(wallet.address, 'pending');
-              console.log(`Submitting batch on-chain (attempt ${attempts}) with nonce ${currentNonce}`);
-                    console.log("Backend: merkleRoot to submit =", batchData.merkleRoot);
-              console.log("Contract address:", contract.target || contract.address);
-              const tx = await contract.submitEvidenceBatch(batchData.merkleRoot, batchData.evidenceCount, { nonce: currentNonce });
-              console.log("Tx sent:", tx.hash);
+              console.log(`Submitting batch on-chain (attempt ${attempts})`);
+              console.log('Backend: merkleRoot to submit =', batchData.merkleRoot);
+              console.log('Contract address:', contract.address);
+              // Use the contract connected to the signer and let ethers manage the nonce
+              const connected = contractWithSigner;
+              const tx = await connected.submitEvidenceBatch(batchData.merkleRoot, batchData.evidenceCount);
+              console.log('Tx sent:', tx.hash);
               const receipt = await tx.wait();
-              console.log("Tx confirmed in block:", receipt.blockNumber);
+              console.log('Tx confirmed in block:', receipt.blockNumber);
               txHash = tx.hash;
               batchData.status = 'onchain_submitted';
               batchData.txHash = txHash;
               lastErr = null;
-              // break out of attempts loop after success
-              break;
+              break; // success
             } catch (innerErr) {
               lastErr = innerErr;
               const msg = innerErr && (innerErr.message || innerErr.toString());
               console.warn('submitEvidenceBatch attempt failed:', msg);
-              // If nonce-related error, wait briefly and retry after refreshing nonce
+              // If nonce-related error or temporary provider error, wait and retry
               const isNonceError = (innerErr && innerErr.code === 'NONCE_EXPIRED') || (typeof msg === 'string' && /nonce/i.test(msg));
-              if (isNonceError) {
-                // small backoff and retry
-                await new Promise(r => setTimeout(r, 300));
+              const isTempRpc = (innerErr && innerErr.code === 'SERVER_ERROR') || (typeof msg === 'string' && (/timeout|connection|503|429/i.test(msg)));
+              if (isNonceError || isTempRpc) {
+                // exponential backoff
+                const backoff = 200 * Math.pow(2, attempts - 1);
+                await new Promise(r => setTimeout(r, backoff));
                 continue;
               }
-              // otherwise give up
+              // non-retryable error -> break
               break;
             }
           }
@@ -185,12 +213,27 @@ async function createBatch(caseId, evidenceItems) {
           // If we have a txHash, attempt to read the on-chain mapping and persist the batchId
           try {
             if (txHash) {
-              try {
-                const batchIdOnChain = await contract.getBatchIdByRoot(batchData.merkleRoot);
-                console.log('Backend: rootToBatchId[merkleRoot] after submit =', batchIdOnChain);
-                batchData.batchIdOnChain = batchIdOnChain;
-              } catch (mappingErr) {
-                console.error('Backend: Error querying rootToBatchId after submit:', mappingErr && mappingErr.message ? mappingErr.message : mappingErr);
+              // Poll for the root->batchId mapping for a short window
+              const maxPolls = 6;
+              let polled = 0;
+              let batchIdOnChain = null;
+              while (polled < maxPolls) {
+                try {
+                  batchIdOnChain = await contract.getBatchIdByRoot(batchData.merkleRoot);
+                  // Accept any non-zero mapping
+                  if (batchIdOnChain && String(batchIdOnChain) !== '0' && Number(batchIdOnChain) !== 0) {
+                    console.log('Backend: rootToBatchId[merkleRoot] after submit =', batchIdOnChain);
+                    batchData.batchIdOnChain = batchIdOnChain;
+                    break;
+                  }
+                } catch (mappingErr) {
+                  // ignore transient mapping errors and retry
+                }
+                polled++;
+                await new Promise(r => setTimeout(r, 300));
+              }
+              if (!batchData.batchIdOnChain) {
+                console.warn('Backend: rootToBatchId not set after polling; mapping may be delayed');
               }
             }
           } catch (err) {

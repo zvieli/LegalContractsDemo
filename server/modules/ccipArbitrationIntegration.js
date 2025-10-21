@@ -41,9 +41,87 @@ export class CCIPArbitrationIntegration {
       this.signer = new ethers.Wallet(this.config.privateKey, this.provider);
       
       await this.loadContracts();
+      // Ensure the server signer is authorized on the CCIP sender in development when configured
+      try {
+        await this.ensureSenderAuthorization();
+      } catch (authErr) {
+        console.warn('⚠️ Sender authorization preflight failed:', authErr && authErr.message ? authErr.message : authErr);
+      }
       console.log('✅ CCIP Arbitration Integration initialized');
     } catch (error) {
       console.error('❌ Failed to initialize CCIP integration:', error.message);
+    }
+  }
+
+  /**
+   * Ensure the signer used by the server is authorized in the CCIP sender contract.
+   * Auto-authorize in dev when safe (signer is owner or DEV_AUTO_AUTHORIZE=true with DEV_OWNER_PRIVATE_KEY set).
+   */
+  async ensureSenderAuthorization() {
+    if (!this.contracts.ccipSender) return;
+    try {
+      const signerAddr = await this.signer.getAddress();
+      // Check mapping
+      let isAuth = false;
+      try {
+        isAuth = await this.contracts.ccipSender.authorizedContracts(signerAddr);
+      } catch (e) {
+        // If the mapping call fails, proceed to log and continue
+        console.warn('Could not read authorizedContracts mapping:', e && e.message ? e.message : e);
+      }
+
+      if (isAuth) {
+        console.log(`🔐 CCIP sender: signer ${signerAddr} already authorized`);
+        return true;
+      }
+
+      // If signer equals owner, we can authorize directly
+      let ownerAddr = null;
+      try {
+        ownerAddr = await this.contracts.ccipSender.owner();
+      } catch (e) {
+        // ignore
+      }
+
+      const devAuto = (process.env.DEV_AUTO_AUTHORIZE || '').toString().toLowerCase() === 'true';
+      const ownerPriv = process.env.DEV_OWNER_PRIVATE_KEY || process.env.OWNER_PRIVATE_KEY || null;
+
+      if (ownerAddr && ownerAddr.toLowerCase() === signerAddr.toLowerCase()) {
+        // signer is owner -> authorize itself
+        console.log('🔧 CCIP sender: signer is owner, authorizing signer on-chain');
+        try {
+          const tx = await this.contracts.ccipSender.setContractAuthorization(signerAddr, true);
+          await tx.wait();
+          console.log('✅ CCIP sender: signer authorized (owner flow)');
+          return true;
+        } catch (e) {
+          console.warn('Failed to auto-authorize signer as owner:', e && e.message ? e.message : e);
+          return false;
+        }
+      }
+
+      // If dev auto-authorize is enabled and an owner private key is provided, use it to authorize signer
+      if (devAuto && ownerPriv) {
+        try {
+          console.log('🔧 CCIP sender: DEV_AUTO_AUTHORIZE enabled, using provided owner private key to authorize signer');
+          const ownerWallet = new ethers.Wallet(ownerPriv, this.provider);
+          const ownerSender = new ethers.Contract(this.config.ccipSenderAddress, this.contracts.ccipSender.interface, ownerWallet);
+          const tx = await ownerSender.setContractAuthorization(signerAddr, true);
+          await tx.wait();
+          console.log('✅ CCIP sender: signer authorized (dev owner flow)');
+          return true;
+        } catch (e) {
+          console.warn('Failed to auto-authorize signer using owner private key:', e && e.message ? e.message : e);
+          return false;
+        }
+      }
+
+      // Otherwise, just warn and leave it to operator
+      console.warn(`⚠️ CCIP sender: signer ${signerAddr} is not authorized. Set DEV_AUTO_AUTHORIZE=true and provide DEV_OWNER_PRIVATE_KEY to auto-authorize in dev, or call setContractAuthorization(owner, true) from the contract owner.`);
+      return false;
+    } catch (err) {
+      console.warn('ensureSenderAuthorization failed:', err && err.message ? err.message : err);
+      return false;
     }
   }
 
@@ -160,7 +238,9 @@ export class CCIPArbitrationIntegration {
 
       // Listen for ArbitrationRequestSent (if it exists)
       if (availableEvents.includes('ArbitrationRequestSent')) {
-        this.contracts.ccipReceiver.on('ArbitrationRequestSent', async (requestId, targetChain, contractAddress, disputeData, event) => {
+        // attach via safe wrapper to prevent provider edge-cases from killing the process
+        const { safeOn } = await import('../lib/providerSafe.js');
+        safeOn(this.contracts.ccipReceiver, 'ArbitrationRequestSent', async (requestId, targetChain, contractAddress, disputeData, event) => {
           console.log('🔔 CCIP Arbitration Request Sent detected:');
           console.log(`  Request ID: ${requestId}`);
           console.log(`  Target Chain: ${targetChain}`);
@@ -176,7 +256,9 @@ export class CCIPArbitrationIntegration {
 
       // Listen for ArbitrationDecisionReceived (if it exists)
       if (availableEvents.includes('ArbitrationDecisionReceived')) {
-        this.contracts.ccipReceiver.on(
+        const { safeOn } = await import('../lib/providerSafe.js');
+        safeOn(
+          this.contracts.ccipReceiver,
           'ArbitrationDecisionReceived',
           async (
             messageId,
@@ -357,7 +439,110 @@ export class CCIPArbitrationIntegration {
         ]
       );
 
-      // Send CCIP message with decision
+      // Try to detect which sendArbitrationDecision variant the ABI exposes
+      let called = false;
+      try {
+        // Debug: list overloads for sendArbitrationDecision
+        try {
+          const overloads = this.contracts.ccipSender.interface.fragments.filter(f => f.name === 'sendArbitrationDecision');
+          console.log('🔍 sendArbitrationDecision overloads found:', overloads.map(f => ({ name: f.name, inputs: f.inputs ? f.inputs.length : 0, signature: f.format && typeof f.format === 'function' ? f.format() : '' })));
+        } catch (dbg) {
+          console.log('🔍 Could not enumerate overloads for sendArbitrationDecision:', dbg && dbg.message ? dbg.message : dbg);
+        }
+
+        // Prefer fully-qualified 7-arg signature if present
+        let fragment = null;
+        try {
+          fragment = this.contracts.ccipSender.interface.getFunction('sendArbitrationDecision(bytes32,bool,uint256,address,string,bytes32,uint8)');
+        } catch (e) {
+          // ignore - function may not be present
+        }
+
+        // If not found, fall back to name-only lookup
+        if (!fragment) {
+          try { fragment = this.contracts.ccipSender.interface.getFunction('sendArbitrationDecision'); } catch (e) { fragment = null; }
+        }
+
+        // If the solidity implementation (CCIPArbitrationSender) is present it expects 7 inputs
+        if (fragment && fragment.inputs && fragment.inputs.length === 7) {
+          // Map our decision to the expected arguments
+          // Convert requestId to a bytes32 value (keccak256 of the requestId string)
+          const disputeId = ethers.keccak256(ethers.toUtf8Bytes(String(requestId)));
+          const approved = (typeof decision.verdict === 'string' && decision.verdict.toUpperCase().includes('PARTY_A_WINS')) || (String(decision.verdict).toUpperCase() === 'APPROVE');
+          // Parse reimbursement amount safely. Accept numbers or ETH strings; fallback to 0 if unparseable or NONE
+          let appliedAmount = 0n;
+          try {
+            const rawAmt = decision.reimbursementAmount;
+            if (rawAmt === null || typeof rawAmt === 'undefined') {
+              appliedAmount = 0n;
+            } else if (typeof rawAmt === 'number' || (typeof rawAmt === 'string' && rawAmt.match(/^\d+(?:\.\d+)?$/))) {
+              appliedAmount = ethers.parseEther(String(rawAmt));
+            } else if (typeof rawAmt === 'string' && rawAmt.toUpperCase().includes('ETH')) {
+              // Strip trailing ' ETH' if present
+              const cleaned = rawAmt.toUpperCase().replace(/\s*ETH\s*/i, '');
+              if (cleaned.match(/^\d+(?:\.\d+)?$/)) appliedAmount = ethers.parseEther(cleaned);
+              else appliedAmount = 0n;
+            } else {
+              appliedAmount = 0n;
+            }
+          } catch (paErr) {
+            appliedAmount = 0n;
+          }
+          const beneficiary = contractAddress || ethers.ZeroAddress || '0x' + '0'.repeat(40);
+          const rationale = decision.reasoning || '';
+          const oracleId = '0x' + '0'.repeat(64);
+          const payFeesIn = 0; // PayFeesIn.Native
+
+          // Attempt to fetch required fees (view) and supply as value when calling payable function
+          let fees = 0n;
+          try {
+            if (typeof this.contracts.ccipSender.getArbitrationFees === 'function') {
+              const feeRes = await this.contracts.ccipSender.getArbitrationFees(payFeesIn);
+              fees = BigInt(feeRes || 0);
+            }
+          } catch (feeErr) {
+            // ignore fee fetch errors and proceed without value
+            fees = 0n;
+          }
+
+          // Debug: print final call arguments (types and short string forms)
+          console.log('🔧 Calling sendArbitrationDecision with args:', {
+            disputeId,
+            approved,
+            appliedAmount: appliedAmount.toString(),
+            beneficiary,
+            rationale: rationale && rationale.slice(0, 120) + (rationale && rationale.length > 120 ? '...' : ''),
+            oracleId,
+            payFeesIn,
+            value: fees.toString()
+          });
+
+          // Build calldata explicitly to avoid ABI fragment resolution issues
+          const iface = this.contracts.ccipSender.interface;
+          const fullSig = 'sendArbitrationDecision(bytes32,bool,uint256,address,string,bytes32,uint8)';
+          const calldata = iface.encodeFunctionData(fullSig, [disputeId, approved, appliedAmount, beneficiary, rationale, oracleId, payFeesIn]);
+          console.log('🔧 Encoded calldata (prefix):', calldata.slice(0, 256));
+
+          // Use signer to send raw transaction with encoded calldata
+          const txReq = {
+            to: this.config.ccipSenderAddress,
+            data: calldata,
+            value: fees,
+            gasLimit: 500000
+          };
+
+          const sent = await this.signer.sendTransaction(txReq);
+          console.log(`📡 CCIP decision tx sent (raw). TX: ${sent.hash}`);
+          await sent.wait();
+          console.log(`✅ CCIP decision confirmed for request ${requestId}`);
+          called = true;
+          return true;
+        }
+      } catch (sigErr) {
+        // ignore and fall back to older call shape below
+      }
+
+      // Fallback: attempt legacy/raw variant if ABI differs (original code path)
       const tx = await this.contracts.ccipSender.sendArbitrationDecision(
         sourceChain,
         contractAddress,
@@ -366,7 +551,7 @@ export class CCIPArbitrationIntegration {
         { gasLimit: 500000 }
       );
 
-      console.log(`📡 CCIP decision sent. TX: ${tx.hash}`);
+      console.log(`📡 CCIP decision sent (fallback). TX: ${tx.hash}`);
       await tx.wait();
       console.log(`✅ CCIP decision confirmed for request ${requestId}`);
 

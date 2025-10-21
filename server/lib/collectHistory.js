@@ -132,15 +132,16 @@ export async function collectContractHistory(provider, contractAddress, abiPaths
 
   // Try single getLogs first; if it fails (e.g., Alchemy HTTP 400 on large ranges), fall back to chunked retrieval
   let logs = [];
-  try {
     try {
-      // LOCAL ONLY: try local provider for all logs
-      logs = await localProvider.getLogs({ ...filterBase, fromBlock: from, toBlock: to });
-    } catch (localErr) {
-      console.warn(`[collectContractHistory] local getLogs failed on ${LOCAL_RPC}; not falling back to upstream to avoid Alchemy calls:`, localErr && localErr.message);
-      // Return empty logs rather than contacting upstream provider
-      logs = [];
-    }
+      try {
+        // LOCAL ONLY: try local provider for all logs
+        const { safeGetLogs } = await import('./providerSafe.js');
+        logs = await safeGetLogs(localProvider, { ...filterBase, fromBlock: from, toBlock: to });
+      } catch (localErr) {
+        console.warn(`[collectContractHistory] local getLogs failed on ${LOCAL_RPC}; not falling back to upstream to avoid Alchemy calls:`, localErr && localErr.message);
+        // Return empty logs rather than contacting upstream provider
+        logs = [];
+      }
   } catch (err) {
     console.warn('[collectContractHistory] provider.getLogs single call failed, falling back to chunked fetch:', err && (err.message || err));
     // Chunked fetch - progressively attempt ranges to avoid upstream rejections
@@ -153,7 +154,8 @@ export async function collectContractHistory(provider, contractAddress, abiPaths
           // LOCAL ONLY: try local provider for this chunk
           let chunkLogs = [];
           try {
-            chunkLogs = await localProvider.getLogs({ ...filterBase, fromBlock: cursor, toBlock: chunkEnd });
+            const { safeGetLogs } = await import('./providerSafe.js');
+            chunkLogs = await safeGetLogs(localProvider, { ...filterBase, fromBlock: cursor, toBlock: chunkEnd });
           } catch (lpErr) {
             console.warn(`[collectContractHistory] local chunk getLogs failed on ${LOCAL_RPC} for ${cursor}-${chunkEnd}; skipping chunk to avoid upstream calls:`, lpErr && lpErr.message);
             chunkLogs = [];
@@ -170,7 +172,8 @@ export async function collectContractHistory(provider, contractAddress, abiPaths
             try {
               // LOCAL ONLY: try local provider for small window
               try {
-                const smallLogs = await localProvider.getLogs({ ...filterBase, fromBlock: smallStart, toBlock: smallEnd });
+                const { safeGetLogs } = await import('./providerSafe.js');
+                const smallLogs = await safeGetLogs(localProvider, { ...filterBase, fromBlock: smallStart, toBlock: smallEnd });
                 if (Array.isArray(smallLogs) && smallLogs.length) logs.push(...smallLogs);
               } catch (sLocalErr) {
                 console.warn(`[collectContractHistory] local small window failed on ${LOCAL_RPC} ${smallStart}-${smallEnd}; skipping:`, sLocalErr && sLocalErr.message);

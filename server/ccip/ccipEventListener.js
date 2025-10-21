@@ -3,6 +3,7 @@
 
 import { ethers } from 'ethers';
 import { processV7ArbitrationWithOllama, ollamaLLMArbitrator } from '../modules/ollamaLLMArbitrator.js';
+import { safeOn } from '../lib/providerSafe.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -151,9 +152,8 @@ export class CCIPEventListener {
 
   _listenForArbitrationRequests() {
     if (!this.receiverContract) return;
-
     // Listen for ArbitrationRequestSent events
-    this.receiverContract.on('ArbitrationRequestSent', async (
+    safeOn(this.receiverContract, 'ArbitrationRequestSent', async (
       messageId,
       disputeId,
       destinationChainSelector,
@@ -196,9 +196,8 @@ export class CCIPEventListener {
 
   _listenForDecisionEvents() {
     if (!this.receiverContract) return;
-
     // Listen for ArbitrationDecisionReceived events
-    this.receiverContract.on('ArbitrationDecisionReceived', async (
+    safeOn(this.receiverContract, 'ArbitrationDecisionReceived', async (
       messageId,
       disputeId,
       sourceChainSelector,

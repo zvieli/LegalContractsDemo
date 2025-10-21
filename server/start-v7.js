@@ -1,4 +1,34 @@
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import path from 'path';
+import { spawn } from 'child_process';
+import net from 'net';
+import { existsSync, mkdirSync } from 'fs';
+import chalk from 'chalk';
 
+// Load environment variables FIRST
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+dotenv.config({ path: path.join(__dirname, '.env') });
+
+// Runtime state for Helia/external daemon and spawned server
+let externalHeliaProcess = null;
+let heliaAvailable = false;
+let heliaMode = 'unknown'; // 'external-http' | 'external-spawn' | 'inproc' | 'none'
+
+// List of required environment variables for V7 backend startup
+const requiredVars = [
+  'OLLAMA_HOST',
+  'PORT',
+  'CCIP_ENABLED',
+];
+
+// List of optional environment variables for V7 backend startup
+const optionalVars = [
+  'NODE_ENV',
+  'LOG_LEVEL',
+];
 
 function checkEnvironment() {
   let missingVars = [];
@@ -12,90 +42,21 @@ function checkEnvironment() {
     process.exit(1);
   }
 }
-// List of optional environment variables for V7 backend startup
-const optionalVars = [
-  // 'MOCK_HELIA',
-  'NODE_ENV',
-  'LOG_LEVEL',
-  // Add more as needed for your deployment
-];
-// List of required environment variables for V7 backend startup
-const requiredVars = [
-  'OLLAMA_HOST',
-  'PORT',
-  'CCIP_ENABLED',
-  // 'HELIA_HOST',
-  // Add more as needed for your deployment
-];
-
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-import path from 'path';
-import { execSync } from 'child_process';
-
-// Ensure dotenv loads .env from the server directory
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-dotenv.config({ path: path.join(__dirname, '.env') });
-import { spawn } from 'child_process';
-import net from 'net';
-import { existsSync, mkdirSync } from 'fs';
-import chalk from 'chalk';
-import { CCIPEventListener } from './ccip/ccipEventListener.js';
-import { getContractAddress } from './utils/deploymentLoader.js';
-import { createHelia } from 'helia';
-
-// Load environment variables
-dotenv.config();
-
-console.log(chalk.cyan.bold('🚀 Starting V7 Backend System...'));
-
-
-
-async function isHeliaResponsive(url) {
-  try {
-    const res = await fetch(url, { method: 'POST' });
-    if (res.ok) return true;
-    if (res.status === 403 || res.status === 405) {
-  console.log(chalk.yellow(`⚠️ Helia probe returned ${res.status} — treating as responsive`));
-      return true;
-    }
-  } catch (err) {
-  console.log(chalk.gray('ℹ️ Helia POST probe failed, will try GET: ' + (err && err.message)));
-    try {
-      const res2 = await fetch(url, { method: 'GET' });
-      if (res2.ok) return true;
-      if (res2.status === 403 || res2.status === 405) {
-  console.log(chalk.yellow(`⚠️ Helia GET probe returned ${res2.status} — treating as responsive`));
-        return true;
-      }
-    } catch (err2) {
-  console.log(chalk.gray('ℹ️ Helia GET probe failed, will try POST with empty body: ' + (err2 && err2.message)));
-      try {
-        const res3 = await fetch(url, { method: 'POST', body: '' });
-        if (res3.ok) return true;
-        if (res3.status === 403 || res3.status === 405) {
-          console.log(chalk.yellow(`⚠️ Helia empty-POST probe returned ${res3.status} — treating as responsive`));
-          return true;
-        }
-      } catch (err3) {
-  console.log(chalk.gray('🔍 Helia final probe attempt failed: ' + (err3 && err3.message)));
-        return false;
-      }
-    }
-  }
-  return false;
-}
-
-
 
 function ensureDirectories() {
   const requiredDirs = [
     'logs',
     'temp'
   ];
-  // Removed Python LLM Arbitrator API code
+  
+  requiredDirs.forEach(dir => {
+    const dirPath = path.join(__dirname, dir);
+    if (!existsSync(dirPath)) {
+      mkdirSync(dirPath, { recursive: true });
+      console.log(chalk.green(`✅ Created directory: ${dir}`));
+    }
+  });
+  
   // Check environment modes
   const isDev = (process.env.NODE_ENV === 'development');
   const isProd = process.env.NODE_ENV === 'production';
@@ -140,12 +101,6 @@ function ensureDirectories() {
   }
 }
 
-
-
-// ...הוסר קוד Python LLM Arbitrator API...
-
-
-
 function isPortInUse(port, host = '127.0.0.1') {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -163,6 +118,61 @@ function isPortInUse(port, host = '127.0.0.1') {
   });
 }
 
+// Simple HTTP probe for Helia (or other HTTP-API endpoints)
+async function isHeliaResponsive(url, timeoutMs = 2000) {
+  try {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    clearTimeout(id);
+    if (!res) return false;
+    if (res.ok) return true;
+    // Some Helia gateways may return 403/405 for certain endpoints but still be responsive
+    if (res.status === 403 || res.status === 405) return true;
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Attempt to start an external Helia daemon via configured command (non-blocking)
+function startExternalHelia(cmd, args = []) {
+  try {
+    console.log(chalk.cyan('[Helia] Starting external Helia daemon:'), cmd, args.join(' '));
+    externalHeliaProcess = spawn(cmd, args, {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env }
+    });
+
+    externalHeliaProcess.stdout.on('data', (d) => console.log(chalk.gray(`[Helia stdout] ${d.toString().trim()}`)));
+    externalHeliaProcess.stderr.on('data', (d) => console.warn(chalk.yellow(`[Helia stderr] ${d.toString().trim()}`)));
+    externalHeliaProcess.on('exit', (code, signal) => {
+      console.warn(chalk.yellow(`[Helia] external process exited code=${code} signal=${signal}`));
+      externalHeliaProcess = null;
+      heliaAvailable = false;
+      heliaMode = 'none';
+    });
+
+    return externalHeliaProcess;
+  } catch (e) {
+    console.error(chalk.red('[Helia] Failed to spawn external helia process:'), e && e.message ? e.message : e);
+    externalHeliaProcess = null;
+    return null;
+  }
+}
+
+// wait/poll for Helia HTTP probe with timeout
+async function waitForHelia(httpUrl, timeoutMs = 20000, intervalMs = 1000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const ok = await isHeliaResponsive(httpUrl, Math.min(3000, intervalMs));
+    if (ok) return true;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  return false;
+}
+
 async function startV7Server() {
   console.log(chalk.green('🌐 Starting V7 Express Server...'));
 
@@ -171,7 +181,7 @@ async function startV7Server() {
     const inUse = await isPortInUse(port);
     if (inUse) {
       console.log(chalk.yellow(`⚠️ Port ${port} already in use — assuming an existing V7 server is running. Skipping spawn.`));
-      return null; // indicate we didn't spawn a child server
+      return null;
     }
   } catch (err) {
     console.log(chalk.gray('ℹ️ Could not check port usage:'), err.message || err);
@@ -179,7 +189,12 @@ async function startV7Server() {
 
   const serverProcess = spawn('node', [path.join(__dirname, 'index.js')], {
     stdio: 'pipe',
-    env: { ...process.env, NODE_ENV: process.env.NODE_ENV || 'development' }
+    env: {
+      ...process.env,
+      NODE_ENV: process.env.NODE_ENV || 'development',
+      AUTO_START_SERVER: 'true',
+      SERVER_PORT: String(process.env.SERVER_PORT || process.env.PORT || '3001')
+    }
   });
 
   serverProcess.stdout.on('data', (data) => {
@@ -190,15 +205,26 @@ async function startV7Server() {
     console.log(chalk.red(`[V7 Server Error] ${data.toString().trim()}`));
   });
 
+  // Watch for child server exit and errors so the wrapper can log and optionally act
+  serverProcess.on('exit', (code, signal) => {
+    console.warn(chalk.yellow(`[V7 Server] child process exited with code=${code} signal=${signal}`));
+  });
+
+  serverProcess.on('error', (err) => {
+    console.error(chalk.red('[V7 Server] spawn error:'), err && err.stack ? err.stack : err);
+  });
+
   return serverProcess;
 }
 
-
-
-function startCCIPEventListener() {
+async function startCCIPEventListener() {
   console.log(chalk.blue('🔗 Starting CCIP Event Listener...'));
   
   try {
+    // Dynamic import to avoid circular dependencies
+    const { CCIPEventListener } = await import('./ccip/ccipEventListener.js');
+    const { getContractAddress } = await import('./utils/deploymentLoader.js');
+    
     const ccipListener = new CCIPEventListener({
       rpcUrl: process.env.RPC_URL || 'http://127.0.0.1:8545',
       chainId: parseInt(process.env.CHAIN_ID) || 31337,
@@ -210,44 +236,70 @@ function startCCIPEventListener() {
       privateKey: process.env.PRIVATE_KEY
     });
     
-    // Initialize and start listening
-    ccipListener.initialize().then(() => {
-      ccipListener.startListening();
-      console.log(chalk.green('✅ CCIP Event Listener started successfully'));
-    }).catch(error => {
-      console.error(chalk.red('❌ Failed to start CCIP Event Listener:'), error);
-    });
+    await ccipListener.initialize();
+    ccipListener.startListening();
+    console.log(chalk.green('✅ CCIP Event Listener started successfully'));
     
     return ccipListener;
   } catch (error) {
-    console.error(chalk.red('❌ Failed to initialize CCIP Event Listener:'), error);
+    console.error(chalk.red('❌ Failed to start CCIP Event Listener:'), error);
     return null;
   }
 }
 
-
-
 async function startV7System() {
   try {
+    console.log(chalk.cyan.bold('🚀 Starting V7 Backend System...'));
     console.log(chalk.cyan('📋 Initializing V7 Backend System...'));
     
     // Step 1: Ensure directories
     ensureDirectories();
-    // Step 1: Ensure directories
-    ensureDirectories();
-    // Step 2: Check environment
-    checkEnvironment();
-    // Step 1: Ensure directories
-    ensureDirectories();
-
+    
     // Step 2: Check environment
     checkEnvironment();
 
-  // Step 3: Start V7 Express server
-  const serverProcess = await startV7Server();
+    // Step 2.1: Helia probe / startup flow
+    try {
+      const heliaHttp = process.env.HELIA_API || process.env.HELIA_HOST || 'http://127.0.0.1:5001/api/v0/version';
+      // 1) Try direct HTTP probe
+      const directOk = await isHeliaResponsive(heliaHttp, 2000);
+      if (directOk) {
+        heliaAvailable = true;
+        heliaMode = 'external-http';
+        console.log(chalk.green('[Helia] External Helia API seems available at'), heliaHttp);
+      } else {
+        // 2) If configured, try to spawn external helia daemon
+        if ((process.env.START_EXTERNAL_HELIA || '').toString().toLowerCase() === 'true' && process.env.HELIA_CMD) {
+          const cmd = process.env.HELIA_CMD;
+          const args = process.env.HELIA_ARGS ? process.env.HELIA_ARGS.split(' ') : [];
+          startExternalHelia(cmd, args);
+          const ok = await waitForHelia(heliaHttp, 20000, 1500);
+          if (ok) {
+            heliaAvailable = true;
+            heliaMode = 'external-spawn';
+            console.log(chalk.green('[Helia] External Helia started and reachable'));
+          } else {
+            console.warn(chalk.yellow('[Helia] External Helia spawn attempted but HTTP probe failed'));
+          }
+        }
+        // 3) If still not available, opt for in-process Helia if enabled
+        if (!heliaAvailable && (process.env.START_INPROC_HELIA || '').toString().toLowerCase() === 'true') {
+          heliaAvailable = true;
+          heliaMode = 'inproc';
+          console.log(chalk.cyan('[Helia] Using in-process Helia (START_INPROC_HELIA=true)'));
+        }
+      }
+    } catch (e) {
+      console.warn(chalk.yellow('[Helia] Probe/start flow failed:'), e && e.message ? e.message : e);
+      heliaAvailable = false;
+      heliaMode = 'none';
+    }
+
+    // Step 3: Start V7 Express server
+    const serverProcess = await startV7Server();
 
     // Step 4: Start CCIP Event Listener for Oracle integration
-    const ccipListener = startCCIPEventListener();
+    const ccipListener = await startCCIPEventListener();
 
     console.log(chalk.cyan.bold('\n🎉 V7 Backend System Started Successfully!'));
     console.log(chalk.white('📍 Services:'));
@@ -255,12 +307,14 @@ async function startV7System() {
     if (ccipListener) {
       console.log(chalk.white('   • CCIP Oracle Listener: Active'));
     }
-    console.log(chalk.white('   • Helia Node: Active'));
     console.log(chalk.white(`   • Health Check: http://localhost:${process.env.SERVER_PORT || 3001}/api/v7/arbitration/health`));
+    // Helia status
+    console.log(chalk.white(`   • Helia: ${heliaAvailable ? heliaMode : 'unavailable'}`));
+    if (externalHeliaProcess) console.log(chalk.white(`     - external Helia PID: ${externalHeliaProcess.pid}`));
     console.log(chalk.gray('\nPress Ctrl+C to stop all services'));
     
     // Handle graceful shutdown
-    process.on('SIGINT', () => {
+    process.on('SIGINT', async () => {
       console.log(chalk.yellow('\n🛑 Shutting down V7 Backend System...'));
 
       if (ccipListener) {
@@ -279,7 +333,7 @@ async function startV7System() {
         console.log(chalk.gray('ℹ️ No spawned V7 server process to stop'));
       }
 
-  if (externalHeliaProcess) {
+      if (externalHeliaProcess) {
         try {
           externalHeliaProcess.kill();
           console.log(chalk.gray('✅ External Helia daemon process killed'));
@@ -287,7 +341,6 @@ async function startV7System() {
           console.log(chalk.yellow('⚠️ Failed to kill external Helia process:'), e.message);
         }
       }
-
       console.log(chalk.cyan('👋 V7 Backend System shutdown complete'));
       process.exit(0);
     });

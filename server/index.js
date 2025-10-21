@@ -15,6 +15,7 @@ import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
 import disputeHistory from './modules/disputeHistory.js';
 import v7TestingRoutes from './routes/v7Testing.js';
+import RotatingLogger from './lib/rotatingLogger.js';
 import dotenv from 'dotenv';
 dotenv.config();
 // Evidence storage - prefer Helia local node (production) but keep in-memory fallback
@@ -125,6 +126,27 @@ app.post('/api/v7/arbitration/ollama-test', async (req, res) => {
   }
 });
 const PORT = process.env.SERVER_PORT || process.env.PORT || 3001;
+
+// --- Rotating/compressing file logger ---
+try {
+  const logsDir = path.join(__dirname, 'logs');
+  const rotLogger = new RotatingLogger({ dir: logsDir, baseName: 'server.log', maxBytes: 2 * 1024 * 1024, compress: true, maxArchived: 24 });
+  const rotErrLogger = new RotatingLogger({ dir: logsDir, baseName: 'server.err.log', maxBytes: 2 * 1024 * 1024, compress: true, maxArchived: 24 });
+  // Forward stdout/stderr to rotating logger (best-effort, non-blocking)
+  const origStdoutWrite = process.stdout.write.bind(process.stdout);
+  const origStderrWrite = process.stderr.write.bind(process.stderr);
+  process.stdout.write = (chunk, encoding, cb) => {
+    try { rotLogger.write(typeof chunk === 'string' ? chunk : chunk.toString(encoding)); } catch (e) {}
+    return origStdoutWrite(chunk, encoding, cb);
+  };
+  process.stderr.write = (chunk, encoding, cb) => {
+    try { rotErrLogger.write(typeof chunk === 'string' ? chunk : chunk.toString(encoding)); } catch (e) {}
+    return origStderrWrite(chunk, encoding, cb);
+  };
+  console.log('[rotating-logger] Initialized rotator in', logsDir);
+} catch (e) {
+  console.warn('[rotating-logger] Failed to initialize:', e && e.message ? e.message : e);
+}
 
 app.get('/api/dispute-history/:caseId', (req, res) => {
   try {
@@ -1170,98 +1192,75 @@ app.get('/api/batch/:caseId', (req, res) => {
   }
 });
 
-// Start server (guard against duplicate starts in test environment)
-if (!global.__ARBI_SERVER_STARTED) {
-  app.listen(PORT, async () => {
-    console.log(`🚀 ArbiTrust V7 Server running on port ${PORT}`);
-    global.__ARBI_SERVER_STARTED = true;
-  console.log(`📡 Health check: http://localhost:${PORT}/api/v7/arbitration/health`);
-  
-  // 🏭 Helia node is used for evidence storage in production mode
-  if (isProduction) {
-    console.log('🏭 Production Mode: Helia local node (127.0.0.1:5001)');
+// Server lifecycle management: provide startServer/stopServer so tests can control startup
+let serverInstance = null;
+let currentPort = PORT;
+
+async function startServer(port = PORT) {
+  // If server is running on a different port, restart it on requested port
+  if (serverInstance && currentPort !== Number(port)) {
+    console.log(`Server is running on port ${currentPort}, restarting on requested port ${port}`);
+    try {
+      await stopServer();
+    } catch (e) {
+      console.warn('Failed to stop existing server before restart:', e && e.message ? e.message : e);
+    }
+  } else if (serverInstance) {
+    console.log('Server already started on requested port', currentPort);
+    return serverInstance;
   }
-  
-  // Environment-specific initialization
-  if (isDevelopment) {
-    console.log('🔧 Development Mode Configuration:');
-    console.log('   • Evidence: Validation disabled');
-    console.log('   • Helia: Local node not required');
-    console.log(`📝 Development info available at: http://localhost:${PORT}/api/v7/debug/development-info`);
-  } else if (isProduction) {
-    console.log('🏭 Production Mode Configuration:');
-    console.log('   • Evidence: Helia local node (127.0.0.1:5001)');
-    console.log('   • Validation: Real Helia CID validation');
-    console.log('   • Helia: Local node required');
-    console.log(`🔗 Test Helia: curl http://127.0.0.1:5001/api/v0/version`);
-  } else {
-    console.log('⚪ Legacy Mode: Using original evidence validation');
-  }
-  
-    // Load Ollama module after server starts
-  const ollamaLoaded = await loadOllamaModule();
-  
-  // Initialize CCIP Integration
-  await initializeCCIPIntegration();
-  
-  // API endpoints
-// CCIP Event Listener Status Endpoint (for tests)
-// Load CCIP addresses from deployment-summary.json
-const deploymentPath = path.resolve(__dirname, '../front/src/utils/contracts/deployment-summary.json');
-let ccipSenderAddress = null;
-let ccipReceiverAddress = null;
-try {
-  const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
-  ccipSenderAddress = deployment.ccip.contracts.CCIPArbitrationSender;
-  ccipReceiverAddress = deployment.ccip.contracts.CCIPArbitrationReceiver;
-} catch (e) {
-  console.warn('Could not load CCIP addresses from deployment-summary.json:', e.message);
+
+  currentPort = Number(port);
+  return new Promise((resolve, reject) => {
+    try {
+      serverInstance = app.listen(currentPort, async () => {
+        try {
+          console.log(`🚀 ArbiTrust V7 Server running on port ${currentPort}`);
+          global.__ARBI_SERVER_STARTED = true;
+          console.log(`📡 Health check: http://localhost:${currentPort}/api/v7/arbitration/health`);
+          if (isProduction) console.log('🏭 Production Mode: Helia local node (127.0.0.1:5001)');
+          if (isDevelopment) console.log(`📝 Development info available at: http://localhost:${currentPort}/api/v7/debug/development-info`);
+
+          // Load Ollama module and initialize CCIP integration after server is listening
+          try { await loadOllamaModule(); } catch(e) { console.warn('loadOllamaModule failed:', e); }
+          try { await initializeCCIPIntegration(); } catch(e) { console.warn('initializeCCIPIntegration failed:', e); }
+
+          resolve(serverInstance);
+        } catch (initErr) {
+          console.error('Error during server startup initialization:', initErr && initErr.stack ? initErr.stack : initErr);
+          resolve(serverInstance);
+        }
+      });
+    } catch (err) {
+      reject(err);
+    }
+  });
 }
 
-app.get('/api/v7/ccip/status', async (req, res) => {
-  // Always reload deployment-summary.json for fresh addresses
-  let senderAddress = null;
-  let receiverAddress = null;
-  let arbitrationService = null;
-  try {
-    console.log('Loading deployment from:', deploymentPath);
-    const deployment = JSON.parse(fs.readFileSync(deploymentPath, 'utf8'));
-    senderAddress = deployment.ccip.contracts.CCIPArbitrationSender;
-    receiverAddress = deployment.ccip.contracts.CCIPArbitrationReceiver;
-    arbitrationService = deployment.contracts.ArbitrationService || null;
-    console.log('Loaded addresses - Sender:', senderAddress, 'Receiver:', receiverAddress);
-  } catch (e) {
-    console.warn('Could not load CCIP addresses from deployment-summary.json:', e.message);
-  }
-  res.json({
-    eventListener: senderAddress && receiverAddress ? 'active' : 'inactive',
-    senderAddress,
-    receiverAddress,
-    arbitrationService
+async function stopServer() {
+  if (!serverInstance) return;
+  return new Promise((resolve) => {
+    try {
+      serverInstance.close(() => {
+        serverInstance = null;
+        global.__ARBI_SERVER_STARTED = false;
+        console.log('Server stopped');
+        resolve();
+      });
+    } catch (e) {
+      console.warn('Error stopping server:', e && e.message ? e.message : e);
+      serverInstance = null;
+      global.__ARBI_SERVER_STARTED = false;
+      resolve();
+    }
   });
-});
-  if (ollamaLoaded) {
-    console.log(`🤖 Ollama Arbitration: http://localhost:${PORT}/api/v7/arbitration/ollama`);
-  }
-  console.log(`🎯 Simulation Arbitration: http://localhost:${PORT}/api/v7/arbitration/simulate`);
-  console.log(`🔧 Debug endpoints available at /api/v7/debug/`);
-  
-  // Mode-specific documentation
-  console.log('\n📋 Usage Instructions:');
-  if (isDevelopment) {
-    console.log('   Development Mode - Limited functionality:');
-    console.log('   • Evidence validation disabled');
-    console.log('   • Use production mode for full features');
-  } else if (isProduction) {
-    console.log('   Production Mode - Use real Helia CIDs:');
-    console.log('   • Helia local node: Required and must be running');
-    console.log('   • Upload evidence: Use API or Helia tools');
-    console.log('   • Use returned CID in API calls');
-  }
-    console.log('');
-  });
-} else {
-  console.log('⚠️ Server start skipped because __ARBI_SERVER_STARTED is set');
+}
+
+// Auto-start for legacy/dev runs if explicitly enabled or when running tests
+const shouldAutoStart = process.env.AUTO_START_SERVER === 'true' || process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+if (shouldAutoStart) {
+  const autoPort = process.env.SERVER_PORT || process.env.PORT || 3001;
+  startServer(Number(autoPort)).catch(e => console.error('Auto start failed:', e));
 }
 
 // Graceful shutdown
@@ -1338,4 +1337,5 @@ app.use((req, res) => {
   });
 });
 
+export { startServer, stopServer };
 export default app;
