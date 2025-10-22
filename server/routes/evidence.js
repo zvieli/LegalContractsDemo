@@ -1,58 +1,20 @@
 import express from 'express';
 import path from 'path';
-import { collectContractHistory } from '../lib/collectHistory.js';
 import { encryptForAdmin, decryptForAdmin } from '../lib/eciesServer.js';
 import { uploadPayload } from '../lib/heliaUploader.js';
 import { getProvider, getProviderSync } from '../lib/getProvider.js';
 import * as heliaService from '../modules/helia/heliaService.js';
 import fs from 'fs';
+import { ethers } from 'ethers';
 
 const router = express.Router();
 
 // POST /api/start-appeal
 // body: { contractAddress, fromBlock?, toBlock?, abiPaths? }
 // Collects contract history, uploads it to Helia (via uploadPayload) and returns a historyRef (cid)
+// NOTE: start-appeal endpoint deprecated on server. Frontend should collect history and POST to /api/submit-appeal
 router.post('/start-appeal', async (req, res) => {
-  try {
-    const body = req.body || {};
-    const { contractAddress, fromBlock, toBlock, abiPaths: abiPathsBody } = body;
-    if (!contractAddress) return res.status(400).json({ error: 'contractAddress required' });
-
-    const provider = await getProvider();
-
-    const abiPathsEnv = process.env.EVIDENCE_ABI_PATHS || '';
-    const abiPaths = Array.isArray(abiPathsBody) && abiPathsBody.length ? abiPathsBody
-      : (abiPathsEnv ? abiPathsEnv.split(',').map(p => path.resolve(p)) : []);
-
-    let history = [];
-    try {
-      history = await collectContractHistory(provider, contractAddress, abiPaths.length ? abiPaths : [path.resolve('artifacts', 'contracts')], fromBlock || 0, toBlock || 'latest');
-    } catch (err) {
-      console.warn('[start-appeal] collectContractHistory failed, proceeding with empty history. error=', err && (err.message || err));
-      history = [];
-    }
-
-    const payload = {
-      contractAddress,
-      collectedAt: Date.now(),
-      history,
-      server: { hostname: process.env.HOSTNAME || null }
-    };
-
-    let uploadResult = null;
-    try {
-      uploadResult = await uploadPayload(JSON.stringify(payload), { name: `history_${contractAddress}` });
-    } catch (e) {
-      console.error('[start-appeal] upload failed', e && e.message);
-      return res.status(500).json({ error: 'failed to store history', details: String(e && e.message) });
-    }
-
-    const historyRef = uploadResult.uri || uploadResult.http || uploadResult.path || uploadResult.cid || null;
-    return res.json({ historyRef, upload: uploadResult });
-  } catch (e) {
-    console.error('[/api/start-appeal] error', e && e.stack ? e.stack : e);
-    return res.status(500).json({ error: String(e && e.message ? e.message : e) });
-  }
+  return res.status(501).json({ error: 'server-side history collection disabled; use client-side collectTransactionHistory and submit to /api/submit-appeal' });
 });
 
 // POST /api/submit-appeal
@@ -88,65 +50,106 @@ router.post('/submit-appeal', async (req, res) => {
           }
         }
       } else {
-        try {
-          history = await collectContractHistory(provider, contractAddress, abiPaths.length ? abiPaths : [path.resolve('artifacts', 'contracts')], fromBlock || 0, toBlock || 'latest');
-        } catch (err) {
-          console.warn('[submit-appeal] collectContractHistory failed, proceeding with empty history. error=', err && (err.message || err));
-          history = [];
-        }
+        // Server-side history collection is deprecated. Expect clients to upload historyRef or inlineHistory.
+        history = [];
       }
     } catch (e) {
       console.warn('[submit-appeal] history resolution error', e && e.message);
     }
 
-    // If complaintCid not provided but userEvidence raw text is, upload complaint to Helia to obtain a complaintCid
-    let resolvedComplaintRef = complaintCid || null;
-    if (!resolvedComplaintRef && userEvidence) {
+    // If the client provided a signedPayload + signature, verify EIP-191 signature here and prefer signedPayload as the authoritative canonical payload
+    let payloadRef = null;
+    const { signedPayload, signature, signerAddress } = body || {};
+    let envelopeUploadResult = null;
+    let digest = null;
+    if (signedPayload && signature && signerAddress) {
       try {
-        const complaintUpload = await uploadPayload(typeof userEvidence === 'string' ? userEvidence : JSON.stringify(userEvidence), { name: `complaint_${contractAddress}` });
-        resolvedComplaintRef = complaintUpload.uri || complaintUpload.http || complaintUpload.path || complaintUpload.cid || null;
+        const recovered = ethers.verifyMessage(String(signedPayload), String(signature));
+        if ((recovered || '').toLowerCase() !== String(signerAddress).toLowerCase()) {
+          return res.status(400).json({ error: 'signature verification failed', recovered, signerAddress });
+        }
+
+        // Try to parse the signedPayload as JSON; if parse fails, store as raw string
+        let parsedPayload = null;
+        try { parsedPayload = JSON.parse(String(signedPayload)); } catch (e) { parsedPayload = null; }
+
+        // Filter payload to only allowed fields to enforce reduced schema
+        const allowed = ['contractAddress','contractType','plaintiff','defendant','txHistory','complaint','requestedAmount'];
+        let filteredPayload = null;
+        if (parsedPayload && typeof parsedPayload === 'object') {
+          filteredPayload = {};
+          for (const k of allowed) {
+            if (Object.prototype.hasOwnProperty.call(parsedPayload, k)) filteredPayload[k] = parsedPayload[k];
+          }
+        } else {
+          // If it's not parseable JSON, we still store the raw string under a canonical key
+          filteredPayload = { canonical: String(signedPayload) };
+        }
+
+        // Upload the raw canonical payload separately (this will be the primary payloadRef)
+        try {
+          const payloadUpload = await uploadPayload(JSON.stringify(filteredPayload), { name: `canonical_${contractAddress}` });
+          payloadRef = payloadUpload.uri || payloadUpload.http || payloadUpload.path || payloadUpload.cid || null;
+        } catch (e) {
+          console.error('[submit-appeal] payload upload failed', e && e.message);
+          payloadRef = null;
+        }
+
+        // Prepare an admin envelope containing the filtered payload plus signature for auditing
+        const combinedForAdmin = { payload: filteredPayload, signature: String(signature), signerAddress: String(signerAddress) };
+
+        // Prepare encryption: encrypt to admin pubkey if requested
+        const adminPub = process.env.ADMIN_PUBLIC_KEY;
+        let envelope = null;
+        if (encryptToAdmin) {
+          if (!adminPub) return res.status(500).json({ error: 'ADMIN_PUBLIC_KEY not configured on server' });
+          const enc = await encryptForAdmin(JSON.stringify(combinedForAdmin), adminPub);
+          envelope = enc.envelope || enc;
+          digest = enc.digest || null;
+        } else {
+          envelope = { plaintext: combinedForAdmin };
+          digest = null;
+        }
+
+        try {
+          envelopeUploadResult = await uploadPayload(JSON.stringify(envelope), { name: `evidence_${contractAddress}` });
+        } catch (e) {
+          console.error('[submit-appeal] envelope upload failed', e && e.message);
+          envelopeUploadResult = null;
+        }
+
       } catch (e) {
-        console.error('[submit-appeal] complaint upload failed', e && e.message);
+        return res.status(400).json({ error: 'signature verification error', details: String(e && e.message) });
+      }
+    } else {
+      // No signedPayload provided: fall back to storing userEvidence if present
+      if (userEvidence) {
+        try {
+          const complaintUpload = await uploadPayload(typeof userEvidence === 'string' ? userEvidence : JSON.stringify(userEvidence), { name: `complaint_${contractAddress}` });
+          payloadRef = complaintUpload.uri || complaintUpload.http || complaintUpload.path || complaintUpload.cid || null;
+        } catch (e) {
+          console.error('[submit-appeal] complaint upload failed', e && e.message);
+        }
+      }
+
+      // For non-signed flows, also create an envelope with minimal context if admin encryption requested
+      if (encryptToAdmin) {
+        const adminPub = process.env.ADMIN_PUBLIC_KEY;
+        if (!adminPub) return res.status(500).json({ error: 'ADMIN_PUBLIC_KEY not configured on server' });
+        const combined = { contractAddress, history: (Array.isArray(history) && history.length) ? history : null, historyRef: resolvedHistoryRef, metadata: metadata || {}, complaintRef: payloadRef, userEvidence: userEvidence && !payloadRef ? userEvidence : null };
+        const enc = await encryptForAdmin(JSON.stringify(combined), adminPub);
+        try {
+          envelopeUploadResult = await uploadPayload(JSON.stringify(enc.envelope || enc), { name: `evidence_${contractAddress}` });
+          digest = enc.digest || null;
+        } catch (e) {
+          console.error('[submit-appeal] envelope upload failed', e && e.message);
+          envelopeUploadResult = null;
+        }
       }
     }
 
-    const combined = {
-      contractAddress,
-      collectedAt: Date.now(),
-      // include inline history if available, otherwise reference by historyRef when provided
-      history: (Array.isArray(history) && history.length) ? history : null,
-      historyRef: resolvedHistoryRef,
-      metadata: metadata || {},
-      complaintRef: resolvedComplaintRef,
-      userEvidence: userEvidence && !resolvedComplaintRef ? userEvidence : null,
-      server: { hostname: process.env.HOSTNAME || null }
-    };
-
-    // Prepare encryption: encrypt to admin pubkey if requested
-    const adminPub = process.env.ADMIN_PUBLIC_KEY;
-    let envelope = null;
-    let digest = null;
-    if (encryptToAdmin) {
-      if (!adminPub) return res.status(500).json({ error: 'ADMIN_PUBLIC_KEY not configured on server' });
-      const enc = await encryptForAdmin(JSON.stringify(combined), adminPub);
-      envelope = enc.envelope || enc;
-      digest = enc.digest || null;
-    } else {
-      // store plaintext as envelope for now (not recommended)
-      envelope = { plaintext: combined };
-      digest = null;
-    }
-
-    // Upload using the unified uploader which will use heliaService and chunking/manifest as needed
-    let uploadResult = null;
-    try {
-      uploadResult = await uploadPayload(JSON.stringify(envelope), { name: `evidence_${contractAddress}` });
-    } catch (e) {
-      console.error('[submit-appeal] upload failed', e && e.message);
-      return res.status(500).json({ error: 'failed to store evidence', details: String(e && e.message) });
-    }
-    const evidenceRef = uploadResult.uri || uploadResult.http || uploadResult.path || uploadResult.cid || null;
-    return res.json({ evidenceRef, digest, upload: uploadResult });
+    const evidenceRef = envelopeUploadResult ? (envelopeUploadResult.uri || envelopeUploadResult.http || envelopeUploadResult.path || envelopeUploadResult.cid || null) : null;
+    return res.json({ evidenceRef, payloadRef, digest, upload: envelopeUploadResult });
   } catch (e) {
     console.error('[/api/submit-appeal] error', e && e.stack ? e.stack : e);
     return res.status(500).json({ error: String(e && e.message ? e.message : e) });

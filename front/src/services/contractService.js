@@ -1,6 +1,8 @@
 import { ethers } from 'ethers';
 import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 import { computePayloadDigest } from '../utils/cidDigest';
+import EnhancedRentContractJson from '../utils/contracts/EnhancedRentContract.json';
+import NDATemplateJson from '../utils/contracts/NDATemplate.json';
 
 function extractCidFromUri(uri) {
   if (!uri) return null;
@@ -300,6 +302,59 @@ export class ContractService {
       }
     };
 
+    // Helper: robust EIP-712 signer that tries several methods (RPC, signer helpers)
+    this._doSignTypedData = async (domain, types, value) => {
+      // Try RPC method eth_signTypedData_v4 first if window.ethereum is available
+      try {
+        if (typeof window !== 'undefined' && window.ethereum) {
+          try {
+            const addr = (await this._getSignerAddressSafe()) || null;
+            if (addr) {
+              const payload = JSON.stringify({ domain, types: { [Object.keys(types)[0]]: types[Object.keys(types)[0]] }, message: value });
+              const sig = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [addr, payload] }).catch(() => null);
+              if (sig) return sig;
+            }
+          } catch (e) {
+            // ignore and fallback
+          }
+        }
+
+        // Try signer.signTypedData (some providers expose this method)
+        if (this.signer && typeof this.signer.signTypedData === 'function') {
+          try {
+            return await this.signer.signTypedData(domain, types, value);
+          } catch (e) {
+            // continue to other options
+          }
+        }
+
+        // Try ethers._signTypedData helper if present on signer
+        if (this.signer && typeof this.signer._signTypedData === 'function') {
+          try {
+            return await this.signer._signTypedData(domain, types, value);
+          } catch (e) {
+            // continue
+          }
+        }
+
+        // As a last resort, attempt provider-based RPC call (may work for some injected providers)
+        try {
+          if (this.provider && typeof this.provider.send === 'function') {
+            const addr = (await this._getSignerAddressSafe()) || null;
+            if (addr) {
+              const payload = JSON.stringify({ domain, types: { [Object.keys(types)[0]]: types[Object.keys(types)[0]] }, message: value });
+              const sig = await this.provider.send('eth_signTypedData_v4', [addr, payload]).catch(() => null);
+              if (sig) return sig;
+            }
+          }
+        } catch (e) {}
+
+        throw new Error('No supported EIP-712 signing method available');
+      } catch (e) {
+        throw e;
+      }
+    };
+
   if (!this.provider) console.warn('[ContractService] Warning: provider is undefined after normalization');
   if (!this.signer) console.warn('[ContractService] Warning: signer is undefined after normalization');
   if (!this.chainId) console.warn('[ContractService] Warning: chainId is undefined after normalization');
@@ -318,6 +373,90 @@ export class ContractService {
         console.warn('[ContractService] signer debug error', e);
       }
     })();
+  }
+
+  /**
+   * Collect transaction history for a contract from the read provider.
+   * Returns normalized entries sorted by blockNumber desc. Tries to decode logs
+   * using local ABIs packaged in the frontend.
+   * options: { fromBlock?, toBlock?, maxEntries=200 }
+   */
+  async collectTransactionHistory(contractAddress, options = {}) {
+    const provider = this._providerForRead();
+    if (!provider) throw new Error('No read provider available for collectTransactionHistory');
+
+    const { fromBlock = null, toBlock = 'latest', maxEntries = 200 } = options || {};
+    const abiMerged = [];
+    try { if (EnhancedRentContractJson && EnhancedRentContractJson.abi) abiMerged.push(...EnhancedRentContractJson.abi); } catch(_) {}
+    try { if (NDATemplateJson && NDATemplateJson.abi) abiMerged.push(...NDATemplateJson.abi); } catch(_) {}
+
+    const iface = abiMerged.length ? new ethers.Interface(abiMerged) : null;
+
+    let to = toBlock;
+    try { if (to === 'latest') to = await provider.getBlockNumber(); } catch (e) { to = 'latest'; }
+    let from = fromBlock;
+    if (from === null || typeof from === 'undefined') {
+      // default to a recent window to avoid huge queries
+      try {
+        const cur = typeof to === 'number' ? to : await provider.getBlockNumber();
+        from = Math.max(0, cur - 1000);
+      } catch (e) { from = 0; }
+    }
+
+    // Query logs
+    let logs = [];
+    try {
+      logs = await provider.getLogs({ address: contractAddress, fromBlock: Number(from), toBlock: to === 'latest' ? 'latest' : Number(to) });
+    } catch (e) {
+      console.warn('[ContractService.collectTransactionHistory] getLogs failed:', e && e.message);
+      logs = [];
+    }
+
+    const entries = [];
+    const blockCache = new Map();
+    for (const log of logs) {
+      try {
+        let parsed = null;
+        if (iface) {
+          try { parsed = iface.parseLog(log); } catch (e) { parsed = null; }
+        }
+        let ts = null;
+        try {
+          if (blockCache.has(log.blockNumber)) ts = blockCache.get(log.blockNumber);
+          else {
+            const block = await provider.getBlock(log.blockNumber);
+            ts = block ? block.timestamp : null;
+            blockCache.set(log.blockNumber, ts);
+          }
+        } catch (e) { ts = null; }
+
+        const evName = parsed ? parsed.name : null;
+        const args = parsed ? parsed.args : null;
+        let amount = null;
+        if (args) {
+          // common arg names: amount, value
+          amount = args.amount || args.value || null;
+        }
+        const amountEth = amount ? ethers.formatEther(BigInt(amount.toString())) : null;
+
+        entries.push({
+          eventName: evName,
+          amount: amountEth || '0',
+          hash: log.transactionHash,
+          date: ts ? new Date(Number(ts) * 1000).toLocaleString() : null,
+          blockNumber: log.blockNumber,
+          logIndex: typeof log.logIndex !== 'undefined' ? log.logIndex : log.index,
+          raw: log,
+          note: evName || null
+        });
+      } catch (e) {
+        console.warn('[ContractService.collectTransactionHistory] decode failed for log', e && e.message);
+      }
+    }
+
+    // Sort desc by blockNumber/logIndex and limit
+    entries.sort((a,b) => (b.blockNumber - a.blockNumber) || ((b.logIndex || 0) - (a.logIndex || 0)));
+    return entries.slice(0, maxEntries);
   }
 
   /**
@@ -897,6 +1036,51 @@ export class ContractService {
       // Return null to allow callers (UI) to skip this contract rather than
       // letting a single malformed/ABI-mismatched contract crash the whole flow.
       return null;
+    }
+  }
+
+  // Read-only: return escrowBalance (wei) for EnhancedRent contracts.
+  async getEscrowBalance(contractAddress) {
+    try {
+      const rent = await this.getEnhancedRentContract(contractAddress);
+      if (typeof rent.escrowBalance !== 'function') return 0n;
+      const val = await rent.escrowBalance();
+      return BigInt(val || 0n);
+    } catch (e) {
+      console.debug('getEscrowBalance failed', e);
+      return 0n;
+    }
+  }
+
+  // Read-only: return partyDeposit[address] (wei) for the given account.
+  async getPartyDeposit(contractAddress, account) {
+    try {
+      const rent = await this.getEnhancedRentContract(contractAddress);
+      if (typeof rent.partyDeposit !== 'function') return 0n;
+      const val = await rent.partyDeposit(account);
+      return BigInt(val || 0n);
+    } catch (e) {
+      console.debug('getPartyDeposit failed', e);
+      return 0n;
+    }
+  }
+
+  // Payable helper: deposit ETH into contract escrow using the standard payRentInEth entrypoint.
+  // amountWei should be a BigInt or string representing wei.
+  async depositToEscrow(contractAddress, amountWei) {
+    try {
+      const rent = await this.getEnhancedRentContract(contractAddress, { signerRequired: true });
+      // prefer explicit payable entrypoint if available
+      if (typeof rent.payRentInEth === 'function') {
+        const tx = await rent.payRentInEth({ value: amountWei });
+        return tx;
+      }
+      // fallback: send raw value to contract address (not recommended but supported)
+      const tx = await this.signer.sendTransaction({ to: contractAddress, value: amountWei });
+      return tx;
+    } catch (e) {
+      console.error('depositToEscrow failed', e);
+      throw e;
     }
   }
 
@@ -1902,7 +2086,8 @@ export class ContractService {
           const endpoint = (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_EVIDENCE_SUBMIT_ENDPOINT) ? window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT : (import.meta.env ? import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT : null);
           // Use provided endpoint or default to local route so tests can mock fetch without needing env vars
           const base = endpoint ? endpoint.replace(/\/$/, '') : '';
-          const url = base ? (base.endsWith('/submit-appeal') ? base : (base + '/submit-appeal')) : '/submit-appeal';
+          // Default to backend-mounted route '/api/submit-appeal' when no endpoint is configured.
+          const url = base ? (base.endsWith('/submit-appeal') ? base : (base + '/submit-appeal')) : '/api/submit-appeal';
           const body = { contractAddress: contractAddress, userEvidence: appealEvidence };
           // Attempt server POST first. If server responds OK, persist mapping. If server fails, fall back to client-side upload but DO NOT persist mapping.
           let serverOk = false;
@@ -2342,7 +2527,7 @@ async signNDA(contractAddress) {
       customClausesHash,
     };
   if (!this._isSignerLike(this.signer)) throw new Error('No signer available to sign NDA');
-  const signature = await this.signer.signTypedData(domain, types, value);
+  const signature = await this._doSignTypedData(domain, types, value);
   const tx = await nda.signNDA(signature);
     return await tx.wait();
   } catch (error) {
@@ -2479,8 +2664,9 @@ async signRent(contractAddress) {
       // Fetch dueDate (0 allowed pre-set). If not set, require landlord sets first for determinism.
       const dueDate = await rent.dueDate();
       const rentAmount = await rent.rentAmount();
+      // The on-chain contract sets EIP712 name to "TemplateRentContract" (see constructor)
       const domain = {
-  name: 'EnhancedRentContract',
+        name: 'TemplateRentContract',
         version: '1',
         chainId: Number(this.chainId),
         verifyingContract: contractAddress
@@ -2501,7 +2687,42 @@ async signRent(contractAddress) {
         rentAmount: BigInt(rentAmount),
         dueDate: BigInt(dueDate)
       };
-  const signature = await this.signer.signTypedData(domain, types, value);
+  const signature = await this._doSignTypedData(domain, types, value);
+  // Debug: locally verify the produced signature matches the signer and the
+  // contract's expected digest. This helps diagnose on-chain SignatureMismatch
+  // reverts by comparing recovered address to the wallet address before sending.
+  try {
+  const digest = ethers.TypedDataEncoder.hash(domain, types, value);
+    let recoveredTyped = null;
+    let recoveredDigest = null;
+    try {
+      recoveredTyped = ethers.verifyTypedData(domain, types, value, signature);
+    } catch (vErr) {
+      console.warn('verifyTypedData failed:', vErr && vErr.message ? vErr.message : vErr);
+    }
+    try {
+      recoveredDigest = ethers.recoverAddress(digest, signature);
+    } catch (rErr) {
+      console.warn('recoverAddress(digest, sig) failed:', rErr && rErr.message ? rErr.message : rErr);
+    }
+    console.log('signRent: signature produced:', String(signature).slice(0, 12) + '...', {
+      signatureLength: signature ? (String(signature).length - (String(signature).startsWith('0x') ? 2 : 0)) / 2 : null,
+      digest,
+      recoveredTyped,
+      recoveredDigest,
+      expected: myAddr
+    });
+    // Normalize for comparison and fail fast with a clear message to aid debugging
+    const recNorm = (recoveredTyped || recoveredDigest || '').toLowerCase?.() || '';
+    if (recNorm && recNorm !== myAddr) {
+      throw new Error(`Local signature verification mismatch: recovered ${recNorm} !== signer ${myAddr}. Aborting on-chain call to avoid revert. Payload type: RENT. Inspect domain/types/value and signing method.`);
+    }
+  } catch (verifyErr) {
+    // Surface verification error as a clearer message instead of opaque CALL_EXCEPTION
+    console.error('signRent local verification error:', verifyErr);
+    throw verifyErr;
+  }
+
   console.log("Signing rent on contract address:", rent.target || rent.address || contractAddress);
   const tx = await rent.signRent(signature);
   return await tx.wait();

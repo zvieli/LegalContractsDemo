@@ -879,6 +879,108 @@ async function processV7ArbitrationWithOllama(payload = {}) {
   }
 }
 
+// Build a strict JSON-output prompt with few-shot examples for reliable parsing
+function buildStructuredPrompt({ evidence_text = '', contract_text = '', dispute_id = 'unknown' } = {}) {
+  // Keep examples short and focused. In production you may want longer few-shot examples.
+  const examples = [
+    {
+      in: {
+        evidence: 'Party B delivered all work on time and client accepted final deliverables; invoices paid in full.',
+        contract: 'Standard service contract, milestones completed.'
+      },
+      out: { verdict: 'NO_PENALTY', confidence: 0.9, rationale: 'Deliverables accepted and payments processed; no material loss.', reimbursement: null }
+    },
+    {
+      in: {
+        evidence: 'Client reports missing modules, delayed delivery, and financial loss due to missed deadline.',
+        contract: 'Schedule critical; delays incur liquidated damages.'
+      },
+      out: { verdict: 'PARTY_A_WINS', confidence: 0.85, rationale: 'Delays caused financial loss and breach of schedule clauses.', reimbursement: 1500 }
+    }
+  ];
+
+  const schema = {
+    type: 'object',
+    properties: {
+      verdict: "one of ['PARTY_A_WINS','PARTY_B_WINS','NO_PENALTY','DRAW']",
+      confidence: 'number between 0.0 and 1.0',
+      rationale: 'string explanation',
+      reimbursement: 'number (amount) or null'
+    }
+  };
+
+  let prompt = 'You are an impartial contract arbitrator.\n';
+  prompt += 'Below are the EVIDENCE and CONTRACT for a dispute.\n';
+  prompt += `DISPUTE_ID: ${dispute_id}\n\n`;
+  prompt += 'INSTRUCTIONS:\n';
+  prompt += '- Read the EVIDENCE and CONTRACT carefully.\n';
+  prompt += "- Return ONLY a single JSON object that exactly matches the schema below (no surrounding commentary).\n";
+  prompt += `- Schema: ${JSON.stringify(schema)}\n`;
+  prompt += "- Fields: verdict (one of the four canonical labels), confidence (0.0-1.0), rationale (brief), reimbursement (amount or null).\n";
+  prompt += '\nEXAMPLES:\n';
+  for (const ex of examples) {
+    prompt += 'INPUT_EVIDENCE: ' + ex.in.evidence + '\n';
+    prompt += 'INPUT_CONTRACT: ' + ex.in.contract + '\n';
+    prompt += 'OUTPUT_JSON: ' + JSON.stringify(ex.out) + '\n---\n';
+  }
+
+  prompt += '\nEVIDENCE:\n' + (evidence_text || '') + '\n';
+  prompt += '\nCONTRACT:\n' + (contract_text || '') + '\n\n';
+  prompt += 'Now produce the OUTPUT_JSON for the provided EVIDENCE and CONTRACT. ONLY return the JSON object.';
+  return prompt;
+}
+
+// Try to extract JSON object from model output robustly
+function extractJsonObject(text) {
+  if (!text || typeof text !== 'string') return null;
+  // First try to find a JSON block between triple ticks ```json ... ```
+  const codeBlockMatch = text.match(/```json\s*([\s\S]*?)```/i);
+  const raw = codeBlockMatch ? codeBlockMatch[1] : text;
+  // Attempt to find the first {...} object
+  const firstBrace = raw.indexOf('{');
+  const lastBrace = raw.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const candidate = raw.slice(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(candidate);
+      return parsed;
+    } catch (e) {
+      // fallthrough
+    }
+  }
+  // fallback: try to parse the whole text
+  try { return JSON.parse(raw); } catch (e) { return null; }
+}
+
+// Host-side wrapper: build structured prompt, call Ollama, parse JSON, fallback to older parsing
+async function processEvidenceWithOllama({ evidence_text = '', contract_text = '', dispute_id = 'unknown', timeout = 200000 } = {}) {
+  const prompt = buildStructuredPrompt({ evidence_text, contract_text, dispute_id });
+  const raw = await callOllama(prompt, timeout, false, 400);
+  const responseText = raw.response || (raw && raw.responseText) || '';
+  // Save raw for debugging in caller
+  let parsed = extractJsonObject(responseText);
+  if (parsed && parsed.verdict) {
+    // Normalize fields
+    const verdict = (parsed.verdict || '').toString().toUpperCase();
+    let confidence = parsed.confidence;
+    if (typeof confidence === 'string') {
+      if (confidence.endsWith('%')) confidence = parseFloat(confidence.replace('%',''))/100;
+      else confidence = parseFloat(confidence);
+    }
+    confidence = (typeof confidence === 'number' && !Number.isNaN(confidence)) ? Math.min(Math.max(confidence, 0), 1) : 0.7;
+    const reimbursement = parsed.reimbursement === null ? null : Number(parsed.reimbursement || 0);
+    return { ok: true, model: raw.model || 'ollama', raw: raw, verdict, confidence, rationale: parsed.rationale || '', reimbursement };
+  }
+
+  // Fallback to legacy parsing and NLP heuristics
+  const validated = validateResponse(responseText);
+  if (validated && validated.valid) {
+    return { ok: true, model: raw.model || 'ollama', raw: raw, verdict: validated.verdict, confidence: validated.confidence, rationale: validated.rationale, reimbursement: validated.reimbursement };
+  }
+  const normalized = normalizeLLMResponse({ response: responseText, confidence: undefined });
+  return { ok: true, model: raw.model || 'ollama', raw: raw, verdict: normalized.verdict, confidence: normalized.confidence, rationale: responseText, reimbursement: normalized.reimbursement || 0 };
+}
+
 // Minimal Ollama arbitrator object used by other modules for health checks
 const ollamaLLMArbitrator = {
   async getStats() {
@@ -887,7 +989,7 @@ const ollamaLLMArbitrator = {
   process: processV7ArbitrationWithOllama
 };
 
-export { nlpVerdictMapping, mergeArbitrationVerdicts, validateResponse, callOllama, processV7ArbitrationWithOllama, ollamaLLMArbitrator };
+export { nlpVerdictMapping, mergeArbitrationVerdicts, validateResponse, callOllama, processV7ArbitrationWithOllama, processEvidenceWithOllama, ollamaLLMArbitrator };
 // For CommonJS, uncomment below:
 // module.exports = { nlpVerdictMapping, splitToChunks, summarizeChunksConcurrently };
 

@@ -12,16 +12,14 @@ import { getContractAddress, createContractInstanceAsync } from '../../utils/con
 import ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
-import EvidenceList from '../Evidence/EvidenceList';
-import EvidenceBatchModal from '../Evidence/EvidenceBatchModal.jsx';
-import AppealEvidenceList from '../AppealEvidenceList';
 import { useNotifications } from '../../contexts/NotificationContext.jsx';
-import { useEvidence } from '../../hooks/useEvidence.js';
 import { registerRecipient } from '../../utils/recipientKeys.js';
-import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
 import { IN_E2E } from '../../utils/env';
 import EnhancedRentContractJson from '../../utils/contracts/EnhancedRentContract.json';
 import NDATemplateJson from '../../utils/contracts/NDATemplate.json';
+import { canonicalize } from '../../utils/evidenceCanonical.js';
+import { computeContentDigest } from '../../utils/evidenceCanonical.js';
+import { signEvidenceEIP712, hashRecipients } from '../../utils/evidence.js';
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const contractInstanceRef = useRef(null);
   const { account, signer, chainId, provider, contracts: globalContracts, loading, isConnecting, connectWallet } = useEthers();
@@ -61,16 +59,12 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [arbApprove, setArbApprove] = useState(true);
   const [arbBeneficiary, setArbBeneficiary] = useState('');
   const [showDisputeForm, setShowDisputeForm] = useState(false);
-  const [showAppealEvidenceModal, setShowAppealEvidenceModal] = useState(false);
-  const [appealEvidenceInput, setAppealEvidenceInput] = useState('');
-  const [pendingAppealEvidence, setPendingAppealEvidence] = useState(null);
-  const [showServerSubmitConfirm, setShowServerSubmitConfirm] = useState(false);
-  const [serverSubmitting, setServerSubmitting] = useState(false);
-  const [serverSubmitError, setServerSubmitError] = useState(null);
-  // Human-friendly progress message from server/flow (e.g. "Collecting contract history...")
-  const [submitProgressMessage, setSubmitProgressMessage] = useState(null);
-  // Toggle to reveal technical error detail
-  const [showServerErrorDetails, setShowServerErrorDetails] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewPayloadStr, setPreviewPayloadStr] = useState('');
+  const [previewPayloadObj, setPreviewPayloadObj] = useState(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
+  // appeal evidence modal removed per UX decision
   const [disputeForm, setDisputeForm] = useState({ dtype: 4, amountEth: '0', evidence: '' });
 
   // Confirmation modal state for payable actions
@@ -96,6 +90,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
   const [appealEvidenceList, setAppealEvidenceList] = useState([]);
+  const [escrowBalanceWei, setEscrowBalanceWei] = useState(0n);
+  const [partyDepositWei, setPartyDepositWei] = useState(0n);
+  const [topUpAmountEth, setTopUpAmountEth] = useState('0');
   const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
   const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
   const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
@@ -184,12 +181,90 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   // Load transaction history
   const loadTransactionHistory = async (details) => {
     try {
-      const contractService = new ContractService(provider, signer, chainId);
-      // Implementation would depend on your specific transaction history loading logic
-      // This is a placeholder - replace with actual implementation
-      setTransactionHistory([]);
+      if (!details || !details.address || !provider) {
+        setTransactionHistory([]);
+        return;
+      }
+  const enhancedRentAbi = EnhancedRentContractJson.abi;
+  // Prefer a read-only JSON-RPC provider (local Hardhat) to reliably query past logs
+  const svc = new ContractService(provider, signer, chainId);
+  const p = svc._providerForRead() || provider;
+      console.log('[loadTransactionHistory] using provider for read:', p && p.connection ? p.connection.url || p.connection : p);
+      console.log('[loadTransactionHistory] provider type:', Object.prototype.toString.call(p));
+  const contractInstance = new ethers.Contract(details.address, enhancedRentAbi, p);
+
+      // Query historical events: RentPaid, SecurityDepositPaid, DisputeReported
+      const rentFilter = contractInstance.filters.RentPaid();
+      const depositFilter = contractInstance.filters.SecurityDepositPaid();
+      const disputeFilter = contractInstance.filters.DisputeReported();
+
+      const [rentLogs, depositLogs, disputeLogs] = await Promise.all([
+        contractInstance.queryFilter(rentFilter, 0, 'latest').catch((e) => { console.warn('[loadTransactionHistory] rent queryFilter error', e); return []; }),
+        contractInstance.queryFilter(depositFilter, 0, 'latest').catch((e) => { console.warn('[loadTransactionHistory] deposit queryFilter error', e); return []; }),
+        contractInstance.queryFilter(disputeFilter, 0, 'latest').catch((e) => { console.warn('[loadTransactionHistory] dispute queryFilter error', e); return []; })
+      ]);
+
+      console.log('[loadTransactionHistory] raw logs counts', { rent: rentLogs.length, deposit: depositLogs.length, dispute: disputeLogs.length });
+
+      const toEntry = async (log, type) => {
+        try {
+          const args = log.args || [];
+          let entry = { type, txHash: log.transactionHash, new: false, blockNumber: log.blockNumber };
+          if (type === 'RentPaid') {
+            const tenant = args[0];
+            const amount = args[1];
+            const amt = ethers.formatEther(amount);
+            entry.data = { tenant, amount: amt };
+            // normalize for UI
+            entry.amount = amt;
+            entry.hash = log.transactionHash;
+          } else if (type === 'SecurityDepositPaid') {
+            const by = args[0];
+            const amount = args[1];
+            const total = args[2];
+            const amt = ethers.formatEther(amount);
+            const tot = ethers.formatEther(total);
+            entry.data = { by, amount: amt, total: tot };
+            entry.amount = amt;
+            entry.hash = log.transactionHash;
+          } else if (type === 'DisputeReported') {
+            const caseId = args[0];
+            const initiator = args[1];
+            const disputeType = args[2];
+            const requestedAmount = args[3];
+            const req = ethers.formatEther(requestedAmount);
+            entry.data = { caseId: caseId.toString(), initiator, disputeType: disputeType.toString(), requestedAmount: req };
+            entry.amount = req;
+            entry.hash = log.transactionHash;
+          }
+          // Attach human-friendly date from block timestamp when available
+          try {
+            const block = await (p && typeof p.getBlock === 'function' ? p.getBlock(log.blockNumber) : provider.getBlock(log.blockNumber));
+            entry.date = new Date((block.timestamp || 0) * 1000).toLocaleString();
+          } catch (_) {
+            entry.date = '';
+          }
+          return entry;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      const allLogs = [];
+      for (const l of rentLogs) allLogs.push({ log: l, type: 'RentPaid' });
+      for (const l of depositLogs) allLogs.push({ log: l, type: 'SecurityDepositPaid' });
+      for (const l of disputeLogs) allLogs.push({ log: l, type: 'DisputeReported' });
+
+      // Convert and sort by blockNumber desc
+      const entries = (await Promise.all(allLogs.map(i => toEntry(i.log, i.type)))).filter(Boolean)
+        .sort((a, b) => (b.blockNumber || 0) - (a.blockNumber || 0));
+
+      console.log('[loadTransactionHistory] entries produced count:', entries.length, 'preview:', entries.slice(0,5));
+
+      setTransactionHistory(entries);
     } catch (error) {
       console.error('Error loading transaction history:', error);
+      setTransactionHistory([]);
     }
   };
 
@@ -199,6 +274,22 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       loadContractData();
     }
   }, [isOpen, contractAddress]);
+
+  // Refresh escrow/party deposit balances
+  const refreshBalances = async () => {
+    try {
+      if (!contractAddress || !provider) return;
+      const svc = new ContractService(provider, signer, chainId);
+      const eb = await svc.getEscrowBalance(contractAddress).catch(() => 0n);
+      const pd = account ? await svc.getPartyDeposit(contractAddress, account).catch(() => 0n) : 0n;
+      setEscrowBalanceWei(BigInt(eb || 0n));
+      setPartyDepositWei(BigInt(pd || 0n));
+    } catch (e) {
+      console.debug('refreshBalances failed', e);
+    }
+  };
+
+  useEffect(() => { if (isOpen && contractAddress) { refreshBalances(); } }, [isOpen, contractAddress, account]);
 
   // Fetch factory owner and arbitration owner for debug/admin checks
   useEffect(() => {
@@ -272,19 +363,35 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       contractInstance = new ethers.Contract(contractAddress, enhancedRentAbi, provider);
       
       const rentPaidHandler = (tenant, amount, event) => {
-        setTransactionHistory(evts => [{ type:'RentPaid', data:{ tenant, amount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+        try {
+          const amt = ethers.formatEther(amount);
+          setTransactionHistory(evts => [{ type:'RentPaid', amount: amt, data: { tenant, amount: amt }, txHash: event.transactionHash, hash: event.transactionHash, date: new Date().toLocaleString(), new:true }, ...evts.map(e=>({...e,new:false}))]);
+        } catch (e) {
+          setTransactionHistory(evts => [{ type:'RentPaid', data:{ tenant, amount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+        }
       };
       contractInstance.on('RentPaid', rentPaidHandler);
       listeners.push(() => contractInstance.off('RentPaid', rentPaidHandler));
       
       const depositHandler = (by, amount, total, event) => {
-        setTransactionHistory(evts => [{ type:'SecurityDepositPaid', data:{ by, amount, total }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+        try {
+          const amt = ethers.formatEther(amount);
+          const tot = ethers.formatEther(total);
+          setTransactionHistory(evts => [{ type:'SecurityDepositPaid', amount: amt, data:{ by, amount: amt, total: tot }, txHash:event.transactionHash, hash:event.transactionHash, date: new Date().toLocaleString(), new:true }, ...evts.map(e=>({...e,new:false}))]);
+        } catch (e) {
+          setTransactionHistory(evts => [{ type:'SecurityDepositPaid', data:{ by, amount, total }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+        }
       };
       contractInstance.on('SecurityDepositPaid', depositHandler);
       listeners.push(() => contractInstance.off('SecurityDepositPaid', depositHandler));
       
       const disputeHandler = (caseId, initiator, disputeType, requestedAmount, event) => {
-        setTransactionHistory(evts => [{ type:'DisputeReported', data:{ caseId, initiator, disputeType, requestedAmount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+        try {
+          const req = ethers.formatEther(requestedAmount);
+          setTransactionHistory(evts => [{ type:'DisputeReported', amount: req, data:{ caseId: caseId.toString(), initiator, disputeType: disputeType.toString(), requestedAmount: req }, txHash:event.transactionHash, hash:event.transactionHash, date: new Date().toLocaleString(), new:true }, ...evts.map(e=>({...e,new:false}))]);
+        } catch (e) {
+          setTransactionHistory(evts => [{ type:'DisputeReported', data:{ caseId, initiator, disputeType, requestedAmount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
+        }
       };
       contractInstance.on('DisputeReported', disputeHandler);
       listeners.push(() => contractInstance.off('DisputeReported', disputeHandler));
@@ -453,42 +560,56 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     setRentSigning(true);
     try {
       const contractService = new ContractService(provider, signer, chainId);
-      // If no incomingDispute JSON, check persisted appealEvidence entries and open modal to show them
-      if (!json) {
-        try {
-          const appealKey = `appealEvidence:${String(contractAddress).toLowerCase()}`;
-          const raw = localStorage.getItem(appealKey);
-          if (raw) {
-            const arr = JSON.parse(raw || '[]');
-            setAppealEvidenceList(Array.isArray(arr) ? arr : []);
-            // create a minimal appealData object so the modal can render
-            setAppealData({ contractAddress, caseId: null, reporter: null, createdAt: arr && arr[0] && arr[0].createdAt ? new Date(arr[0].createdAt).toISOString() : new Date().toISOString(), evidence: null });
-            setShowAppealModal(true);
-            return;
-          }
-        } catch (e) { /* ignore */ }
 
-        alert('No appeal found for this contract');
+      // Try to load any incoming dispute JSON for this contract from storage
+      let incoming = null;
+      try {
+        const key1 = `incomingDispute:${contractAddress}`;
+        const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+        incoming = localStorage.getItem(key1) || localStorage.getItem(key2) || sessionStorage.getItem('incomingDispute');
+      } catch (err) {
+        incoming = null;
+      }
+
+      // If there's an incoming dispute stored for this contract, show the appeal modal.
+      if (incoming) {
+        let obj = null;
+        try {
+          obj = JSON.parse(incoming);
+        } catch (err) {
+          console.error('Malformed incoming dispute JSON', err, incoming);
+          alert('Stored dispute data is malformed.');
+          return;
+        }
+        setAppealData(obj);
+        try {
+          const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+          const raw2 = localStorage.getItem(key);
+          if (raw2) {
+            const arr2 = JSON.parse(raw2 || '[]');
+            setAppealEvidenceList(Array.isArray(arr2) ? arr2 : []);
+          } else {
+            setAppealEvidenceList([]);
+          }
+        } catch (err) {
+          setAppealEvidenceList([]);
+        }
+        setShowAppealModal(true);
         return;
       }
 
-      const obj = JSON.parse(json);
-      setAppealData(obj);
-      // Also load persisted appealEvidence refs for display
+      // No incoming dispute: proceed with signing the rent contract
       try {
-        const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
-        const raw2 = localStorage.getItem(key);
-        if (raw2) {
-          const arr2 = JSON.parse(raw2 || '[]');
-          setAppealEvidenceList(Array.isArray(arr2) ? arr2 : []);
-        } else {
-          setAppealEvidenceList([]);
-        }
-      } catch (e) { setAppealEvidenceList([]); }
-      setShowAppealModal(true);
-      console.error('Error signing contract:', e);
-      if (typeof window !== 'undefined' && window?.toast) {
-        window.toast('Failed to sign contract: ' + (e?.message || e), { type: 'error' });
+        const svc = new ContractService(provider, signer, chainId);
+  const receipt = await svc.signRent(contractAddress);
+  alert(`✅ Contract signed on-chain. Tx: ${receipt.transactionHash || receipt.transactionHash || receipt.hash || ''}`);
+  // Optimistically mark this wallet as signed so the UI disables the button immediately
+  setRentAlreadySigned(true);
+  // Refresh contract details to pick up fullySigned if the counterparty already signed
+  await loadContractData();
+      } catch (signErr) {
+        console.error('Failed to sign rent contract:', signErr);
+        alert(`Failed to sign contract: ${signErr?.message || signErr}`);
       }
     } finally {
       setRentSigning(false);
@@ -672,7 +793,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       setDisputeForm(s => ({ ...s, evidence: overrideStr }));
     }
 
-    let evidenceRaw = overrideStr !== null ? overrideStr : (disputeForm.evidence || '');
+  let evidenceRaw = overrideStr !== null ? overrideStr : (disputeForm.evidence || '');
     setActionLoading(true);
 
     try {
@@ -693,6 +814,25 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
       if (!targetAddress || !/^0x[0-9a-fA-F]{40}$/.test(String(targetAddress))) {
         throw new Error(`Invalid or missing contractAddress when submitting dispute: ${String(targetAddress)}`);
+      }
+
+      // Check available funds and warn if requested amount exceeds available (partyDeposit + escrow)
+      try {
+        const svc = new ContractService(provider, signer, chainId);
+        const escrow = await svc.getEscrowBalance(targetAddress).catch(() => 0n);
+        const deposit = account ? await svc.getPartyDeposit(targetAddress, account).catch(() => 0n) : 0n;
+        const available = BigInt(escrow || 0n) + BigInt(deposit || 0n);
+        if (amountWei > 0n && BigInt(amountWei) > available) {
+          const availableEth = ethers.formatEther(available);
+          const requestedEth = ethers.formatEther(amountWei);
+          const ok = confirm(`Requested amount ${requestedEth} ETH exceeds available on-chain funds (${availableEth} ETH).\nYou may top up escrow or continue to submit (the arbitrator may award a judgement for any shortfall). Continue anyway?`);
+          if (!ok) {
+            setActionLoading(false);
+            return null;
+          }
+        }
+      } catch (e) {
+        // ignore balance check failures - allow submission
       }
 
       let caseId = null;
@@ -730,6 +870,83 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         if (res && typeof res === 'object' && res.caseId != null) caseId = res.caseId;
       }
 
+      // Build canonical payload and POST signed copy to server for archival (EIP-191)
+      try {
+        if (signer && account) {
+          // Build payload using agreed final schema
+          const contractTypeMap = (t) => {
+            if (!t) return 'other';
+            const lower = String(t).toLowerCase();
+            if (lower.includes('rent') || lower.includes('rental')) return 'rental';
+            if (lower.includes('nda')) return 'nda';
+            return 'other';
+          };
+          const plaintiff = account || null;
+          let defendant = null;
+          try {
+            if (effectiveDetails?.type === 'Rental') {
+              defendant = (plaintiff && effectiveDetails.landlord && plaintiff.toLowerCase() === effectiveDetails.tenant?.toLowerCase()) ? effectiveDetails.landlord : (effectiveDetails.landlord || effectiveDetails.tenant || null);
+            } else {
+              defendant = (effectiveDetails && (effectiveDetails.landlord || effectiveDetails.tenant)) ? (effectiveDetails.landlord || effectiveDetails.tenant) : null;
+            }
+          } catch (_) { defendant = null; }
+
+          const canonicalPayloadForServer = {
+            contractAddress: String(targetAddress),
+            contractType: contractTypeMap(effectiveDetails?.type),
+            plaintiff: plaintiff,
+            defendant: defendant,
+            txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
+            complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
+            requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null
+          };
+
+          // Minimal client-side validation (reduced schema)
+          const errs = [];
+          if (!/^0x[0-9a-fA-F]{40}$/.test(canonicalPayloadForServer.contractAddress)) errs.push('Invalid contractAddress');
+          try { if (plaintiff && !ethers.isAddress(plaintiff)) errs.push('Invalid plaintiff address'); } catch (e) {}
+          try { if (defendant && !ethers.isAddress(defendant)) errs.push('Invalid defendant address'); } catch (e) {}
+          if ((!canonicalPayloadForServer.txHistory || canonicalPayloadForServer.txHistory.length === 0) && !canonicalPayloadForServer.complaint) errs.push('Either txHistory must be present or complaint required');
+          if (canonicalPayloadForServer.requestedAmount && !/^[0-9]+(\.[0-9]+)?$/.test(String(canonicalPayloadForServer.requestedAmount))) errs.push('requestedAmount must be numeric');
+          if (errs.length) {
+            console.warn('Payload validation failed', errs);
+            // still attempt to continue but warn
+          }
+
+          const signedPayloadStr = canonicalize(canonicalPayloadForServer);
+          // EIP-191 signMessage
+          let sig191 = null;
+          try {
+            sig191 = await signer.signMessage(signedPayloadStr);
+          } catch (e) {
+            console.error('EIP-191 sign failed', e);
+            sig191 = null;
+          }
+
+          if (sig191) {
+            try {
+              const resp = await fetch('/api/submit-appeal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contractAddress: targetAddress, signedPayload: signedPayloadStr, signature: sig191, signerAddress: account, complaintCid: evidenceRef, metadata: {} })
+              });
+              if (resp && resp.ok) {
+                const parsed = await resp.json();
+                if (parsed && parsed.evidenceRef) {
+                  evidenceRef = parsed.evidenceRef;
+                }
+              } else {
+                console.warn('Server submit-appeal returned non-ok', resp && resp.status);
+              }
+            } catch (e) {
+              console.error('submit-appeal POST failed', e);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Failed to sign/submit canonical payload to server', e);
+      }
+
       const incoming = {
         contractAddress: targetAddress,
         dtype: Number(disputeForm.dtype || 0),
@@ -747,6 +964,72 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         localStorage.setItem(perKey, JSON.stringify(incoming));
       } catch (e) {
         console.warn('Failed to persist per-contract incomingDispute', e);
+      }
+
+      // Attempt to anchor the returned evidenceRef on-chain by calling submitEvidenceWithSignature
+      if (evidenceRef && signer) {
+        (async () => {
+          try {
+            // Build a small canonical payload (reduced schema) to compute contentDigest
+            const contractTypeMap = (t) => {
+              if (!t) return 'other';
+              const lower = String(t).toLowerCase();
+              if (lower.includes('rent') || lower.includes('rental')) return 'rental';
+              if (lower.includes('nda')) return 'nda';
+              return 'other';
+            };
+            const plaintiffP = account || null;
+            let defendantP = null;
+            try {
+              if (effectiveDetails?.type === 'Rental') {
+                defendantP = (plaintiffP && effectiveDetails.landlord && plaintiffP.toLowerCase() === effectiveDetails.tenant?.toLowerCase()) ? effectiveDetails.landlord : (effectiveDetails.landlord || effectiveDetails.tenant || null);
+              } else {
+                defendantP = (effectiveDetails && (effectiveDetails.landlord || effectiveDetails.tenant)) ? (effectiveDetails.landlord || effectiveDetails.tenant) : null;
+              }
+            } catch (_) { defendantP = null; }
+
+            const canonicalPayload = {
+              contractAddress: targetAddress,
+              contractType: contractTypeMap(effectiveDetails?.type),
+              plaintiff: plaintiffP,
+              defendant: defendantP,
+              txHistory: transactionHistory ? transactionHistory.slice(0, 200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
+              complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
+              requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null
+            };
+
+            const canon = canonicalize(canonicalPayload);
+            const contentDigest = computeContentDigest(canon);
+
+            const contractInfo = { chainId: Number(chainId || 0), verifyingContract: targetAddress };
+            const recipients = [];
+            const recipientsHash = hashRecipients(recipients);
+
+            const evidenceData = { caseId: caseId != null ? Number(caseId) : 0, contentDigest, recipients, cid: String(evidenceRef).replace(/^helia:\/\//i, '') };
+            const signature = await signEvidenceEIP712(evidenceData, contractInfo, signer);
+
+            try {
+              const contractWithSigner = new ethers.Contract(targetAddress, EnhancedRentContractJson.abi, signer);
+              if (typeof contractWithSigner.submitEvidenceWithSignature === 'function') {
+                const tx = await contractWithSigner.submitEvidenceWithSignature(
+                  evidenceData.caseId,
+                  evidenceData.cid,
+                  evidenceData.contentDigest,
+                  recipientsHash,
+                  signature
+                );
+                await tx.wait();
+                console.log('[submitDisputeForm] on-chain evidence recorded', tx.hash);
+              } else {
+                console.warn('[submitDisputeForm] contract does not support submitEvidenceWithSignature');
+              }
+            } catch (onChainErr) {
+              console.error('Failed to submit evidence on-chain:', onChainErr);
+            }
+          } catch (e) {
+            console.error('Failed to compute/sign canonical payload for on-chain anchor:', e);
+          }
+        })();
       }
 
       setShowDisputeForm(false);
@@ -837,27 +1120,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   };
 
   // Start cancellation flow and optionally upload appeal evidence first
-  const handleStartCancellationWithAppeal = async () => {
-    // Show confirmation modal to indicate we're preferring server-side evidence assembly and upload
-    try {
-      // Determine evidence string to use
-      let evidence = null;
-      if (disputeForm && disputeForm.evidence) {
-        evidence = disputeForm.evidence;
-      } else if (appealEvidenceInput && String(appealEvidenceInput).trim()) {
-        evidence = appealEvidenceInput.trim();
-      }
-
-      setPendingAppealEvidence(evidence);
-      setServerSubmitError(null);
-      setShowServerSubmitConfirm(true);
-
-      // No prefetch: history will be collected when the user explicitly "Submit to Server".
-    } catch (e) {
-      console.error('prepare startCancellationWithAppeal failed', e);
-      alert('Failed to prepare cancellation with appeal: ' + (e?.reason || e?.message || e));
-    }
-  };
+  // startCancellationWithAppeal flow removed from UI. Use ContractService.startCancellationWithAppeal directly when needed.
 
   const handleCopyAddress = async () => {
     try {
@@ -1092,20 +1355,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   };
 
 
-  // Evidence Tab Component
-  const EvidenceTabContent = ({ contractDetails, signer, account, contractInstanceRef }) => {
-    return (
-      <div>
-        <h3>Evidence Management</h3>
-        <p>Evidence submission and management for this contract.</p>
-        <EvidenceSubmit
-          evidenceType="contract"
-          submitHandler={submitDisputeForm}
-          authAddress={account}
-        />
-      </div>
-    );
-  };
+  // Evidence tab removed
 
   // Debug contractDetails in render
   console.log('contractDetails in render:', contractDetails);
@@ -1141,76 +1391,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             onCancel={onConfirmCancel} 
             busy={confirmBusy} 
           />
-          {/* Server-prefer submission confirmation for appeal evidence */}
-          {showServerSubmitConfirm && (
-            <div className="modal-overlay" style={{position:'fixed',zIndex:9999,background:'rgba(0,0,0,0.6)'}} onClick={() => { if(!serverSubmitting) setShowServerSubmitConfirm(false); }}>
-              <div className="modal-content" style={{maxWidth:720,margin:'40px auto',padding:12}} onClick={(e)=>e.stopPropagation()}>
-                <h3>Submit appeal evidence via server</h3>
-                <p>The platform will assemble the required contract history and upload evidence to the server-managed Helia instance. This is preferred for privacy and reliability.</p>
-                <div style={{whiteSpace:'pre-wrap',background:'#f6f6f6',padding:8,borderRadius:6,marginBottom:8}}>{pendingAppealEvidence || '(no evidence provided)'}</div>
-                {serverSubmitError && (
-                  <div className="error" role="alert">
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                      <div>Error: {String(serverSubmitError?.message || serverSubmitError)}</div>
-                      <button className="btn-link" onClick={() => setShowServerErrorDetails(s => !s)} style={{marginLeft:12}}>{showServerErrorDetails ? 'Hide details' : 'Details'}</button>
-                    </div>
-                    {showServerErrorDetails && (
-                      <pre style={{whiteSpace:'pre-wrap',maxHeight:200,overflow:'auto',background:'#111',color:'#fff',padding:8,borderRadius:6,marginTop:8}}>{String(serverSubmitError)}</pre>
-                    )}
-                  </div>
-                )}
-                {submitProgressMessage && (
-                  <div aria-live="polite" style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
-                    <div className="submit-spinner" role="status" aria-live="polite" aria-label="Submitting"></div>
-                    <div className="spinner-label">{submitProgressMessage}</div>
-                  </div>
-                )}
-                <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-                  <button className="btn-secondary" disabled={serverSubmitting} onClick={() => { if(!serverSubmitting) setShowServerSubmitConfirm(false); }}>Cancel</button>
-                  <button className="btn-primary" disabled={serverSubmitting} onClick={async () => {
-                    try {
-                      setServerSubmitting(true);
-                      setServerSubmitError(null);
-                      setSubmitProgressMessage('Collecting contract history and preparing evidence...');
-                      const svc = new ContractService(provider, signer, chainId);
-                      // Pass a progress callback if the service supports it (best-effort)
-                      const res = await svc.startCancellationWithAppeal(contractAddress, { appealEvidence: pendingAppealEvidence, feeValueEth: feeToSend, progress: (msg) => setSubmitProgressMessage(msg) });
-                      // persist a record of the successful submission for UI traceability
-                      try {
-                        const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
-                        const prev = JSON.parse(localStorage.getItem(key) || '[]');
-                        const entry = { id: Date.now(), createdAt: new Date().toISOString(), evidence: pendingAppealEvidence, serverResponse: res };
-                        prev.unshift(entry);
-                        localStorage.setItem(key, JSON.stringify(prev.slice(0,20)));
-                      } catch (e) { console.warn('Failed to persist appealEvidence record', e); }
-                      alert('Cancellation transaction submitted. Check transactions/notifications for status.');
-                      setShowServerSubmitConfirm(false);
-                      setShowAppealEvidenceModal(false);
-                      setAppealEvidenceInput('');
-                      await loadContractData();
-                    } catch (e) {
-                      console.error('server submit failed', e);
-                      // Prefer structured message when available
-                      const friendly = e && e.userMessage ? e.userMessage : (e && e.message ? e.message : 'Submission failed.');
-                      setServerSubmitError({ message: friendly, detail: e });
-                      setSubmitProgressMessage(null);
-                      // persist failed attempt so user can retry
-                      try {
-                        const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
-                        const prev = JSON.parse(localStorage.getItem(key) || '[]');
-                        const entry = { id: Date.now(), createdAt: new Date().toISOString(), evidence: pendingAppealEvidence, error: String(e?.message || e) };
-                        prev.unshift(entry);
-                        localStorage.setItem(key, JSON.stringify(prev.slice(0,20)));
-                      } catch (ee) { console.warn('Failed to persist failed appealEvidence', ee); }
-                    } finally {
-                      setServerSubmitting(false);
-                      setSubmitProgressMessage(null);
-                    }
-                  }}>Submit to Server</button>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* Server pre-submit UI removed per UX decision. Use ContractService.startCancellationWithAppeal directly from other flows if needed. */}
           {/* Top-level quick actions removed to keep actions inside the Actions tab */}
         </div>
 
@@ -1299,13 +1480,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             </button>
           )}
           
-          <button 
-            className={activeTab === 'evidence' ? 'active' : ''}
-            onClick={() => setActiveTab('evidence')}
-          >
-            <i className="fas fa-folder-open"></i>
-            Evidence
-          </button>
         </div>
 
         {dataLoading ? (
@@ -1349,7 +1523,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                 <div className="details-grid" style={{marginTop:'8px'}}>
                   <div className="detail-item">
                     <span className="label">Fully Signed</span>
-                    <span className="value">{contractDetails.fullySigned ? 'Yes' : 'No'}</span>
+                    <span className="value">{contractDetails?.signatures?.fullySigned ? 'Yes' : 'No'}</span>
                   </div>
                   <div className="detail-item">
                     <span className="label">Total Deposits</span>
@@ -1444,6 +1618,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                             disabled={
                               readOnly ||
                               rentSigning ||
+                              contractDetails?.signatures?.fullySigned ||
                               !rentCanSign ||
                               !contractDetails?.landlord ||
                               !contractDetails?.tenant ||
@@ -1468,14 +1643,19 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                         )}
                         {/* If cancellation was requested, allow other party to approve */}
                         {(isLandlord || isTenant) && contractDetails?.cancellation?.cancelRequested && (
-                          <button className="btn-action" onClick={async () => {
-                            try {
-                              if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
-                              await handleApproveCancel();
-                            } catch (e) { console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
-                          }} disabled={readOnly || actionLoading}>
-                            Approve Cancellation
-                          </button>
+                          (() => {
+                            const isInitiator = (account && contractDetails?.cancelInitiator && account.toLowerCase() === contractDetails.cancelInitiator.toLowerCase());
+                            return (
+                              <button className="btn-action" onClick={async () => {
+                                try {
+                                  if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
+                                  await handleApproveCancel();
+                                } catch (e) { console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
+                              }} disabled={readOnly || actionLoading || isInitiator} title={isInitiator ? 'Cancel initiator cannot approve their own cancellation' : undefined}>
+                                Approve Cancellation
+                              </button>
+                            );
+                          })()
                         )}
                         {/* Allow landlord or tenant to submit an appeal/dispute */}
                         {(isLandlord || isTenant) && (
@@ -1483,15 +1663,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                             Submit Appeal / Dispute
                           </button>
                         )}
-                        {(isLandlord || isTenant) && (
-                          <button className="btn-action" title="Open appeal modal to add evidence before starting cancellation" onClick={async () => {
-                            try {
-                              setShowAppealEvidenceModal(true);
-                            } catch (e) { console.error('Open appeal modal failed', e); }
-                          }} disabled={readOnly || actionLoading}>
-                            Start Cancel w/ Appeal
-                          </button>
-                        )}
+                        {/* Start Cancel w/ Appeal removed per UX decision */}
                       </div>
 
                       {/* Policy editor: landlord-only */}
@@ -1538,16 +1710,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                 </div>
               </div>
             )}
-            {activeTab === 'evidence' && (
-              <div className="tab-content">
-                <EvidenceTabContent 
-                  contractDetails={contractDetails} 
-                  signer={signer} 
-                  account={account} 
-                  contractInstanceRef={contractInstanceRef} 
-                />
-              </div>
-            )}
+            {/* Evidence tab removed per UX decision */}
           </div>
 
           
@@ -1563,6 +1726,32 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             <div className="dispute-form" onClick={(e) => e.stopPropagation()}>
               <h3>Report Dispute / Submit Appeal</h3>
               <p style={{marginTop:6, marginBottom:12}}>Provide a short description or link (CID) as evidence. The reporter bond will be calculated below.</p>
+
+              <div style={{display:'flex', gap:12, marginBottom:10, alignItems:'center'}}>
+                <div style={{fontSize:13}}>Escrow: <strong>{escrowBalanceWei ? ethers.formatEther(escrowBalanceWei) : '0'} ETH</strong></div>
+                <div style={{fontSize:13}}>Your deposit: <strong>{partyDepositWei ? ethers.formatEther(partyDepositWei) : '0'} ETH</strong></div>
+              </div>
+
+              <div style={{display:'flex', gap:8, alignItems:'center', marginBottom:12}}>
+                <input className="text-input" type="number" min="0" step="0.0001" value={topUpAmountEth} onChange={e => setTopUpAmountEth(e.target.value)} style={{width:140}} />
+                <button className="btn-action" onClick={async () => {
+                  try {
+                    if (!topUpAmountEth || Number(topUpAmountEth) <= 0) { alert('Enter a positive amount'); return; }
+                    if (!signer) { alert('Connect wallet to top up'); return; }
+                    setActionLoading(true);
+                    const svc = new ContractService(provider, signer, chainId);
+                    const wei = ethers.parseEther(String(topUpAmountEth || '0'));
+                    const tx = await svc.depositToEscrow(contractAddress, wei);
+                    alert('Top-up transaction sent: ' + (tx.hash || tx.transactionHash || tx.hash));
+                    try { await tx.wait?.(); } catch (_) {}
+                    await refreshBalances();
+                    setTopUpAmountEth('0');
+                  } catch (e) {
+                    console.error('Top-up failed', e);
+                    alert('Top-up failed: ' + (e?.reason || e?.message || e));
+                  } finally { setActionLoading(false); }
+                }} disabled={actionLoading}>Top up escrow</button>
+              </div>
 
               <label>Type</label>
               <select value={disputeForm.dtype} onChange={(e) => setDisputeForm(s => ({ ...s, dtype: Number(e.target.value) }))}>
@@ -1585,58 +1774,62 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                 <button className="btn-action secondary" onClick={() => setShowDisputeForm(false)} disabled={actionLoading}>Cancel</button>
                 <button className="btn-action primary" onClick={async () => {
                   try {
-                    if (!confirm('Submit dispute now? This will send a transaction and incur gas/bond costs.')) return;
-                    await submitDisputeForm();
-                    // submitDisputeForm will close the overlay on success; ensure we clear state
-                    setDisputeForm({ dtype: 4, amountEth: '0', evidence: '' });
+                    // Build canonical preview and show modal for read-only confirmation before signing
+                    const contractTypeMap = (t) => {
+                      if (!t) return 'other';
+                      const lower = String(t).toLowerCase();
+                      if (lower.includes('rent') || lower.includes('rental')) return 'rental';
+                      if (lower.includes('nda')) return 'nda';
+                      return 'other';
+                    };
+                    const plaintiff = account || null;
+                    let defendant = null;
+                    try {
+                      if (contractDetails?.type === 'Rental') {
+                        defendant = (plaintiff && contractDetails.landlord && plaintiff.toLowerCase() === contractDetails.tenant?.toLowerCase()) ? contractDetails.landlord : (contractDetails.landlord || contractDetails.tenant || null);
+                      } else {
+                        defendant = (contractDetails && (contractDetails.landlord || contractDetails.tenant)) ? (contractDetails.landlord || contractDetails.tenant) : null;
+                      }
+                    } catch (_) { defendant = null; }
+
+                    const canonicalPayloadForServer = {
+                      contractAddress: String(contractAddress),
+                      contractType: contractTypeMap(contractDetails?.type),
+                      plaintiff: plaintiff,
+                      defendant: defendant,
+                      txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
+                      complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
+                      requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null
+                    };
+                    const canonStr = canonicalize(canonicalPayloadForServer);
+                    // Basic validation
+                    const errs = [];
+                    if (!/^0x[0-9a-fA-F]{40}$/.test(canonicalPayloadForServer.contractAddress)) errs.push('Invalid contractAddress');
+                    try { if (plaintiff && !ethers.isAddress(plaintiff)) errs.push('Invalid plaintiff address'); } catch (e) {}
+                    try { if (defendant && !ethers.isAddress(defendant)) errs.push('Invalid defendant address'); } catch (e) {}
+                    if ((!canonicalPayloadForServer.txHistory || canonicalPayloadForServer.txHistory.length === 0) && !canonicalPayloadForServer.complaint) errs.push('Either txHistory must be present or complaint required');
+                    if (canonicalPayloadForServer.requestedAmount && !/^[0-9]+(\.[0-9]+)?$/.test(String(canonicalPayloadForServer.requestedAmount))) errs.push('requestedAmount must be numeric');
+                    if (errs.length) {
+                      setPreviewError('Validation issues: ' + errs.join('; '));
+                      console.warn('Preview payload validation failed', errs);
+                    } else {
+                      setPreviewPayloadObj(canonicalPayloadForServer);
+                      setPreviewPayloadStr(canonStr);
+                      setPreviewError(null);
+                      setShowPreviewModal(true);
+                    }
                   } catch (e) {
-                    console.error('Dispute submit failed (UI):', e);
+                    console.error('Failed to build preview:', e);
+                    alert('Failed to build preview: ' + (e?.message || e));
                   }
-                }} disabled={actionLoading}>{actionLoading ? 'Submitting...' : 'Submit Dispute'}</button>
+                }} disabled={actionLoading}>{actionLoading ? 'Submitting...' : 'Preview & Sign'}</button>
               </div>
             </div>
           </div>
         )}
       </div>
       {/* Inline modal for appeal evidence collection */}
-      {showAppealEvidenceModal && (
-        <div className="modal-backdrop">
-          <div className="modal-card">
-            <h3>Start Cancellation with Appeal Evidence</h3>
-            <p>Paste or type the evidence/summary for the appeal. You can Save it for later or Start cancellation now.</p>
-            <textarea
-              rows={6}
-              value={appealEvidenceInput}
-              onChange={(e) => setAppealEvidenceInput(e.target.value)}
-              placeholder="Paste evidence text, CID, or short summary (optional)"
-              style={{ width: '100%', marginTop: 8 }}
-            />
-            <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button className="btn" onClick={() => { setShowAppealEvidenceModal(false); setAppealEvidenceInput(''); }} disabled={actionLoading}>Cancel</button>
-              <button className="btn" title="Save this evidence locally for this contract" onClick={() => {
-                try {
-                  const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
-                  const raw = localStorage.getItem(key);
-                  const arr = raw ? JSON.parse(raw) : [];
-                  if (appealEvidenceInput && String(appealEvidenceInput).trim()) {
-                    arr.push({ ref: appealEvidenceInput.trim(), createdAt: Date.now() });
-                    localStorage.setItem(key, JSON.stringify(arr));
-                    alert('Evidence saved locally');
-                  } else {
-                    alert('No evidence to save');
-                  }
-                } catch (e) { console.error('Save appeal evidence failed', e); alert('Failed to save evidence'); }
-              }} disabled={actionLoading}>Save Evidence</button>
-              <button className="btn btn-primary" title="Start cancellation now using the current evidence" onClick={async () => {
-                try {
-                  if (!confirm('Start cancellation now? This will submit the transaction.')) return;
-                  await handleStartCancellationWithAppeal();
-                } catch (e) { console.error(e); alert('Failed to start cancellation'); }
-              }} disabled={actionLoading}>Start Cancellation Now</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Appeal evidence modal removed */}
 
       {/* Appeal modal */}
       {showAppealModal && appealData && (
@@ -1659,6 +1852,92 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
               <div style={{marginTop:12}}>
                 <strong>Persisted Appeal Evidence for this contract</strong>
                 <AppealEvidenceList entries={appealEvidenceList} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Preview & Sign modal (read-only canonical payload) */}
+      {showPreviewModal && (
+        <div className="appeal-overlay" onClick={() => { setShowPreviewModal(false); }}>
+          <div className="appeal-modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <h3>Preview Canonical Payload (read-only)</h3>
+              <div>
+                <small>{previewPayloadObj?.contractAddress || ''}</small>
+              </div>
+            </div>
+            <div style={{marginTop:8}}>
+              <pre style={{whiteSpace:'pre-wrap',background:'#f7f7f7',padding:8,borderRadius:6, maxHeight:320, overflow:'auto'}}>{previewPayloadStr}</pre>
+              {previewError && <div style={{color:'crimson',marginTop:8}}>{previewError}</div>}
+              <div style={{display:'flex', justifyContent:'flex-end', gap:8, marginTop:12}}>
+                <button className="btn-action" onClick={() => setShowPreviewModal(false)}>Cancel</button>
+                <button className="btn-action primary" onClick={async () => {
+                  try {
+                    setPreviewBusy(true);
+                    // EIP-191 sign
+                    if (!signer || !previewPayloadStr) throw new Error('Signer or payload missing');
+                    let sig191 = null;
+                    try { sig191 = await signer.signMessage(previewPayloadStr); } catch (e) { throw new Error('EIP-191 signing failed: ' + (e?.message || e)); }
+
+                    // POST to server /api/submit-appeal
+                    let evidenceRefFromServer = null;
+                    try {
+                      const resp = await fetch('/api/submit-appeal', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contractAddress, signedPayload: previewPayloadStr, signature: sig191, signerAddress: account, complaintCid: null, metadata: {} })
+                      });
+                      if (!resp.ok) {
+                        const txt = await resp.text().catch(() => '');
+                        throw new Error('Server returned ' + resp.status + ' ' + txt);
+                      }
+                      const parsed = await resp.json();
+                      evidenceRefFromServer = parsed && parsed.evidenceRef ? parsed.evidenceRef : null;
+                    } catch (e) {
+                      throw new Error('submit-appeal failed: ' + (e?.message || e));
+                    }
+
+                    // Attempt to anchor CID on-chain (EIP-712 + submitEvidenceWithSignature)
+                    if (evidenceRefFromServer && signer) {
+                      try {
+                        const contentDigest = computeContentDigest(previewPayloadObj);
+                        const contractInfo = { chainId: Number(chainId || 0), verifyingContract: contractAddress };
+                        const recipients = [];
+                        const evidenceData = { caseId: 0, contentDigest, recipients, cid: String(evidenceRefFromServer).replace(/^helia:\/\//i, '') };
+                        const sig712 = await signEvidenceEIP712(evidenceData, contractInfo, signer);
+                        const contractWithSigner = new ethers.Contract(contractAddress, EnhancedRentContractJson.abi, signer);
+                        if (typeof contractWithSigner.submitEvidenceWithSignature === 'function') {
+                          const recipientsHash = hashRecipients(recipients);
+                          const tx = await contractWithSigner.submitEvidenceWithSignature(
+                            evidenceData.caseId,
+                            evidenceData.cid,
+                            evidenceData.contentDigest,
+                            recipientsHash,
+                            sig712
+                          );
+                          await tx.wait();
+                          console.log('Anchored evidence on-chain', tx.hash);
+                        } else {
+                          console.warn('Contract missing submitEvidenceWithSignature');
+                        }
+                      } catch (e) {
+                        console.error('On-chain anchoring failed', e);
+                      }
+                    }
+
+                    setShowPreviewModal(false);
+                    setShowDisputeForm(false);
+                    setDisputeForm({ dtype: 4, amountEth: '0', evidence: '' });
+                    alert('Appeal submitted. EvidenceRef: ' + (evidenceRefFromServer || 'n/a'));
+                    await loadContractData();
+                  } catch (e) {
+                    console.error('Preview submit failed', e);
+                    setPreviewError(e?.message || String(e));
+                  } finally {
+                    setPreviewBusy(false);
+                  }
+                }} disabled={previewBusy}>{previewBusy ? 'Processing...' : 'Sign & Submit'}</button>
               </div>
             </div>
           </div>

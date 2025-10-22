@@ -35,6 +35,10 @@ AggregatorV3Interface public immutable priceFeed;
     // tokenPaid removed (no ERC20 support)
     // Pull-payment ledger: credit recipients here and let them withdraw to avoid stuck transfers
     mapping(address => uint256) public withdrawable;
+    // Escrow balance for rent payments held by contract
+    uint256 public escrowBalance;
+    // Outstanding judgement per case when award exceeds available funds
+    mapping(uint256 => uint256) public outstandingJudgement;
     // Reporter bond per dispute caseId (optional bond attached by reporter)
     mapping(uint256 => uint256) private _reporterBond;
     // Track debtor per case and whether debtor has deposited required claim amount
@@ -248,12 +252,9 @@ AggregatorV3Interface public immutable priceFeed;
         emit RentPaid(msg.sender, amount, false);
     }
 
-    /// @notice Submit off-chain evidence CID for a given caseId (dispute or general).
-    /// Stores only the cidDigest (keccak256 of the UTF8 CID string) to minimize gas.
-    /// Reverts if the same cidDigest already submitted (duplicate prevention).
     /// @notice DEPRECATED: Use submitEvidenceWithSignature instead for security
-    function submitEvidence(uint256 caseId, string calldata cid) external {
-        require(false, "Use submitEvidenceWithSignature for security");
+    function submitEvidence(uint256 /* caseId */, string calldata /* cid */) external pure {
+        revert("Use submitEvidenceWithSignature for security");
     }
 
     /// @notice Submit evidence with mandatory contentDigest, recipientsHash, and EIP-712 signature verification
@@ -300,8 +301,8 @@ AggregatorV3Interface public immutable priceFeed;
     }
 
     /// @notice Legacy method with contentDigest but no signature verification (DEPRECATED)
-    function submitEvidenceWithDigest(uint256 caseId, string calldata cid, bytes32 contentDigest) external {
-        require(false, "Use submitEvidenceWithSignature for security");
+    function submitEvidenceWithDigest(uint256 /* caseId */, string calldata /* cid */, bytes32 /* contentDigest */) external pure {
+        revert("Use submitEvidenceWithSignature for security");
     }
 
     /// @notice Returns true if a cidDigest was already submitted.
@@ -331,14 +332,10 @@ function getRentInEth() public view returns (uint256) {
     function payRentInEth() external payable onlyTenant onlyActive onlyFullySigned {
         uint256 requiredEth = getRentInEth();
         if (msg.value < requiredEth) revert AmountTooLow();
+        // Deposit into escrow instead of transferring directly to landlord
         rentPaid = true;
         totalPaid += msg.value;
-        (bool sent, ) = payable(landlord).call{value: msg.value}("");
-        if (!sent) {
-            // credit for pull-based withdrawal to avoid reverts
-            withdrawable[landlord] += msg.value;
-            emit PaymentCredited(landlord, msg.value);
-        }
+        escrowBalance += msg.value;
         emit RentPaid(msg.sender, msg.value, false);
     }
 
@@ -353,13 +350,10 @@ function getRentInEth() public view returns (uint256) {
         }
 
         if (msg.value < requiredEth) revert AmountTooLow();
+        // Deposit into escrow
         totalPaid += msg.value;
         rentPaid = true;
-        (bool sent, ) = payable(landlord).call{value: msg.value}("");
-        if (!sent) {
-            withdrawable[landlord] += msg.value;
-            emit PaymentCredited(landlord, msg.value);
-        }
+        escrowBalance += msg.value;
         emit RentPaid(msg.sender, msg.value, late);
     }
 
@@ -369,12 +363,8 @@ function getRentInEth() public view returns (uint256) {
 
         totalPaid += msg.value;
         if (totalPaid >= getRentInEth()) rentPaid = true;
-
-    (bool sent, ) = payable(landlord).call{value: msg.value}("");
-    if (!sent) {
-        withdrawable[landlord] += msg.value;
-        emit PaymentCredited(landlord, msg.value);
-    }
+        // Deposit partial payment into escrow
+        escrowBalance += msg.value;
         emit RentPaid(msg.sender, msg.value, late);
     }
     // ERC20 payment functions removed (project no longer supports ERC20 payments)
@@ -543,6 +533,38 @@ function getRentInEth() public view returns (uint256) {
         cancelEffectiveAt = 0;
         emit ContractCancelled(initiator == address(0) ? msg.sender : initiator);
         emit CancellationFinalized(msg.sender);
+    }
+
+    // Internal helper to release entire escrow balance to a recipient
+    function _releaseEscrowTo(address to) internal {
+        uint256 amount = escrowBalance;
+        if (amount == 0) return;
+        escrowBalance = 0;
+        (bool ok, ) = payable(to).call{value: amount}("");
+        if (!ok) {
+            withdrawable[to] += amount;
+            emit PaymentCredited(to, amount);
+        } else {
+            emit PaymentWithdrawn(to, amount);
+        }
+    }
+
+    /// @notice Release escrow to landlord when lease term completed
+    function releaseOnTerm() external onlyActive {
+        if (dueDate == 0) revert InvalidPrice();
+        if (block.timestamp < dueDate) revert NoticeNotElapsed();
+        _releaseEscrowTo(landlord);
+        // finalize contract state
+        active = false;
+    }
+
+    /// @notice Finalize mutual cancellation and give escrow to initiator
+    function finalizeMutualCancellation() external onlyActive {
+        if (!cancelRequested) revert CancelNotRequested();
+        if (!(cancelApprovals[landlord] && cancelApprovals[tenant])) revert BothMustApprove();
+        address initiator = cancelInitiator == address(0) ? msg.sender : cancelInitiator;
+        _releaseEscrowTo(initiator);
+        active = false;
     }
 
     // ================= Arbitration / Deposit / Disputes =================
@@ -733,32 +755,42 @@ function getRentInEth() public view returns (uint256) {
 
             // Transfer debtor deposit to beneficiary as compensation (must be available)
             if (requested > 0) {
+                uint256 remaining = requested;
+                // First, consume partyDeposit of debtor
                 uint256 available = partyDeposit[debtor];
-                if (available == 0) {
-                    // nothing to apply
-                    applied = 0;
-                } else if (available < requested) {
-                    // Mitigation: cap applied amount to available deposit per spec 2.2
-                    partyDeposit[debtor] = 0;
-                    emit DisputeAppliedCapped(caseId, requested, available, available);
-                    emit DepositDebited(debtor, available);
-                    // send available to beneficiary
-                    (bool okCap, ) = payable(beneficiary).call{value: available}("");
-                    if (!okCap) {
-                        withdrawable[beneficiary] += available;
-                        emit PaymentCredited(beneficiary, available);
+                if (available > 0) {
+                    if (available <= remaining) {
+                        // use all available
+                        partyDeposit[debtor] = 0;
+                        emit DepositDebited(debtor, available);
+                        (bool okA, ) = payable(beneficiary).call{value: available}("");
+                        if (!okA) { withdrawable[beneficiary] += available; emit PaymentCredited(beneficiary, available); }
+                        applied += available;
+                        remaining -= available;
+                        emit DisputeAppliedCapped(caseId, requested, available, available);
+                    } else {
+                        // use part of deposit
+                        partyDeposit[debtor] = available - remaining;
+                        emit DepositDebited(debtor, remaining);
+                        (bool okB, ) = payable(beneficiary).call{value: remaining}("");
+                        if (!okB) { withdrawable[beneficiary] += remaining; emit PaymentCredited(beneficiary, remaining); }
+                        applied += remaining;
+                        remaining = 0;
                     }
-                    applied = available;
-                } else {
-                    partyDeposit[debtor] = available - requested;
-                    emit DepositDebited(debtor, requested);
-                    // Send to beneficiary
-                    (bool ok, ) = payable(beneficiary).call{value: requested}("");
-                    if (!ok) {
-                        withdrawable[beneficiary] += requested;
-                        emit PaymentCredited(beneficiary, requested);
-                    }
-                    applied = requested;
+                }
+                // Second, consume escrowBalance
+                if (remaining > 0 && escrowBalance > 0) {
+                    uint256 fromEscrow = remaining <= escrowBalance ? remaining : escrowBalance;
+                    escrowBalance -= fromEscrow;
+                    (bool okE, ) = payable(beneficiary).call{value: fromEscrow}("");
+                    if (!okE) { withdrawable[beneficiary] += fromEscrow; emit PaymentCredited(beneficiary, fromEscrow); }
+                    applied += fromEscrow;
+                    remaining -= fromEscrow;
+                }
+                // If still remaining, record outstanding judgement
+                if (remaining > 0) {
+                    outstandingJudgement[caseId] = remaining;
+                    emit DebtRecorded(debtor, remaining);
                 }
             }
         } else {
@@ -818,16 +850,7 @@ function getRentInEth() public view returns (uint256) {
         bytes32 disputeId = keccak256(abi.encodePacked(address(this), caseId, block.timestamp));
         
         // Create arbitration request
-        CCIPArbitrationTypes.ArbitrationRequest memory request = CCIPArbitrationTypes.ArbitrationRequest({
-            disputeId: disputeId,
-            contractAddress: address(this),
-            caseId: caseId,
-            requester: dc.initiator,
-            evidenceHash: keccak256(abi.encodePacked(dc.evidenceUri)),
-            evidenceURI: dc.evidenceUri,
-            requestedAmount: dc.requestedAmount,
-            timestamp: block.timestamp
-        });
+        // Build and send arbitration request (we do not store the struct locally to avoid unused var warnings)
         
         try ccipSender.sendArbitrationRequest{value: 0}(
             disputeId,

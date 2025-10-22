@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import { processEvidenceWithOllama } from '../modules/ollamaLLMArbitrator.js';
 
 // Simple in-memory queue + worker for forwarding evidence to LLM
 export class DisputeForwarder {
@@ -75,7 +76,18 @@ export class DisputeForwarder {
     }
 
     // optional: summarizer step could be here
-    const llmRes = await this.llmClient.callLLM({ input: plaintext, options: {} });
+    // Use host-side structured prompt pipeline so LLM receives inline evidence and returns JSON
+    let llmRes = null;
+    try {
+      llmRes = await processEvidenceWithOllama({ evidence_text: plaintext, contract_text: job.contractAddress || '', dispute_id: job.jobId });
+    } catch (e) {
+      // fallback to direct llm client if our structured wrapper fails
+      try {
+        llmRes = await this.llmClient.callLLM({ input: plaintext, options: {} });
+      } catch (e2) {
+        llmRes = { ok: false, error: String(e2 || e) };
+      }
+    }
 
     // write a debug file with plaintext + full llm response to help debugging
     try {

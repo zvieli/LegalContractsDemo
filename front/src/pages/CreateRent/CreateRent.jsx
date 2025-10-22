@@ -4,6 +4,7 @@ import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
 import './CreateRent.css';
 import '../../styles/notAllowed.css';
+import deploymentSummary from '../../utils/contracts/deployment-summary.json';
 
 function CreateRent() {
   const { account, signer, chainId, provider, isConnected, loading, isConnecting, connectWallet, setLoading, setLatestContractAddress, addContract } = useEthers();
@@ -37,8 +38,8 @@ function CreateRent() {
   const [formData, setFormData] = useState({
   tenantAddress: '',
   rentAmount: '',
-  // Use mainnet feed by default for localhost/fork
-  priceFeed: FEEDS.mainnet,
+  // Use deployed mock feed from deployment-summary when running localhost; fallback to mainnet feed
+  priceFeed: (deploymentSummary && deploymentSummary.priceFeed) ? deploymentSummary.priceFeed : FEEDS.mainnet,
   duration: '',
     startDate: '',
     network: 'localhost' // Default to localhost for developer workflows
@@ -76,13 +77,16 @@ function CreateRent() {
   // Whenever network selection changes, choose an appropriate default price feed if current one is empty or mismatched
   useEffect(() => {
     const net = formData.network;
-    if (net === 'sepolia') {
+    // Only set a default feed when the user hasn't provided one (don't clobber user's input)
+    const isEmptyFeed = !formData.priceFeed || String(formData.priceFeed).trim() === '';
+    if (net === 'sepolia' && isEmptyFeed) {
       setFormData(prev => ({ ...prev, priceFeed: FEEDS.sepolia }));
-    } else if (net === 'mainnet') {
+    } else if (net === 'mainnet' && isEmptyFeed) {
       setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
-    } else if (net === 'localhost') {
-      // Always force mainnet price feed for localhost/fork
-      setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
+    } else if (net === 'localhost' && isEmptyFeed) {
+      // Prefer the deployment-summary mock price feed on localhost/fork when available
+      const localMock = (deploymentSummary && deploymentSummary.priceFeed) ? deploymentSummary.priceFeed : FEEDS.mainnet;
+      setFormData(prev => ({ ...prev, priceFeed: localMock }));
     }
     // For other networks, leave as is
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,14 +96,37 @@ function CreateRent() {
   async function manualDetectFeed() {
     try {
       if (!readProvider) return;
-      if (formData.network === 'localhost') {
-        const code = await readProvider.getCode(FEEDS.mainnet).catch(() => '0x');
+      // If user already provided a priceFeed, check it first
+      if (formData.priceFeed && /^0x[a-fA-F0-9]{40}$/.test(formData.priceFeed)) {
+        const code = await readProvider.getCode(formData.priceFeed).catch(() => '0x');
         if (code && code !== '0x') {
+          alert('Provided price feed address appears to be a contract on the selected provider. Keeping it.');
+          return;
+        }
+        alert('Provided price feed address not found on the selected network. Please deploy a mock or paste a different address.');
+        return;
+      }
+
+      // No user-provided feed: try sensible detections
+      if (formData.network === 'localhost') {
+        // Prefer deployment-summary mock feed if present
+        if (deploymentSummary && deploymentSummary.priceFeed) {
+          const code = await readProvider.getCode(deploymentSummary.priceFeed).catch(() => '0x');
+          if (code && code !== '0x') {
+            setFormData(prev => ({ ...prev, priceFeed: deploymentSummary.priceFeed }));
+            alert('Applied mock price feed from deployment summary.');
+            return;
+          }
+        }
+
+        // Fallback: check well-known mainnet feed on fork
+        const codeMain = await readProvider.getCode(FEEDS.mainnet).catch(() => '0x');
+        if (codeMain && codeMain !== '0x') {
           setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
           alert('Detected mainnet ETH/USD feed on local fork and applied it.');
           return;
         }
-        alert('Mainnet feed not detected on localhost. Deploy a mock AggregatorV3 and paste its address.');
+        alert('No price feed detected on localhost. Deploy MockV3Aggregator and paste its address.');
       } else if (formData.network === 'sepolia') {
         setFormData(prev => ({ ...prev, priceFeed: FEEDS.sepolia }));
       } else if (formData.network === 'mainnet') {
@@ -401,14 +428,20 @@ function CreateRent() {
           <div className="form-group">
             <label htmlFor="priceFeed">Price Feed Address *</label>
             {formData.network === 'localhost' ? (
-              <input
-                id="priceFeed"
-                name="priceFeed"
-                value={FEEDS.mainnet}
-                readOnly
-                disabled
-                style={{ backgroundColor: '#eee', color: '#888' }}
-              />
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <input
+                  id="priceFeed"
+                  name="priceFeed"
+                  value={formData.priceFeed}
+                  onChange={handleInputChange}
+                  placeholder="Paste mock aggregator address or click Detect"
+                  style={{ flex: 1 }}
+                  required
+                />
+                <button type="button" className="btn-secondary" onClick={manualDetectFeed}>
+                  Detect
+                </button>
+              </div>
             ) : (
               <select
                 id="priceFeed"

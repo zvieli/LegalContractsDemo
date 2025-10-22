@@ -2,7 +2,6 @@ import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
 import { ethers } from 'ethers';
-import { collectContractHistory } from '../lib/collectHistory.js';
 import { uploadPayload } from '../lib/heliaUploader.js';
 
 async function run() {
@@ -18,17 +17,7 @@ async function run() {
     console.warn('deployment-summary not found or invalid, skipping contract tests');
   }
 
-  console.log('Running collectContractHistory against RPC:', rpc);
-  try {
-    if (contractAddress) {
-      const history = await collectContractHistory(provider, contractAddress, [path.resolve('..','artifacts','contracts')], 0, 'latest');
-      console.log('collectHistory returned entries:', history.length);
-    } else {
-      console.log('No contractAddress found; attempting collect on a known address fallback may be skipped.');
-    }
-  } catch (e) {
-    console.error('collectHistory error:', e && e.message);
-  }
+  console.log('Server-side history collection disabled; use frontend collectTransactionHistory for client-side history collection.');
 
   // heliaUploader checks
   console.log('Running heliaUploader checks');

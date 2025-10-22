@@ -1143,3 +1143,246 @@ helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
 helia: normalized cid -> bafkreihiyn4hmskhhjsymhn75fnt6wyimf4hu4iiniegfdclgut23y3v74
 helia: stored evidence, cid= bafkreihiyn4hmskhhjsymhn75fnt6wyimf4hu4iiniegfdclgut23y3v74 size= 221
 [REQ] POST /api/admin/forwarder/forward-evidence content-type=application/json content-length=177
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+📡 CCIP Endpoints:
+🔗 CCIP Integration initialized successfully
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=221
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreihiyn4hmskhhjsymhn75fnt6wyimf4hu4iiniegfdclgut23y3v74","size":221}
+helia: normalized cid -> bafkreihiyn4hmskhhjsymhn75fnt6wyimf4hu4iiniegfdclgut23y3v74
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: stored evidence, cid= bafkreihiyn4hmskhhjsymhn75fnt6wyimf4hu4iiniegfdclgut23y3v74 size= 221
+[REQ] POST /api/admin/forwarder/forward-evidence content-type=application/json content-length=177
+heliaLocal: getEvidence -> using unixfsModule.cat
+🟡 [callOllama] Sending prompt to Ollama: You are an impartial contract arbitrator.
+Below are the EVIDENCE and CONTRACT for a dispute.
+DISPUTE_ID: 04eda3df-b513-4a5a-aaeb-b5325ea6550e
+
+INSTRUCTIONS:
+- Read the EVIDENCE and CONTRACT carefully.
+- Return ONLY a single JSON object that exactly matches the schema below (no surrounding commentary).
+- Schema: {"type":"object","properties":{"verdict":"one of ['PARTY_A_WINS','PARTY_B_WINS','NO_PENALTY','DRAW']","confidence":"number between 0.0 and 1.0","rationale":"string explanation","reimbursement":"number (amount) or null"}}
+- Fields: verdict (one of the four canonical labels), confidence (0.0-1.0), rationale (brief), reimbursement (amount or null).
+
+EXAMPLES:
+INPUT_EVIDENCE: Party B delivered all work on time and client accepted final deliverables; invoices paid in full.
+INPUT_CONTRACT: Standard service contract, milestones completed.
+OUTPUT_JSON: {"verdict":"NO_PENALTY","confidence":0.9,"rationale":"Deliverables accepted and payments processed; no material loss.","reimbursement":null}
+---
+INPUT_EVIDENCE: Client reports missing modules, delayed delivery, and financial loss due to missed deadline.
+INPUT_CONTRACT: Schedule critical; delays incur liquidated damages.
+OUTPUT_JSON: {"verdict":"PARTY_A_WINS","confidence":0.85,"rationale":"Delays caused financial loss and breach of schedule clauses.","reimbursement":1500}
+---
+
+EVIDENCE:
+{"type":"customClause","content":"This is test evidence for an end-to-end forwarder run.","description":"E2E test evidence","metadata":{"contractAddress":"0x0000000000000000000000000000000000000000","disputeType":"TEST"}}
+
+CONTRACT:
+0x0000000000000000000000000000000000000000
+
+Now produce the OUTPUT_JSON for the provided EVIDENCE and CONTRACT. ONLY return the JSON object.
+[REQ] GET /api/admin/forwarder/status content-type= content-length=
+🟢 [callOllama] Ollama response: {"model":"llama3.2:latest","created_at":"2025-10-22T18:17:39.6167486Z","response":"{\"verdict\":\"NO_PENALTY\",\"confidence\":1.0,\"rationale\":\"Custom clause specifies test evidence, indicating no material breach.\",\"reimbursement\":null}","done":true,"done_reason":"stop","context":[128006,9125,128007,271,38766,1303,33025,2696,25,6790,220,2366,18,271,128009,128006,882,128007,271,2675,527,459,68824,5226,59057,859,627,39314,527,279,469,7635,10360,323,17564,369,264,26086,627,21894,93443,3533,25,220,2371,14151,18,3013,1481,21164,12,19,64,20,64,12,5418,3141,1481,20711,20,12791,15573,15,68,271,691,93631,512,12,4557,279,469,7635,10360,323,17564,15884,627,12,3494,27785,264,3254,4823,1665,430,7041,9248,279,11036,3770,320,2201,14932,31710,4390,12,12824,25,5324,1337,3332,1735,2247,13495,23118,424,8644,3332,606,315,2570,34590,56,1596,2832,9751,1882,34590,56,1702,2832,9751,1882,9173,1106,965,984,22875,1882,78135,663,2247,83029,3332,4174,1990,220,15,13,15,323,220,16,13,15,2247,2214,1604,3332,928,16540,2247,265,318,52173,3332,4174,320,6173,8,477,854,96742,12,25599,25,36543,320,606,315,279,3116,43553,9382,705,12410,320,15,13,15,12,16,13,15,705,57916,320,6796,705,71111,320,6173,477,854,3677,96975,50,512,30521,2135,7635,10360,25,8722,426,12886,682,990,389,892,323,3016,11928,1620,6493,4893,26,65152,7318,304,2539,627,30521,4405,42205,25,12028,2532,5226,11,69376,8308,627,31401,26426,25,5324,424,8644,3332,9173,1106,965,984,22875,2247,83029,794,15,13,24,1359,2214,1604,3332,16939,1553,4893,11928,323,14507,15590,26,912,3769,4814,48991,265,318,52173,794,2994,534,11192,30521,2135,7635,10360,25,8589,6821,7554,13761,11,23540,9889,11,323,6020,4814,4245,311,13942,22143,627,30521,4405,42205,25,24416,9200,26,32174,62622,14812,660,26186,627,31401,26426,25,5324,424,8644,3332,34590,56,1596,2832,9751,2247,83029,794,15,13,5313,1359,2214,1604,3332,16939,954,9057,6020,4814,323,31471,315,9899,50198,48991,265,318,52173,794,3965,15,534,45464,36,7635,10360,512,5018,1337,3332,9342,29582,2247,1834,3332,2028,374,1296,6029,369,459,842,4791,13368,4741,261,1629,48991,4789,3332,36,17,36,1296,6029,2247,18103,23118,20871,4383,3332,15,87,931,931,931,931,931,931,931,931,931,931,931,931,931,15,2247,4338,8660,941,3332,10238,9388,633,5910,42205,512,15,87,931,931,931,931,931,931,931,931,931,931,931,931,931,15,271,7184,8356,279,32090,26426,369,279,3984,469,7635,10360,323,17564,13,27785,471,279,4823,1665,13,128009,128006,78191,128007,271,5018,424,8644,3332,9173,1106,965,984,22875,2247,83029,794,16,13,15,1359,2214,1604,3332,10480,22381,30202,1296,6029,11,19392,912,3769,31471,48991,265,318,52173,794,2994,92],"total_duration":48899771800,"load_duration":4649330500,"prompt_eval_count":459,"prompt_eval_duration":38686799300,"eval_count":37,"eval_duration":5375772600}
+[REQ] GET /api/evidence/retrieve/bafkreihiyn4hmskhhjsymhn75fnt6wyimf4hu4iiniegfdclgut23y3v74 content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+🏭 Production Mode: ENABLED - Using Helia local node
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Status: http://localhost:3001/api/v7/ccip/status
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 CCIP Event Listener started successfully
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
