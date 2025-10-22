@@ -61,10 +61,10 @@ function ensureDirectories() {
   const isDev = (process.env.NODE_ENV === 'development');
   const isProd = process.env.NODE_ENV === 'production';
 
-  if (isDev) {
-    console.log(chalk.cyan(`  🔧 Development Mode: ENABLED`));
-    console.log(chalk.cyan(`     • Evidence: Mock evidence from JSON files`));
-    console.log(chalk.cyan(`     • Validation: Bypassed for QmMock* CIDs`));
+    if (isDev) {
+      console.log(chalk.cyan(`  Development Mode: ENABLED`));
+      console.log(chalk.cyan(`     • Evidence: Helia preferred. No mock fallbacks permitted.`));
+      console.log(chalk.cyan(`     • Validation: Real Helia CID validation required.`));
   } else if (isProd) {
     console.log(chalk.green(`  🏭 Production Mode: ENABLED`));
     console.log(chalk.green(`     • Evidence: Helia local node (127.0.0.1:5001)`));

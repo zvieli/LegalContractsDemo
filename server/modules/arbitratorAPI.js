@@ -57,12 +57,11 @@ export async function callArbitratorAPI(arbitrationData) {
     
   } catch (error) {
     console.error('Error calling arbitrator API:', error);
-    
-    // Return fallback result for development
+    // Propagate failure: do not synthesize or return a simulated/fallback arbitration result.
+    // Callers should handle this error explicitly and decide whether to retry or abort.
     return {
       success: false,
       error: error.message,
-      fallbackResult: generateFallbackResult(arbitrationData),
       timestamp: Date.now()
     };
   }
@@ -132,40 +131,31 @@ export async function checkArbitratorAPIHealth() {
 
 export async function extractEvidenceFromCID(evidenceCID) {
   try {
-  // In production, this would fetch from Helia
-  // For development, we'll generate representative text
-    
-    if (!evidenceCID || typeof evidenceCID !== 'string') {
-      return 'No evidence provided';
+    if (!evidenceCID || typeof evidenceCID !== 'string') throw new Error('No evidence CID provided');
+    // Prefer using in-process heliaStore module to fetch the content
+    try {
+      const heliaStore = await import('./heliaStore.js');
+      const content = await heliaStore.getEvidenceFromHelia(evidenceCID);
+      // If content looks like JSON, return parsed text; otherwise return raw text
+      try { return JSON.parse(content); } catch (e) { return { raw: String(content) }; }
+    } catch (heliaErr) {
+      // If heliaStore not available, attempt an HTTP fetch from configured Helia API (if set)
+      const heliaApi = process.env.HELIA_LOCAL_API || process.env.HELIA_API || 'http://127.0.0.1:5001';
+      // Try fetching via gateway /api/v0/cat?arg=<cid>
+      try {
+        const fetchFn = (typeof global.fetch === 'function') ? global.fetch : (await import('node-fetch')).default;
+        const url = heliaApi.replace(/\/$/, '') + `/api/v0/cat?arg=${encodeURIComponent(evidenceCID)}`;
+        const resp = await fetchFn(url);
+        if (!resp.ok) throw new Error(`Helia HTTP fetch failed: ${resp.status}`);
+        const text = await resp.text();
+        try { return JSON.parse(text); } catch (e) { return { raw: text }; }
+      } catch (httpErr) {
+        throw new Error(`Failed to extract evidence from CID via heliaStore or HTTP: ${httpErr.message || httpErr}`);
+      }
     }
-    
-    // Mock evidence extraction based on CID pattern
-    const mockEvidenceTemplates = {
-      'Qm': 'Payment receipt and transaction records from blockchain',
-      'baf': 'Property maintenance documentation and photos',
-      'default': 'General evidence documentation and supporting materials'
-    };
-    
-    const template = Object.keys(mockEvidenceTemplates)
-      .find(prefix => evidenceCID.startsWith(prefix)) || 'default';
-    
-    return `
-Evidence CID: ${evidenceCID}
-
-${mockEvidenceTemplates[template]}
-
-Details:
-- Submitted at: ${new Date().toISOString()}
-- Content type: Verified Helia content
-- Integrity: Hash verified
-- Accessibility: Content accessible via Helia node
-
-This evidence is submitted in support of the dispute claim and contains relevant documentation to support the party's position in the arbitration process.
-    `.trim();
-    
   } catch (error) {
-    console.error('Error extracting evidence from CID:', error);
-    return `Evidence CID: ${evidenceCID} (extraction failed: ${error.message})`;
+    console.error('Error extracting evidence from CID:', error && error.message ? error.message : error);
+    throw error;
   }
 }
 

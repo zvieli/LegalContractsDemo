@@ -82,58 +82,20 @@ app.post('/api/v7/arbitration/ollama-test', async (req, res) => {
     // Diagnostic log for test runs
     try { console.log('/api/v7/arbitration/ollama-test: headers ->', JSON.stringify(req.headers)); } catch(e) {}
 
-    // Allow tests to force the internal simulator via header or env var for deterministic responses
-    // Accept presence of header with any truthy value to be more permissive in test environments.
-    const rawHeader = req.headers['x-force-simulator'];
-    const forceSimulatorHeader = rawHeader != null && String(rawHeader).toLowerCase() !== 'false';
-    const forceSimulatorEnv = (process.env.FORCE_SIMULATOR || '').toString().toLowerCase() === 'true';
-
-    // Immediate short-circuit: if simulator is requested, return a deterministic simulator response
-    if (forceSimulatorEnv || forceSimulatorHeader) {
-      try {
-        const simModule = await import('./modules/llmArbitrationSimulator.js');
-        const simFn = simModule && (simModule.processV7Arbitration || simModule.default || simModule);
-        if (typeof simFn === 'function') {
-          const sim = await simFn({ evidence_text, contract_text, dispute_id });
-          return res.json({ success: true, result: sim, fallback: 'simulator', simulator: true, timestamp: new Date().toISOString() });
-        }
-        // If simulator module present but no function, return minimal deterministic response
-        return res.json({ success: true, result: { decision: 'DRAW', reasoning: 'simulator-unavailable-fallback' }, fallback: 'simulator', simulator: true, timestamp: new Date().toISOString() });
-      } catch (simErr) {
-        console.error('ollama-test: simulator short-circuit error:', simErr && (simErr.stack || simErr));
-        return res.status(500).json({ error: 'simulator_error', details: String(simErr) });
-      }
-    }
-
-    // Default: try Ollama but guard with a short timeout and fallback to simulator
+    // Require Ollama arbitrator to be configured. No simulator/fallback allowed.
     if (!processV7ArbitrationWithOllama) {
-      // Ollama module not loaded - fallback to simulator if available
-      if (typeof processV7Arbitration === 'function') {
-        const sim = await processV7Arbitration({ evidence_text, contract_text, dispute_id });
-        return res.json({ success: true, result: sim, fallback: 'simulator' });
-      }
-      return res.status(503).json({ error: 'Ollama LLM arbitrator not loaded' });
+      return res.status(501).json({ error: 'no_arbitrator_configured', message: 'Ollama arbitrator is not configured. Simulation/fallbacks are not permitted.' });
     }
 
     try {
-      // Give Ollama a bounded time to respond so tests don't hang. If it times out, fall back to simulator.
       const result = await Promise.race([
         processV7ArbitrationWithOllama({ evidence_text, contract_text, dispute_id }),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Ollama timed out')), 15000))
       ]);
       return res.json({ success: true, result });
     } catch (err) {
-      console.warn('⚠️ /api/v7/arbitration/ollama-test: Ollama failed or timed out - falling back to simulator:', err && err.message);
-      if (typeof processV7Arbitration === 'function') {
-        try {
-          const sim = await processV7Arbitration({ evidence_text, contract_text, dispute_id });
-          return res.json({ success: true, result: sim, fallback: 'simulator', reason: err && err.message });
-        } catch (simErr) {
-          console.error('❌ Simulator fallback also failed:', simErr && simErr.stack ? simErr.stack : simErr);
-          return res.status(500).json({ error: 'arbitration_failed', details: simErr && simErr.message });
-        }
-      }
-      return res.status(500).json({ error: 'Ollama arbitration failed', details: err && err.message });
+      console.error('/api/v7/arbitration/ollama-test: Ollama arbitration failed or timed out:', err && err.message ? err.message : err);
+      return res.status(502).json({ error: 'arbitration_failed', message: 'Ollama arbitration failed or timed out', details: err && err.message ? err.message : String(err) });
     }
   } catch (e) {
     console.error('Error in /api/batch handler:', e && e.stack ? e.stack : e);
@@ -195,8 +157,14 @@ app.post('/api/evidence/upload', async (req, res) => {
       }
     }
 
-    let evidenceOut = decoded || { mock: true, content: 'No evidence provided' };
-    if (!evidenceOut || typeof evidenceOut !== 'object') evidenceOut = {};
+    // Require evidence payload. No mock/fallback allowed.
+    if (!decoded) {
+      return res.status(400).json({ error: 'missing_evidence', message: 'Evidence payload required. No mock fallback is supported.' });
+    }
+    let evidenceOut = decoded;
+    if (!evidenceOut || typeof evidenceOut !== 'object') {
+      return res.status(400).json({ error: 'invalid_evidence', message: 'Evidence must be a JSON object' });
+    }
     evidenceOut.type = evidenceOut.type && evidenceOut.type !== null && evidenceOut.type !== '' ? evidenceOut.type : 'rent_dispute';
     evidenceOut.description = evidenceOut.description && evidenceOut.description !== null && evidenceOut.description !== '' ? evidenceOut.description : 'Test evidence for backend validation';
     evidenceOut.metadata = evidenceOut.metadata && typeof evidenceOut.metadata === 'object' ? evidenceOut.metadata : {
@@ -217,30 +185,54 @@ app.post('/api/evidence/upload', async (req, res) => {
       contentDigest = Buffer.from(hashBuffer).toString('hex');
     }
 
-    // If Helia is available, add evidence to Helia and return real CID
+  // If Helia is available, add evidence to Helia and return real CID. No in-memory mock fallback.
     try {
       const addResult = await heliaStore.addEvidenceToHelia(evidenceOut, 'evidence.json');
-      const cid = addResult.cid;
-      const size = addResult.size || (decoded ? JSON.stringify(decoded).length : 0);
+      // Log raw addResult for debugging (safe stringify)
+      try {
+        console.log('helia: addResult ->', JSON.stringify(addResult));
+      } catch (e) {
+        try { console.log('helia: addResult -> (non-serializable) ->', require('util').inspect(addResult, { depth: 2 })); } catch (e2) { console.log('helia: addResult ->', String(addResult)); }
+      }
+      // Support multiple shapes returned by different helia/unixfs versions
+      const cidRaw = addResult && (addResult.cid || addResult.Cid || addResult.Hash || addResult.hash || (addResult[0] && addResult[0].cid) || null);
+      const size = addResult && (addResult.size || addResult.Size) || (decoded ? JSON.stringify(decoded).length : 0);
 
-      // store metadata locally for quick retrieval if needed (do NOT persist full evidence into dispute record)
-      evidenceStore[cid] = evidenceOut;
+      // Normalize CID to string to avoid non-serializable shapes
+      let cid = null;
+      try {
+        if (cidRaw != null) cid = String(cidRaw);
+      } catch (e) {
+        cid = null;
+      }
 
-      // compute cidHash (keccak of CID string) - useful if you want a compact on‑chain reference
-      const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
-      let cidHash = null;
-      try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
-      return res.json({ cid, cidHash, contentDigest: contentDigest || null, evidence: { type: evidenceOut.type, description: evidenceOut.description, metadata: evidenceOut.metadata }, stored: true, size });
+      // Debug: log addResult shape and normalized cid
+      try {
+        console.log('helia: addResult typeof ->', typeof addResult, 'keys ->', addResult && typeof addResult === 'object' ? Object.keys(addResult) : 'n/a');
+      } catch (e) {}
+      console.log('helia: normalized cid ->', cid);
+
+  if (cid) {
+        // store metadata locally for quick retrieval if needed (do NOT persist full evidence into dispute record)
+        evidenceStore[cid] = evidenceOut;
+
+        // compute cidHash (keccak of CID string) - useful if you want a compact on‑chain reference
+        const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
+        let cidHash = null;
+        try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
+        console.log('helia: stored evidence, cid=', cid, 'size=', size);
+        return res.json({ cid, cidHash, contentDigest: contentDigest || null, evidence: { type: evidenceOut.type, description: evidenceOut.description, metadata: evidenceOut.metadata }, stored: true, size, heliaConfirmed: true });
+      }
+
+      // If Helia returned but no CID found, treat as an error (no fallback allowed)
+      console.warn('heliaStore.addEvidenceToHelia returned no cid; failing (no mock/fallback allowed)', { addResult });
     } catch (err) {
-      // Helia not available - fallback to in-memory storage with mock CID
-      const cid = 'QmMockEvidence' + Math.floor(Math.random() * 1e16).toString(16);
-      if (decoded) evidenceStore[cid] = decoded;
-      const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
-      let cidHash = null;
-      try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
-      // Return CID and cidHash; do not invent a contentDigest when Helia is not available
-      return res.json({ cid, cidHash, contentDigest: contentDigest || null, evidence: { type: evidenceOut.type, description: evidenceOut.description, metadata: evidenceOut.metadata }, stored: !!decoded, size: decoded ? JSON.stringify(decoded).length : 42 });
+      console.warn('heliaStore.addEvidenceToHelia failed:', err && err.message ? err.message : err);
+      // Propagate failure: do not fall back to in-memory mock storage
+      return res.status(503).json({ error: 'helia_unavailable', message: 'Helia failed to store evidence; no mock fallback permitted', details: err && err.message ? err.message : String(err), heliaConfirmed: false });
     }
+  // If code reaches here something unexpected happened; return generic server error
+  return res.status(500).json({ error: 'evidence_upload_failed', message: 'Unexpected error while uploading evidence' });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -329,32 +321,17 @@ app.post('/api/arbitrate-batch', async (req, res) => {
       requestReasoning,
       timestamp: Date.now()
     };
-    // Use LLM/Arbitrator (simulate or real). Support runtime override via FORCE_SIMULATOR
-    // so tests can force the in-process simulator without restarting the server.
+    // Use LLM/Arbitrator (real). No simulator/fallback allowed.
     let result;
-    const forceSimulatorHeader = (req.headers['x-force-simulator'] || '').toString().toLowerCase() === 'true';
-    if (process.env.FORCE_SIMULATOR === 'true' || forceSimulatorHeader) {
-      // Force simulator
-      result = await processV7Arbitration(arbitrationPayload);
-    } else if (processV7ArbitrationWithOllama) {
-      try {
-        // race Ollama call against a short timeout to avoid blocking tests
-        // use a small timeout so simulator fallback completes comfortably inside test timeouts
-        result = await Promise.race([
-          processV7ArbitrationWithOllama(arbitrationPayload),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Ollama call timed out')), 500))
-        ]);
-      } catch (err) {
-        console.warn('⚠️ Ollama call failed or timed out, falling back to simulator:', err.message || err);
-        try {
-          result = await processV7Arbitration(arbitrationPayload);
-        } catch (simErr) {
-          console.error('❌ Simulator fallback also failed:', simErr.message || simErr);
-          result = { error: 'arbitration_failed' };
-        }
-      }
-    } else {
-      result = await processV7Arbitration(arbitrationPayload);
+    if (!processV7ArbitrationWithOllama) {
+      // Ollama not configured: require integrator to enable Chainlink/LLM arbitrator
+      return res.status(501).json({ error: 'no_arbitrator_configured', message: 'No LLM arbitrator (Ollama) configured; simulation/fallbacks are not permitted.' });
+    }
+    try {
+      result = await processV7ArbitrationWithOllama(arbitrationPayload);
+    } catch (err) {
+      console.error('Ollama arbitration failed:', err && err.message ? err.message : err);
+      return res.status(502).json({ error: 'arbitration_failed', message: 'Ollama arbitration failed', details: err && err.message ? err.message : String(err) });
     }
 
     // Normalize result to a stable shape for both Ollama and simulator outputs
@@ -496,11 +473,6 @@ let processV7ArbitrationWithOllama = null;
 
 // Load Ollama module after server setup
 async function loadOllamaModule() {
-  // Allow forcing simulator mode in CI/dev when Ollama service is not available
-  if (process.env.FORCE_SIMULATOR === 'true' || process.env.DISABLE_OLLAMA === 'true') {
-    console.log('⚠️ Ollama module loading skipped due to FORCE_SIMULATOR/DISABLE_OLLAMA env var');
-    return false;
-  }
   try {
     const ollamaModule = await import('./modules/ollamaLLMArbitrator.js');
     ollamaLLMArbitrator = ollamaModule.ollamaLLMArbitrator;
@@ -508,8 +480,9 @@ async function loadOllamaModule() {
     console.log('✅ Ollama module loaded successfully');
     return true;
   } catch (error) {
-    console.warn('⚠️ Ollama module failed to load:', error.message);
-    console.log('🔄 Ollama features will be disabled');
+    console.error('❌ Ollama module failed to load:', error && error.message ? error.message : error);
+    // Do not attempt to fallback to any simulator or mock; callers must handle missing Ollama.
+    processV7ArbitrationWithOllama = null;
     return false;
   }
 }
@@ -959,37 +932,8 @@ app.post('/api/v7/ccip/test', requireAdmin, async (req, res) => {
 
 // V7 LLM Arbitration Simulation API (protected)
 app.post('/api/v7/arbitration/simulate', requireAdmin, async (req, res) => {
-  try {
-    const arbitrationRequest = req.body;
-
-    // Prepare data for simulation
-    const simulationData = {
-      contract_text: `Simulated Rent Contract Dispute
-      Contract Address: ${arbitrationRequest.contractAddress}
-      Dispute Type: ${arbitrationRequest.disputeType}
-      Requested Amount: ${arbitrationRequest.requestedAmount} ETH`,
-      evidence_text: 'Simulated evidence for testing purposes'
-    };
-
-    // Process with simulation
-    const result = await processV7Arbitration(simulationData);
-
-    res.json({
-      decision: result.decision || result.arbitration || 'FAVOR_LANDLORD',
-      reasoning: result.reasoning || result.legalReasoning || 'Simulated decision for testing',
-      confidence: result.confidence || 0.75,
-      simulated: true,
-      disputeId: arbitrationRequest.disputeId,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Error in LLM arbitration simulation:', error);
-    res.status(500).json({ 
-      error: 'Internal server error during arbitration simulation',
-      details: error.message 
-    });
-  }
+  // Simulation endpoint disabled. Server does not provide mock arbitration.
+  return res.status(501).json({ error: 'simulation_disabled', message: 'Simulation and mock arbitration are disabled. Configure a real LLM arbitrator (Ollama).' });
 });
 
 // V7 Ollama Health Check API

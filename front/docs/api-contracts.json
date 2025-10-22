@@ -58,7 +58,7 @@
     {
       "path": "/api/evidence/upload",
       "method": "POST",
-      "description": "Upload evidence object or encrypted ciphertext (base64). Dev/test endpoint returns a mock CID and stores evidence in-memory.",
+      "description": "Upload evidence object or encrypted ciphertext (base64). This endpoint stores evidence using the configured Helia/IPFS provider and returns a content-addressed CID. No mock CIDs are returned in V7.",
       "request_example": {
         "ciphertext": "<base64 string>"
       },
@@ -67,9 +67,9 @@
         "description": "Tenant did not pay rent",
         "metadata": { "contractAddress": "0x...", "disputeType": "UNPAID_RENT", "amount": "1.5 ETH" }
       },
-      "response_example": { "cid": "QmMockEvidence...", "evidence": { "type": "rent_dispute", "description": "..." }, "stored": true, "size": 1234 },
+      "response_example": { "cid": "bafybeigdyrzt7examplecidfakexyz1234567890abcdef", "evidence": { "type": "rent_dispute", "description": "..." }, "stored": true, "size": 1234, "heliaConfirmed": true },
       "auth": false,
-      "notes": "Frontend should compute cidDigest/contentDigest prior to on-chain submission; backend accepts ciphertext or JSON object for dev flows."
+      "notes": "Frontend should compute cidDigest/contentDigest prior to on-chain submission. V7 enforces real storage: configure HELIA_LOCAL_API or allow the server to start an in-process Helia node (START_INPROC_HELIA=1)."
     },
     {
       "path": "/api/evidence/validate/:cid",

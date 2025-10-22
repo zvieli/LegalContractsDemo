@@ -37,7 +37,21 @@ function parseAddResponse(text) {
 export async function addEvidenceToHelia(content, filename = 'evidence.json', heliaApi = DEFAULT_HELIA_API) {
   // Always use in-process Helia
   const local = await ensureHeliaLocal();
-  if (local) return await local.addEvidenceToLocalHelia(content, filename);
+  if (local) {
+    const r = await local.addEvidenceToLocalHelia(content, filename);
+    // Normalize return shape to plain serializable values
+    const cid = r && (r.cid || r.Cid || r.Hash || (r[0] && r[0].cid)) || null;
+    const sizeRaw = r && (r.size || r.Size) || null;
+    const cidStr = cid != null ? String(cid) : null;
+    let size = null;
+    if (typeof sizeRaw === 'bigint') {
+      try { size = Number(sizeRaw); } catch (e) { size = String(sizeRaw); }
+    } else if (sizeRaw != null) {
+      size = Number(sizeRaw);
+      if (Number.isNaN(size)) size = null;
+    }
+    return { cid: cidStr, size };
+  }
   throw new Error('heliaStore: in-process Helia unavailable');
 }
 

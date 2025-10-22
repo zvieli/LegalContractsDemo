@@ -7,9 +7,9 @@ import { llmArbitrationSimulator } from './llmArbitrationSimulator.js';
 
 // Configuration
 const LLM_API_URL = process.env.LLM_API_URL || 'http://localhost:8000';
-const CHAINLINK_SIMULATION = process.env.NODE_ENV !== 'production';
+const CHAINLINK_SIMULATION = false; // No simulation allowed in this repo state
 const USE_CHAINLINK = (process.env.USE_CHAINLINK === 'true');
-const USE_INTEGRATED_SIMULATOR = process.env.USE_INTEGRATED_SIMULATOR !== 'false'; // Default to true
+const USE_INTEGRATED_SIMULATOR = false; // Disabled: no integrated simulator
 
 // Store active arbitration requests
 const activeRequests = new Map();
@@ -30,18 +30,11 @@ export async function triggerLLMArbitration(disputeData) {
     
     console.log(`🤖 Triggering LLM arbitration for request ${requestId}`);
     
-      if (USE_INTEGRATED_SIMULATOR) {
-        // Use integrated simulator instead of external API
-        return await integratedLLMArbitration(requestId, disputeData);
-      }
-
-      // If Chainlink usage is not explicitly enabled, default to simulation path
+      // No simulation/mocks allowed. Require USE_CHAINLINK to be true to proceed with Chainlink flow.
       if (!USE_CHAINLINK) {
-        // In dev prefer the deterministic simulate flow
-        return await simulateLLMArbitration(requestId, disputeData);
+        throw new Error('Chainlink integration disabled (USE_CHAINLINK not true). No mock/simulator permitted.');
       }
-
-      // At this point USE_CHAINLINK === true -> attempt real Chainlink flow
+      // Proceed with Chainlink/real flow
       return await executeLLMArbitration(requestId, disputeData);
     
   } catch (error) {
@@ -91,8 +84,8 @@ async function integratedLLMArbitration(requestId, disputeData) {
 async function simulateLLMArbitration(requestId, disputeData) {
   console.log(`🧪 Simulating LLM arbitration for ${requestId}`);
 
-  // Produce the mock LLM result synchronously for deterministic behavior
-  const mockResult = generateMockLLMResult(disputeData);
+  // Simulation disabled - throw an explicit error if this path is reached
+  throw new Error('Simulation path reached but simulations are disabled in this build.');
 
   // If a CCIP router address is configured, attempt on-chain delivery via MockCCIPRouter
   const routerAddr = process.env.MOCK_CCIP_ROUTER_ADDRESS;
@@ -129,7 +122,7 @@ async function simulateLLMArbitration(requestId, disputeData) {
   setTimeout(async () => {
     try {
       await handleLLMResponse(requestId, mockResult, disputeData.contractAddress, disputeData.disputeId);
-      console.log(`[32mSimulated LLM arbitration completed for ${requestId}[0m`);
+      console.log(`Simulated LLM arbitration completed for ${requestId}`);
     } catch (error) {
       console.error(`❌ Simulated LLM arbitration failed for ${requestId}:`, error);
     }

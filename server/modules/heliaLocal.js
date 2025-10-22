@@ -40,13 +40,33 @@ function toBuffer(data) {
 export async function addEvidenceToLocalHelia(content, filename = 'evidence.json') {
   await ensureHelia();
   try {
-    const data = typeof content === 'string' ? content : JSON.stringify(content);
+    // Safely stringify content to handle BigInt and other non-serializable types
+    const safeStringify = (v) => {
+      try {
+        return JSON.stringify(v);
+      } catch (e) {
+        // Fallback: convert BigInt to string and retry
+        try {
+          return JSON.stringify(v, (k, val) => (typeof val === 'bigint' ? val.toString() : val));
+        } catch (e2) {
+          // Last resort: coerce to string
+          return String(v);
+        }
+      }
+    };
+    const data = typeof content === 'string' ? content : safeStringify(content);
     const buffer = toBuffer(data);
 
     let cidString = null;
     let size = null;
 
-    // Primary path: unixfsModule.addAll (async iterable)
+    // Try multiple possible API shapes to maximize compatibility across Helia/unixfs versions
+    const tryLog = (msg) => console.log('heliaLocal: addEvidence ->', msg);
+
+    tryLog('available unixfsModule keys -> ' + Object.keys(unixfsModule || {}).join(', '));
+    tryLog('available heliaInstance keys -> ' + Object.keys(heliaInstance || {}).join(', '));
+
+    // 1) unixfsModule.addAll (async iterable with entries)
     if (unixfsModule && typeof unixfsModule.addAll === 'function') {
       try {
         const addResult = unixfsModule.addAll([
@@ -59,25 +79,102 @@ export async function addEvidenceToLocalHelia(content, filename = 'evidence.json
         if (last) {
           cidString = last.cid && last.cid.toString ? last.cid.toString() : String(last.cid || last.hash || last || '');
           size = last.size ?? buffer.length;
+          tryLog('used unixfsModule.addAll');
         }
       } catch (e) {
-        console.warn('heliaLocal: addAll attempt failed:', e && e.message ? e.message : e);
+        console.warn('heliaLocal: unixfsModule.addAll failed:', e && e.message ? e.message : e);
       }
     }
 
-    // Secondary path: unixfsModule.addBytes (for raw bytes, no filename)
+    // 2) unixfsModule.add (some versions expose add)
+    if (!cidString && unixfsModule && typeof unixfsModule.add === 'function') {
+      try {
+        const out = await unixfsModule.add({ path: filename, content: buffer });
+        if (out) {
+          cidString = out.cid && out.cid.toString ? out.cid.toString() : String(out.cid || out.hash || out || '');
+          size = out.size ?? buffer.length;
+          tryLog('used unixfsModule.add');
+        }
+      } catch (e) {
+        console.warn('heliaLocal: unixfsModule.add failed:', e && e.message ? e.message : e);
+      }
+    }
+
+    // 3) unixfsModule.addBytes / components.addBytes
     if (!cidString && unixfsModule && typeof unixfsModule.addBytes === 'function') {
       try {
         const cid = await unixfsModule.addBytes(buffer);
         cidString = cid && cid.toString ? cid.toString() : String(cid || '');
         size = buffer.length;
+        tryLog('used unixfsModule.addBytes');
       } catch (e) {
-        console.warn('heliaLocal: addBytes attempt failed:', e && e.message ? e.message : e);
+        console.warn('heliaLocal: unixfsModule.addBytes failed:', e && e.message ? e.message : e);
+      }
+    }
+
+    if (!cidString && unixfsModule && unixfsModule.components && typeof unixfsModule.components.addBytes === 'function') {
+      try {
+        const cid = await unixfsModule.components.addBytes(buffer);
+        cidString = cid && cid.toString ? cid.toString() : String(cid || '');
+        size = buffer.length;
+        tryLog('used unixfsModule.components.addBytes');
+      } catch (e) {
+        console.warn('heliaLocal: unixfsModule.components.addBytes failed:', e && e.message ? e.message : e);
+      }
+    }
+
+    // 4) components.addAll shape
+    if (!cidString && unixfsModule && unixfsModule.components && typeof unixfsModule.components.addAll === 'function') {
+      try {
+        const addResult = unixfsModule.components.addAll([{ path: filename, content: buffer }]);
+        let last = null;
+        for await (const entry of addResult) last = entry;
+        if (last) {
+          cidString = last.cid && last.cid.toString ? last.cid.toString() : String(last.cid || last.hash || last || '');
+          size = last.size ?? buffer.length;
+          tryLog('used unixfsModule.components.addAll');
+        }
+      } catch (e) {
+        console.warn('heliaLocal: unixfsModule.components.addAll failed:', e && e.message ? e.message : e);
+      }
+    }
+
+    // 5) heliaInstance.add (some helia builds expose add directly)
+    if (!cidString && heliaInstance && typeof heliaInstance.add === 'function') {
+      try {
+        const out = await heliaInstance.add(buffer);
+        // heliaInstance.add may return a CID or an object
+        cidString = out && out.toString ? out.toString() : (out && out.cid && out.cid.toString ? out.cid.toString() : String(out || ''));
+        size = buffer.length;
+        tryLog('used heliaInstance.add');
+      } catch (e) {
+        console.warn('heliaLocal: heliaInstance.add failed:', e && e.message ? e.message : e);
+      }
+    }
+
+    // 6) heliaInstance.block.put as last resort
+    if (!cidString && heliaInstance && heliaInstance.block && typeof heliaInstance.block.put === 'function') {
+      try {
+        const blk = await heliaInstance.block.put(buffer);
+        cidString = blk && blk.cid && blk.cid.toString ? blk.cid.toString() : String(blk || '');
+        size = buffer.length;
+        tryLog('used heliaInstance.block.put');
+      } catch (e) {
+        console.warn('heliaLocal: heliaInstance.block.put failed:', e && e.message ? e.message : e);
       }
     }
 
     if (!cidString) {
-      throw new Error('heliaLocal: unsupported unixfs module API (no addAll/addBytes succeeded)');
+      // As a last resort, fail fast and log the available shapes to help debugging
+      console.error('heliaLocal: no compatible add API found. unixfsModule keys:', Object.keys(unixfsModule || {}));
+      console.error('heliaLocal: unixfsModule.components keys:', Object.keys((unixfsModule && unixfsModule.components) || {}));
+      console.error('heliaLocal: heliaInstance keys:', Object.keys(heliaInstance || {}));
+      throw new Error('heliaLocal: unsupported unixfs/helia API (no add variant succeeded)');
+    }
+
+    // Ensure size is serializable (convert BigInt -> Number)
+    if (typeof size === 'bigint') {
+      try { size = Number(size); } catch (e) { size = String(size); }
     }
 
     return { cid: cidString, size };
@@ -92,13 +189,28 @@ export async function getEvidenceFromLocalHelia(cid) {
   try {
     const chunks = [];
     let catSrc = null;
+    const tryLog = (m) => console.log('heliaLocal: getEvidence ->', m);
+
+    // Try several cat variants, prefer components.cat, then unixfsModule.cat, then heliaInstance.cat
     if (unixfsModule && unixfsModule.components && typeof unixfsModule.components.cat === 'function') {
+      tryLog('using unixfsModule.components.cat');
       catSrc = unixfsModule.components.cat(cid);
-    } else if (unixfsModule && typeof unixfsModule.cat === 'function') {
+    }
+    if (!catSrc && unixfsModule && typeof unixfsModule.cat === 'function') {
+      tryLog('using unixfsModule.cat');
       catSrc = unixfsModule.cat(cid);
-    } else if (heliaInstance && typeof heliaInstance.cat === 'function') {
+    }
+    if (!catSrc && heliaInstance && typeof heliaInstance.cat === 'function') {
+      tryLog('using heliaInstance.cat');
       catSrc = heliaInstance.cat(cid);
-    } else {
+    }
+    if (!catSrc && heliaInstance && heliaInstance.components && typeof heliaInstance.components.cat === 'function') {
+      tryLog('using heliaInstance.components.cat');
+      catSrc = heliaInstance.components.cat(cid);
+    }
+    if (!catSrc) {
+      console.error('heliaLocal: no cat implementation available. unixfsModule keys:', Object.keys(unixfsModule || {}));
+      console.error('heliaLocal: heliaInstance keys:', Object.keys(heliaInstance || {}));
       throw new Error('heliaLocal: no cat implementation available on unixfsModule or heliaInstance');
     }
 

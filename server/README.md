@@ -85,7 +85,7 @@ Content-Type: application/json
 
 {
   "contractAddress": "0x...",
-  "evidenceCID": "QmXXXXXX...",
+  "evidenceCID": "bafybeiexampleevidencecid000000000000000",
   "disputeQuestion": "What is the appropriate resolution?",
   "contractText": "Rental agreement terms...",
   "evidenceText": "Evidence description...",
@@ -103,7 +103,7 @@ Content-Type: application/json
 {
   "disputeId": "original_dispute_id",
   "appealReason": "Disagreement with initial decision",
-  "newEvidenceCID": "QmYYYYYY...",
+  "newEvidenceCID": "bafybeiexamplenewevidencecid000000000000",
   "contractAddress": "0x..."
 }
 ```
@@ -136,7 +136,9 @@ GET /api/v7/arbitration/health
   "status": "completed",
   "evidence": {
     "isValid": true,
-    "cid": "QmXXXXXX...",
+  "cid": "bafybeiexampleevidencecid000000000000000",
+    
+    
     "digest": "0x1234...",
     "validatedAt": 1759268660684
   },

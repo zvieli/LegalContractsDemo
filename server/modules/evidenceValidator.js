@@ -32,14 +32,11 @@ export async function validateHeliaEvidence(cid) {
     }
     
     // Use heliaStore to attempt to cat the CID and consider it valid if retrievable
-    try {
-      const content = await heliaStore.getEvidenceFromHelia(cid);
-      if (content && content.length > 0) return true;
-      return false;
-    } catch (err) {
-      console.log('Helia fetch failed for CID', cid, err.message || err);
-      return false;
-    }
+    const content = await heliaStore.getEvidenceFromHelia(cid);
+    if (content && content.length > 0) return true;
+    // If heliaStore returned empty, treat as not accessible
+    console.log('Helia fetch returned empty for CID', cid);
+    return false;
     
   } catch (error) {
   console.error('Error validating Helia evidence:', error);

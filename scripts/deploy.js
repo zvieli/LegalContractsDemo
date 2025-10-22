@@ -538,7 +538,7 @@ async function main() {
       {
         caseId: 1,
         contentDigest: ethers.keccak256(ethers.toUtf8Bytes('Test evidence content')),
-        cidHash: ethers.keccak256(ethers.toUtf8Bytes('QmTestCID123')),
+  cidHash: ethers.keccak256(ethers.toUtf8Bytes('bafybeiexampletestcid1234567890abcdef')),
         uploader: deployer.address,
         timestamp: Math.floor(Date.now() / 1000)
       }

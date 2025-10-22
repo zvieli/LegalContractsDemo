@@ -9,10 +9,8 @@ Arbitration-driven on-chain contract templates (NDA & Rent). This repository pro
 
 ## Recent Changes (October 2025) - V7 Release
 
-- **NEW**: 🦙 **Ollama LLM Integration** - Native Ollama integration with automatic fallback to simulation mode
-- **NEW**: 🚀 **Unified V7 Backend** - Single Node.js server with integrated arbitration (no external Python dependencies)
-- **NEW**: 🎯 **Hybrid Arbitration System** - Real LLM decisions with simulation fallback for reliability
-- **NEW**: ⚡ **Improved Performance** - Direct Ollama integration eliminates API overhead
+- **NEW**: 🦙 **Ollama LLM Integration** - Native Ollama integration for on-prem LLM arbitration (no external Python dependencies)
+- **NEW**: 🚀 **Unified V7 Backend** - Single Node.js server with integrated arbitration
 - **NEW**: 🌳 **Merkle Evidence System** - Gas-efficient batched evidence submission with 82% cost savings
 - **NEW**: 🧹 **Unified Deployment** - Single `deploy.js` script for all infrastructure (replaces 3 separate scripts)
 - **COMPLETE MIGRATION**: All contract views, event listeners, and evidence/dispute/arbitration flows have been fully migrated to EnhancedRentContract/NDATemplate. Legacy TemplateRentContract logic and event handling are fully removed from all layers (frontend, backend, scripts, docs).
@@ -35,64 +33,94 @@ CONFIDENCE: [0.0-1.0]
 REIMBURSEMENT: [amount or NONE]
 ```
 
-**Arbitration Flow:**
-1. The LLM returns a verdict in the above format to the backend.
-2. The backend sends the verdict to the Oracle (Chainlink Functions).
-3. The Oracle relays the verdict to the smart contract (`ArbitrationService`).
-4. The smart contract enforces the decision (funds transfer, status update).
-5. The frontend displays the verdict, status, and dispute history to the user.
+## V7 Quickstart (Hardhat + Helia + Ollama)
 
+This quickstart shows a minimal local setup to run the V7 server with a local Hardhat node, a Helia (IPFS) store, and an Ollama LLM instance. Commands are shown for Windows PowerShell.
 
-	- Evidence validation, time management, and arbitration processing
+Prereqs:
+- Node.js (16+) and npm
+- npx/hardhat
+- Ollama installed locally (or running on a host reachable via OLLAMA_HOST)
 
+1) Install dependencies
 
-├── front/              # Frontend (Vite + MetaMask)
-### Key Files
-- **`.env`** - Environment configuration with optimized LLM settings
-- **`WALLETS.txt`** - Wallet addresses and keys (IMPORTANT!)
-- **Main docs**: `docs/` - Current specifications and guides
-- **Archive**: `docs/archive/` - Historical migration documentation
-- **Optimization**: `docs/LLM_OPTIMIZATION_GUIDE.md` - LLM performance tuning
-	- `GET /api/v7/arbitration/ollama/health` — Ollama service health check
-
-```mermaid
-flowchart LR
-	S[Smart Contract] -- dispute --> B[V7 Backend Server]
-	B --> O[🦙 Ollama LLM]
-	B --> Sim[🎯 Simulation]
-	B --> E[📊 Evidence]
-	O & Sim & E --> ARB[Arbitration (JSON Response)]
 ```
-### ArbitrationService (wiring & notes)
+npm install
+```
 
-- Purpose: central, owner-controlled service that applies arbitrator resolutions to template contracts using low-level ABI attempts. This keeps template bytecode small and avoids coupling templates to a specific arbitrator ABI.
-- Typical wiring steps:
-	1. Deploy `ArbitrationService`.
-	2. Deploy `Arbitrator` (your platform's arbitrator factory or reference implementation).
-	3. Transfer the service ownership to the arbitrator: `arbitrationService.transferOwnership(arbitratorAddress)` so the arbitrator can call `applyResolutionToTarget`.
-	4. Prefer configuring arbitration at the factory level so templates are created with an immutable `arbitrationService` set at deployment. Example wiring:
-	   - Deploy `ArbitrationService` and, if using an `Arbitrator`, transfer ownership of the service to the arbitrator so it can call `applyResolutionToTarget`.
-	   - Call `ContractFactory.setDefaultArbitrationService(arbitrationServiceAddress, requiredDeposit)` from the factory owner. Then create templates via the factory; they will receive the configured `arbitrationService` and required deposit immutably in their constructor.
-	   - For existing templates (already deployed without an immutable arbitration address), use an appropriate migration or redeploy pattern; templates in this repository are designed to be created via `ContractFactory`.
+2) Start a local Hardhat node (PowerShell):
 
-- ABI compatibility: `ArbitrationService.applyResolutionToTarget` attempts common entrypoints (e.g., `serviceResolve(...)` for NDA templates and `resolveDisputeFinal(...)` for rent templates) using low-level `call`. If none match the target, the service reverts with `No compatible resolution entrypoint on target`.
+```
+npx hardhat node
+```
 
-- Breaking change note: The older compatibility shim `resolveByArbitrator` and direct template-level `arbitrator` storage were removed from templates (NDA & Rent). Update any UI/integrations to follow the ArbitrationService → Arbitrator flow.
+3) (Optional) Start Helia externally, or let the server start an in-process Helia instance. To run an external Helia-compatible daemon, set HELIA_LOCAL_API to the daemon URL. If you want the server to start an in-process Helia, set START_INPROC_HELIA=1.
 
-Flow (prod / local):
-1. Party reports a breach in `NDATemplate`.
-2. A dispute is created and the configured arbitrator is notified (owner‑controlled in this repo).
-3. The arbitrator resolves the dispute by instructing the `ArbitrationService` to apply the resolution to the NDA; templates only accept the configured service as an authorized caller.
-4. `NDATemplate` applies the resolution: enforcement may be deferred by an appeal window or applied immediately; fund distribution uses a pull‑payment ledger.
+Example (use in-process Helia):
 
-
-### Contract Deployment & Arbitration Flow Diagram
-
-```mermaid
-flowchart TD
+```
 	subgraph Deployment
+```
+
+Example (explicit Helia API):
+
+```
 		D[Deployer / Frontend] -- creates --> F[ContractFactory]
+```
+
+4) Start Ollama (on the machine or another host accessible by the server). Ensure the model name you plan to use is available (e.g., llama3.2). Set OLLAMA_HOST/OLLAMA_PORT or OLLAMA_URL in your `.env` if using non-default addresses.
+
+PowerShell example (if Ollama is installed and exposes a CLI command):
+
+```
+# start Ollama (example placeholder if installed as a service)
+Start-Process -FilePath "ollama" -ArgumentList "serve"
+```
+
+5) Start the V7 server (PowerShell), with an example environment file:
+
+```
 		F -- createNDA() --> N[NDATemplate]
+```
+
+6) Verify Helia evidence upload (quick smoke test):
+
+Use PowerShell to POST a sample JSON body to the evidence upload endpoint (server default port: 3001). The server will return a real CID when Helia is available.
+
+```
+$body = @{ ciphertext = "SGVsbG8gV29ybGQ=" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "http://localhost:3001/api/evidence/upload" -ContentType "application/json" -Body $body
+```
+
+Expected response (example):
+
+```
+{
+	"cid": "bafybeigdyrzt7examplecidfakexyz1234567890abcdef",
+	"stored": true,
+	"size": 111,
+	"heliaConfirmed": true
+}
+```
+
+7) Verify Ollama health and a quick arbitration call:
+
+```
+Invoke-RestMethod -Method Get -Uri "http://localhost:3001/api/v7/arbitration/ollama/health"
+
+$req = @{ evidenceData = "Test evidence"; contractAddress = "0x..." } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "http://localhost:3001/api/v7/arbitration/ollama" -ContentType "application/json" -Body $req
+```
+
+Notes:
+- V7 no longer returns mock CIDs. If the server cannot access Helia or Ollama it will return an explicit error (5xx/4xx) rather than silently providing a mock response.
+- For CI or ephemeral runs you can start lightweight Helia and Ollama instances in your test environment. The repository includes tests that exercise local Helia + Ollama flows.
+- If you rely on Chainlink/CCIP integrations, ensure RPC_URL points to a running JSON-RPC provider (e.g., hardhat node at http://127.0.0.1:8545).
+
+Deployment notes (automated wiring)
+----------------------------------
+
+The unified `scripts/deploy.js` script now handles most deployment needs for local testing and wiring of contracts to the `ArbitrationService`.
 		F -- createEnhancedRent() --> R[EnhancedRentContract]
 	end
 	N -- reportBreach(offender, requested, evidenceHash) --> A[Arbitrator (owner/manual)]
