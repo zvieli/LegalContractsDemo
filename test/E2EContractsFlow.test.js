@@ -290,7 +290,7 @@ describe('E2E Contracts Flow', function () {
     // Landlord reports dispute for property damage
     const disputeType = 0; // Damage
     const requestedAmount = ethers.parseEther('0.3');
-  const evidenceUri = 'helia://QmEvidence123';
+  const evidenceUri = 'helia://bafybeiexample0000000000000000000000000000000000000';
     
     // Calculate required bond (0.5% of requested amount or minimum 0.001 ether)
     const percentageBond = (requestedAmount * 50n) / 10000n; // 0.5%
@@ -379,7 +379,7 @@ describe('E2E Contracts Flow', function () {
     // Landlord reports dispute
     const disputeType = 0; // Damage
     const requestedAmount = ethers.parseEther('0.3');
-    const evidenceUri = 'ipfs://QmEvidence123';
+  const evidenceUri = 'ipfs://bafybeiexample0000000000000000000000000000000000000';
     const percentageBond = (requestedAmount * 50n) / 10000n;
     const minimumBond = ethers.parseEther('0.001');
     const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;
@@ -534,7 +534,7 @@ describe('E2E Contracts Flow', function () {
     // 5. Report dispute
     const disputeType = 0;
     const requestedAmount = ethers.parseEther('0.3');
-    const evidenceUri = 'ipfs://QmEvidence123';
+  const evidenceUri = 'ipfs://bafybeiexample0000000000000000000000000000000000000';
     const percentageBond = (requestedAmount * 50n) / 10000n;
     const minimumBond = ethers.parseEther('0.001');
     const requiredBond = percentageBond > minimumBond ? percentageBond : minimumBond;

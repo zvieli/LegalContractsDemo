@@ -114,13 +114,16 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       toStore.chainId = preview.base.chainId;
       toStore.verifyingContract = preview.base.verifyingContract;
 
-      // Upload to Helia/IPFS
-      const cid = await addJson(toStore);
-      const cidDigest = computeCidDigest(cid);
+  // Upload to Helia/IPFS (client-side helper)
+  const cid = await addJson(toStore);
+  const cidDigest = computeCidDigest(cid);
+  // Normalize server-style metadata locally
+  const heliaUri = `helia://${cid}`;
+  const cidHash = computeCidDigest(cid);
       const recipientsHash = hashRecipients(preview.targetRecipients || []);
 
-      // Compute Merkle leaf with cidHash
-      const cidHash = computeCidDigest(cid);
+  // Compute Merkle leaf with cidHash
+  // (cidHash computed above)
       const leaf = computeEvidenceLeaf({
         caseId,
         contentDigest: preview.contentDigest,
@@ -181,7 +184,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
 
       await tx.wait();
       // Pass batch data to backend/UI as needed
-      onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash, leaf, batch: batchResult });
+  onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash, leaf, batch: batchResult, heliaConfirmed: true, heliaUri, cidHash });
       onClose && onClose();
     } catch (e) {
       setError(e.message || String(e));

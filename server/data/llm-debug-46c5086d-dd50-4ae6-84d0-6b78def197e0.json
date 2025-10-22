@@ -1,0 +1,11 @@
+{
+  "jobId": "46c5086d-dd50-4ae6-84d0-6b78def197e0",
+  "evidenceRef": "test-evidence://manual",
+  "plaintext": "test-evidence://manual",
+  "previewError": null,
+  "llmRes": {
+    "ok": false,
+    "error": "LLM HTTP 404: 404 page not found"
+  },
+  "ts": "2025-10-22T15:02:54.207Z"
+}

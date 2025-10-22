@@ -12,7 +12,7 @@ async function testRentScenario() {
         disputeId: "RENT-001", 
         disputeType: "Security Deposit Dispute",
         requestedAmount: "1000",
-        evidenceHash: "QmRentEvidence123",
+    evidenceHash: "bafybeirentevidence1230000000000000000000000000000000",
         context: {
             duedate: "2025-09-30",
             rentamount: "1500",

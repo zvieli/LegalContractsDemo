@@ -147,6 +147,16 @@ export default function EvidenceBatchModal({ onClose, onSubmit, uploaderAddress,
                   <td style={{padding:6, maxWidth:220, wordBreak:'break-all'}}>{f.name}</td>
                   <td style={{padding:6}}>{f.size}</td>
                   <td style={{padding:6, maxWidth:260, wordBreak:'break-all'}}>{f.cid ? <code>{f.cid}</code> : <span style={{color:'#999'}}>—</span>}</td>
+                    <td style={{padding:6, maxWidth:260, wordBreak:'break-all'}}>
+                      {f.cid ? (
+                        <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                          <code>{f.cid}</code>
+                          <div style={{fontSize:11}}>
+                            <a href={`/api/evidence/retrieve/${f.cid}`} target="_blank" rel="noreferrer">View via API</a>
+                          </div>
+                        </div>
+                      ) : <span style={{color:'#999'}}>—</span>}
+                    </td>
                   <td style={{padding:6, maxWidth:260, wordBreak:'break-all'}}><code>{f.contentDigest}</code></td>
                   <td style={{padding:6, maxWidth:260, wordBreak:'break-all'}}>{f.leaf ? <code>{f.leaf}</code> : <span style={{color:'#bbb'}}>—</span>}</td>
                   <td style={{padding:6}}>

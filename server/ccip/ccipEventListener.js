@@ -23,7 +23,8 @@ export class CCIPEventListener {
     this.receiverContract = null;
     this.senderContract = null;
     this.arbitrationServiceContract = null;
-    this.llmArbitrator = null;
+  this.llmArbitrator = null;
+  this.forwarder = config.forwarder || null; // optional DisputeForwarder instance
     this.isListening = false;
     this.processedEvents = new Set();
 
@@ -229,38 +230,40 @@ export class CCIPEventListener {
 
   async _processArbitrationRequest(requestData) {
     const { messageId, disputeId, contractAddress, caseId } = requestData;
+    console.log('🧠 Processing arbitration request (enqueue to forwarder)...');
 
-    console.log('🧠 Processing arbitration request with LLM...');
+    // prefer forwarder enqueue if available
+    if (this.forwarder) {
+      try {
+        const job = this.forwarder.enqueueJob({
+          evidenceRef: requestData.evidenceRef || null,
+          caseId: caseId || null,
+          contractAddress: contractAddress || null,
+          triggerSource: 'onchain',
+          messageId,
+          disputeId
+        });
+        console.log('📥 Enqueued arbitration request to forwarder:', job.jobId);
+        return job;
+      } catch (err) {
+        console.error('❌ Failed to enqueue to forwarder:', err);
+        // fallback to old behavior: try LLM directly if configured
+      }
+    }
 
+    // If no forwarder available or enqueue failed, fallback to direct LLM processing
     if (!this.config.enableLLM || !this.llmArbitrator) {
-      console.log('⚠️ LLM disabled, skipping arbitration processing');
+      console.log('⚠️ LLM disabled and no forwarder, skipping arbitration processing');
       return;
     }
 
     try {
-      // Gather evidence and contract data
-      const arbitrationData = await this._gatherArbitrationData(
-        contractAddress,
-        caseId,
-        disputeId
-      );
-
-      // Process with LLM
+      const arbitrationData = await this._gatherArbitrationData(contractAddress, caseId, disputeId);
       const decision = await processV7ArbitrationWithOllama(arbitrationData);
-
-      console.log('✅ LLM Decision:', {
-        disputeId: disputeId.slice(0, 10) + '...',
-        verdict: decision.final_verdict,
-        amount: decision.reimbursement_amount_dai
-      });
-
-      // Send decision back via CCIP (this would be implemented)
+      console.log('✅ LLM Decision (fallback):', { disputeId: disputeId.slice(0, 10) + '...' });
       await this._sendArbitrationDecision(messageId, disputeId, decision, arbitrationData);
-
     } catch (error) {
-      console.error('❌ Failed to process arbitration with LLM:', error);
-      
-      // Send fallback decision
+      console.error('❌ Failed to process arbitration with LLM (fallback):', error);
       await this._sendFallbackDecision(messageId, disputeId);
     }
   }

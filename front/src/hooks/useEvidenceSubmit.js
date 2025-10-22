@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { prepareEvidencePayload } from '../utils/evidence';
+import { keccak256, toUtf8Bytes } from 'ethers';
 
 export function useEvidenceSubmit() {
   const [loading, setLoading] = useState(false);
@@ -59,8 +60,16 @@ export function useEvidenceSubmit() {
         throw new Error(json && json.error ? json.error : `HTTP ${resp.status}`);
       }
 
-      setStatus({ ok: true, message: 'Evidence submitted', details: json });
-      return json;
+      // Normalize response
+      const returnedDigest = json && json.digest ? json.digest : prep.digest;
+      const heliaCid = json && json.heliaCid ? json.heliaCid : null;
+      const heliaUri = json && json.heliaUri ? json.heliaUri : null;
+      const cid = json && json.cid ? json.cid : (heliaCid || (heliaUri ? String(heliaUri).split('://')[1] : null));
+      const cidHash = json && json.cidHash ? json.cidHash : (cid ? keccak256(toUtf8Bytes(String(cid))) : null);
+
+      const normalized = { cid, heliaCid, heliaUri, cidHash, digest: returnedDigest, raw: json };
+      setStatus({ ok: true, message: 'Evidence submitted', details: normalized });
+      return normalized;
     } finally {
       setLoading(false);
     }

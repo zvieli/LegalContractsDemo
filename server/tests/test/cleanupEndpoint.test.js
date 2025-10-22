@@ -34,12 +34,12 @@ describe('/api/dev/cleanup-evidence', () => {
     const res = await fetch(`${baseUrl}/api/dev/cleanup-evidence`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cids: ['QmTestCid1', 'QmTestCid2'] })
+  body: JSON.stringify({ cids: ['bafybeitestcid0000000000000000000000000000000000000', 'bafybeitestcid0000000000000000000000000000000000001'] })
     });
     const data = await res.json();
     expect(res.status).toBe(200);
     expect(data).toHaveProperty('results');
-    expect(data.results['QmTestCid1']).toBeTruthy();
+  expect(data.results['bafybeitestcid0000000000000000000000000000000000000']).toBeTruthy();
 
   // restore
   spy.mockRestore();

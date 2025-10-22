@@ -58,14 +58,30 @@ export default function useEvidenceUpload({ apiBase = _resolvedApiBase } = {}) {
       setProgress(80);
 
       if (!resp.ok) {
-        const body = await resp.text();
-        throw new Error(`Upload failed: ${resp.status} ${body}`);
+        // Attempt to parse JSON error body, but fall back to text
+        let errBody = null;
+        try { errBody = await resp.json(); } catch (e) { try { errBody = await resp.text(); } catch(_) { errBody = null; } }
+        const errMsg = errBody && errBody.error ? errBody.error : (typeof errBody === 'string' ? errBody : `HTTP ${resp.status}`);
+        const err = new Error(`Upload failed: ${errMsg}`);
+        err.status = resp.status;
+        err.body = errBody;
+        throw err;
       }
 
-      const data = await resp.json();
+      const body = await resp.json();
+      // Normalize response: prefer heliaCid/heliaUri/cid, compute cidHash client-side if missing
+      const heliaCid = body && body.heliaCid ? body.heliaCid : null;
+      const heliaUri = body && body.heliaUri ? body.heliaUri : null;
+      const cid = heliaCid || (heliaUri ? heliaUri.split('://')[1] : null) || (body && body.cid ? body.cid : null);
+      const digest = body && body.digest ? body.digest : withDigests.payloadDigest || null;
+      const cidHash = body && body.cidHash ? body.cidHash : (cid ? computePayloadDigest(String(cid)) : null);
+      const size = body && body.size ? body.size : null;
+      const heliaConfirmed = (body && typeof body.heliaConfirmed !== 'undefined') ? body.heliaConfirmed : null;
+
+      const normalized = { cid, heliaCid, heliaUri, cidHash, digest, size, heliaConfirmed, raw: body };
       setProgress(100);
       setStatus('done');
-      return data;
+      return normalized;
     } catch (err) {
       setError(err);
       setStatus('error');

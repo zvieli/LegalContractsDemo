@@ -15,6 +15,27 @@
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+/* Submit modal spinner (nicer visual) */
+.submit-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(0,0,0,0.12);
+  border-top-color: rgba(0,0,0,0.7);
+  border-radius: 50%;
+  animation: submit-spin 900ms linear infinite;
+  margin-right: 8px;
+}
+
+@keyframes submit-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinner-label {
+  font-size: 14px;
+  color: #222;
+}
 .modal-overlay {
   position: fixed;
   top: 0;

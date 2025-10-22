@@ -17,6 +17,15 @@ import disputeHistory from './modules/disputeHistory.js';
 import v7TestingRoutes from './routes/v7Testing.js';
 import RotatingLogger from './lib/rotatingLogger.js';
 import dotenv from 'dotenv';
+import { validateHeliaEvidence } from './modules/evidenceValidator.js';
+import { triggerLLMArbitration, handleLLMResponse } from './modules/llmArbitration.js';
+import { calculateLateFee, getTimeBasedData } from './modules/timeManagement.js';
+import { llmArbitrationSimulator, processV7Arbitration } from './modules/llmArbitrationSimulator.js';
+import { ccipArbitrationIntegration } from './modules/ccipArbitrationIntegration.js';
+import LLMClient from './lib/llmClient.js';
+import DisputeForwarder from './listeners/disputeForwarder.js';
+import previewResolver from './lib/previewResolver.js';
+import createAdminForwarderRouter from './routes/adminForwarder.js';
 dotenv.config();
 // Evidence storage - prefer Helia local node (production) but keep in-memory fallback
 import heliaStore from './modules/heliaStore.js';
@@ -72,6 +81,15 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: true, verify: (req, res, buf) => { try { req.rawBody = buf && buf.toString(); } catch (e) { req.rawBody = undefined; } } }));
+// Mount admin forwarder router early in a dynamic mode: the router resolves the forwarder at request time
+// This avoids a race where the app is listening before the forwarder has been initialized.
+try {
+  const adminRouterEarly = createAdminForwarderRouter(null);
+  app.use('/api/admin/forwarder', adminRouterEarly);
+  console.log('🔧 Admin forwarder endpoints mounted at /api/admin/forwarder (dynamic early mount)');
+} catch (e) {
+  console.warn('⚠️ Failed to mount early admin forwarder router:', e && e.message ? e.message : e);
+}
 // Mount evidence routes (submit-appeal)
 import evidenceRoutes from './routes/evidence.js';
 app.use('/api', evidenceRoutes);
@@ -461,11 +479,7 @@ app.get('/api/v7/modules', async (req, res) => {
     heliaClient: true
   });
 });
-import { validateHeliaEvidence } from './modules/evidenceValidator.js';
-import { triggerLLMArbitration, handleLLMResponse } from './modules/llmArbitration.js';
-import { calculateLateFee, getTimeBasedData } from './modules/timeManagement.js';
-import { llmArbitrationSimulator, processV7Arbitration } from './modules/llmArbitrationSimulator.js';
-import { ccipArbitrationIntegration } from './modules/ccipArbitrationIntegration.js';
+
 
 // Ollama integration with conditional loading
 let ollamaLLMArbitrator = null;
@@ -1239,10 +1253,20 @@ async function startServer(port = PORT) {
           if (isProduction) console.log('🏭 Production Mode: Helia local node (127.0.0.1:5001)');
           if (isDevelopment) console.log(`📝 Development info available at: http://localhost:${currentPort}/api/v7/debug/development-info`);
 
-          // Load Ollama module and initialize CCIP integration after server is listening
+          // Load Ollama module after server is listening
           try { await loadOllamaModule(); } catch(e) { console.warn('loadOllamaModule failed:', e); }
-          try { await initializeCCIPIntegration(); } catch(e) { console.warn('initializeCCIPIntegration failed:', e); }
 
+          // Initialize LLM client and DisputeForwarder and mount admin router (non-fatal)
+          try {
+            const llm = new LLMClient({});
+            const forwarder = new DisputeForwarder({ llmClient: llm, previewResolver, dataPath: path.join(__dirname, 'data') });
+            global.__DISPUTE_FORWARDER_INSTANCE = forwarder;
+            // Initialize CCIP integration now that forwarder is available
+            try { await initializeCCIPIntegration(); } catch (e) { console.warn('initializeCCIPIntegration failed:', e); }
+            // admin forwarder router is already mounted early in dynamic mode; no-op here
+          } catch (e) {
+            console.warn('⚠️ Failed to initialize forwarder or LLM client:', e && e.message ? e.message : e);
+          }
           resolve(serverInstance);
         } catch (initErr) {
           console.error('Error during server startup initialization:', initErr && initErr.stack ? initErr.stack : initErr);
@@ -1325,12 +1349,11 @@ app.get('/api/v7/arbitration/status', async (req, res) => {
       healthy: true,
       mode: ollamaLLMArbitrator ? 'production' : 'simulation'
     };
-      res.json(status);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
-);
+});
 
 // V7 Arbitration Decisions History API
 app.get('/api/v7/arbitration/decisions', async (req, res) => {

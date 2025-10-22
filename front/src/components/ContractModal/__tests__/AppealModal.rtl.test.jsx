@@ -67,7 +67,7 @@ describe('Appeal modal UI', () => {
     const now = Date.now();
     const entries = [
       { ref: 'helia://bafybeiexamplecid', createdAt: now },
-      { ref: 'QmExampleLegacyCid', createdAt: now - 1000 },
+  { ref: 'bafybeiexamplelegacycid0000000000000000000000000', createdAt: now - 1000 },
       { ref: '0xdeadbeef012345678901234567890123456789012345678901234567890abcd', createdAt: now - 2000 }
     ];
     localStorage.setItem(key, JSON.stringify(entries));
@@ -91,7 +91,7 @@ describe('Appeal modal UI', () => {
   const refEl = await screen.findByText((content, node) => content.includes('helia://bafybeiexamplecid'));
   expect(refEl).toBeTruthy();
   // Other persisted ref
-  expect(await screen.findByText((content) => content.includes('QmExampleLegacyCid'))).toBeTruthy();
+  expect(await screen.findByText((content) => content.includes('bafybeiexamplelegacycid0000000000000000000000000'))).toBeTruthy();
     // Copy buttons (there should be as many as entries)
   const copyBtns = screen.getAllByText('Copy');
   expect(copyBtns.length).toBeGreaterThanOrEqual(3);

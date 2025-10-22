@@ -12,7 +12,7 @@
  */
 
 import { useCallback } from 'react';
-import { hexlify, keccak256 } from 'ethers';
+import { hexlify, keccak256, toUtf8Bytes } from 'ethers';
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -142,14 +142,19 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
     // digest mismatch
     throw new Error(`digest_mismatch: client=${digest} server=${json.digest}`);
   }
-  const cid = json.cid || json.uri || null;
+  const heliaCid = json.heliaCid || null;
+  const heliaUri = json.heliaUri || null;
+  const cid = json.cid || heliaCid || (heliaUri ? String(heliaUri).split('://')[1] : null) || null;
+  const cidHash = json.cidHash ? json.cidHash : (cid ? keccak256(toUtf8Bytes(String(cid))) : null);
   if (onProgress) onProgress({ stage: 'upload_success', digest, cid });
 
   // 3) submit on-chain via provided callback
   if (onProgress) onProgress({ stage: 'tx_send', digest });
   let tx;
   try {
-    tx = await submitToContract({ digest });
+    // Prefer passing heliaUri or cid on-chain when available; fall back to digest
+    const onChainRef = heliaUri ? heliaUri : (cid ? cid : digest);
+    tx = await submitToContract({ digest: onChainRef });
   } catch (err) {
     if (onProgress) onProgress({ stage: 'tx_error', error: err.message || String(err) });
     throw err;
@@ -185,7 +190,7 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
   const regRes = await fetchWithRetry(`${apiBaseUrl}/register-dispute`, {
     method: 'POST',
     headers: authHeaders,
-    body: JSON.stringify({ txHash, digest, cid, contractAddress, reporterAddress })
+    body: JSON.stringify({ txHash, digest, cid, cidHash, contractAddress, reporterAddress })
   }, 3, 700, onProgress);
   const regJson = await regRes.json();
   if (onProgress) onProgress({ stage: 'register_done', entry: regJson });

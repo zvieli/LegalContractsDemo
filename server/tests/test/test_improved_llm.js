@@ -39,7 +39,7 @@ CONTRACT DETAILS:
 - Dispute ID: DYNAMIC-CHUNK-001
 - Dispute Type: Contract Performance and Payment Dispute
 - Requested Amount: 2500000 ETH
-- Evidence Hash: QmDynamicChunkTest123
+- Evidence Hash: bafybeidynamictestchunk000000000000000000000000000000000
 
 EVIDENCE PROVIDED:
 ${testEvidence.evidenceData}

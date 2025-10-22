@@ -17,6 +17,8 @@
     "verify:goerli": "npx hardhat run scripts/verify.js --network goerli",
     "verify:mainnet": "npx hardhat run scripts/verify.js --network mainnet",
     "test": "npx hardhat test",
+  "test:front": "npm --prefix front test",
+  "test:all": "npm run test && npm run test:front",
     "test:crypto": "npx mocha test/crypto.roundtrip.test.js --exit",
     "test:evidence-e2e": "npx mocha test/evidence.e2e.test.js --exit",
     "test:gas": "REPORT_GAS=true npx hardhat test",

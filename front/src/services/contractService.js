@@ -2,6 +2,16 @@ import { ethers } from 'ethers';
 import { getContractAddress, createContractInstanceAsync } from '../utils/contracts';
 import { computePayloadDigest } from '../utils/cidDigest';
 
+function extractCidFromUri(uri) {
+  if (!uri) return null;
+  try {
+    // helia://bafy... or ipfs://bafy... or plain CID
+    const s = String(uri);
+    if (s.startsWith('helia://') || s.startsWith('ipfs://')) return s.split('://')[1];
+    return s;
+  } catch (e) { return null; }
+}
+
 function getAdminPub() {
   try {
     if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_ADMIN_PUBLIC_KEY) return window.__ENV__.VITE_ADMIN_PUBLIC_KEY;
@@ -157,13 +167,19 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
     throw new Error('evidence endpoint returned ' + res.status + ' ' + text);
   }
   const body = await res.json();
-  // Prefer heliaUri when available (new architecture). Fall back to digest for compatibility.
-  const returnedUri = body && body.heliaUri ? body.heliaUri : null;
+  // Normalize response: prefer heliaCid/heliaUri/cid, compute cidHash when missing, fall back to digest
+  const heliaCid = body && body.heliaCid ? body.heliaCid : null;
+  const heliaUri = body && body.heliaUri ? body.heliaUri : null;
+  const rawCid = heliaCid || (heliaUri ? extractCidFromUri(heliaUri) : null) || (body && body.cid ? body.cid : null);
   const returnedDigest = body && body.digest ? body.digest : digest;
-  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence endpoint returned', returnedUri || returnedDigest, body && body.path); } catch (e) {}
+  const cidHash = body && body.cidHash ? body.cidHash : (rawCid ? ethers.keccak256(ethers.toUtf8Bytes(rawCid)) : null);
+  const heliaConfirmed = (body && typeof body.heliaConfirmed !== 'undefined') ? body.heliaConfirmed : null;
+  const size = (body && body.size) ? body.size : null;
+  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence endpoint returned', rawCid || returnedDigest, body && body.path); } catch (e) {}
 
-  // Report on-chain: prefer passing the URI (helia://...) when provided, else pass the digest for backward compatibility
-  const toSend = returnedUri ? returnedUri : returnedDigest;
+  // Compose the on-chain reference: prefer heliaUri (full scheme) then rawCid then digest
+  const toSend = heliaUri ? heliaUri : (rawCid ? rawCid : returnedDigest);
+  // Report on-chain
   await contract.reportDispute(id, toSend, overrides);
   return toSend;
 }
@@ -1458,12 +1474,12 @@ export class ContractService {
   let evidenceArg = '';
         const submitEndpoint = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (window && window?.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || null;
         // If caller provided a 0x.. digest, pass it through. If caller provided
-        // an IPFS CID (base58 starting with Qm, or base32 starting with bafy) or
+  // an IPFS CID (base32 starting with bafy). Legacy base58 CIDs starting with Qm are still accepted for backward compatibility.
         // an ipfs:// URI, treat it as a CID/URI and pass it through unchanged so
         // the contract stores the CID (Helia flow) rather than a keccak digest.
         if (evidence && /^0x[0-9a-fA-F]{64}$/.test(evidence)) {
           evidenceArg = evidence;
-        } else if (evidence && (/^ipfs:\/\//i.test(evidence) || /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(evidence) || /^bafy[0-9a-z]{40,}$/i.test(evidence))) {
+  } else if (evidence && (/^ipfs:\/\//i.test(evidence) || /^bafy[0-9a-z]{40,}$/i.test(evidence) || /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(evidence))) {
           // Looks like an IPFS CID/URI — pass through as-is
           evidenceArg = evidence;
         } else if (evidence) {
@@ -1872,6 +1888,8 @@ export class ContractService {
    * Returns the tx receipt from the contract call. Throws on error.
    */
   async startCancellationWithAppeal(contractAddress, { appealEvidence, feeValueEth } = {}) {
+    // Accept optional progress callback: { progress: (msg) => void }
+    const progressCb = (arguments[1] && arguments[1].progress) ? arguments[1].progress : null;
     try {
       if (!contractAddress) throw new Error('contractAddress required');
 
@@ -1889,20 +1907,33 @@ export class ContractService {
           // Attempt server POST first. If server responds OK, persist mapping. If server fails, fall back to client-side upload but DO NOT persist mapping.
           let serverOk = false;
           try {
+            if (progressCb) try { progressCb('Submitting appeal to server...'); } catch (_) {}
             const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             if (resp && resp.ok) {
               const j = await resp.json();
               evidenceRef = j && (j.evidenceRef || j.heliaUri || j.cid) ? (j.evidenceRef || j.heliaUri || j.cid) : (j.digest || null);
               serverOk = true;
+            } else {
+              // attempt to read error body for friendlier user message
+              let errText = null;
+              try { errText = await (resp && resp.text ? resp.text() : ''); } catch(_) { errText = null; }
+              const userMsg = errText || (resp && `Server returned ${resp.status}`) || 'Server submission failed';
+              const err = new Error(userMsg);
+              err.userMessage = 'Server submission failed. Please try again or submit evidence manually.';
+              err.detail = { status: resp && resp.status, body: errText };
+              throw err;
             }
           } catch (e) {
-            // ignore, will fallback
+            // ignore here; we'll fall back to client upload below but surface better errors later
+            console.warn('Server submit error (will fallback to client upload):', e);
           }
           if (!serverOk) {
             try {
+              if (progressCb) try { progressCb('Uploading appeal evidence from client...'); } catch (_) {}
               evidenceRef = await this.uploadEvidence(appealEvidence);
             } catch (ue) {
               // swallow upload error and continue
+              console.warn('Client-side evidence upload failed, proceeding without evidence ref:', ue);
             }
           }
 
@@ -1994,6 +2025,33 @@ export class ContractService {
     throw error;
   }
 }
+
+  /**
+   * startAppealDraft - ask server to collect contract history and store it as a draft
+   * Returns { historyRef, upload } on success or throws on error.
+   */
+  async startAppealDraft(contractAddress) {
+    if (!contractAddress) throw new Error('contractAddress required');
+    const endpoint = (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_EVIDENCE_SUBMIT_ENDPOINT) ? window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT : (import.meta.env ? import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT : null);
+    const base = endpoint ? endpoint.replace(/\/$/, '') : '';
+    const startUrl = base ? (base.endsWith('/start-appeal') ? base : (base + '/start-appeal')) : '/start-appeal';
+    let res = await fetch(startUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contractAddress }) });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error('start-appeal failed: ' + res.status + ' ' + txt);
+    }
+    const body = await res.json();
+    const historyRef = body && (body.historyRef || body.cid || body.uri || body.upload && (body.upload.cid || body.upload.uri)) ? (body.historyRef || body.cid || body.uri || (body.upload && (body.upload.cid || body.upload.uri))) : null;
+    if (historyRef) {
+      try {
+        const key = `appealHistory:${String(contractAddress).toLowerCase()}`;
+        const existing = JSON.parse(localStorage.getItem(key) || '[]');
+        existing.push({ historyRef, createdAt: Date.now() });
+        localStorage.setItem(key, JSON.stringify(existing));
+      } catch (e) {}
+    }
+    return { historyRef, upload: body && body.upload ? body.upload : null };
+  }
 
   /**
    * Create an EnhancedRentContract via the on-chain factory.

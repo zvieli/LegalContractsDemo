@@ -11,7 +11,7 @@ async function testLLMArbitration() {
     contractAddress: '0x1234567890123456789012345678901234567890',
     disputeType: 0,
     requestedAmount: '1.5',
-    evidenceCID: 'QmTestEvidence123456789',
+  evidenceCID: 'bafybeitestevidence1234567890000000000000000000000000',
     disputeId: 1,
     timestamp: Date.now()
   };
@@ -69,7 +69,7 @@ async function testLLMArbitration() {
   const testAppeal = {
     contractAddress: '0x1234567890123456789012345678901234567890',
     disputeId: 1,
-    evidenceCID: 'QmAppealEvidence987654321',
+  evidenceCID: 'bafybeitestappealevidence9876543210000000000000000',
     appealReason: 'Disagreement with initial decision',
     timestamp: Date.now(),
     type: 'appeal'

@@ -173,7 +173,20 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
               return (
                 <tr key={ev.txHash + ev.cidDigestEvent} style={{borderTop:'1px solid #eee', background: verify ? (verify.valid ? '#e6ffe6' : '#ffe6e6') : undefined}}>
                   <td style={{fontFamily:'monospace',fontSize:12}}>{leaf}</td>
-                  <td style={{fontFamily:'monospace',fontSize:12}}>{ev.cid}</td>
+                  <td style={{fontFamily:'monospace',fontSize:12}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                      <span style={{fontFamily:'monospace',fontSize:12}}>{ev.cid}</span>
+                      <div style={{fontSize:11}}>
+                        {typeof ev.heliaConfirmed !== 'undefined' && (
+                          <span style={{padding:'2px 6px', borderRadius:4, background: ev.heliaConfirmed ? '#d2f8d2' : '#fff0f0', border: '1px solid rgba(0,0,0,0.06)', fontSize:11}}>
+                            {ev.heliaConfirmed ? 'Helia: Stored' : 'Helia: Pending'}
+                          </span>
+                        )}
+                        {' '}
+                        {ev.cid && <a href={`/api/evidence/retrieve/${ev.cid}`} style={{marginLeft:8, fontSize:11}} target="_blank" rel="noreferrer">View via API</a>}
+                      </div>
+                    </div>
+                  </td>
                   <td style={{fontSize:11}}>{proof.length ? proof.map((p,i)=>(<span key={i}><code>{p}</code><br/></span>)) : '—'}</td>
                   <td style={{fontFamily:'monospace',fontSize:12}}>{root}</td>
                   <td>

@@ -295,8 +295,8 @@ export class V7HealthMonitor {
 
   async checkIPFSConnectivity() {
     try {
-      // Simple IPFS gateway test
-      const testCID = 'QmTest1234567890abcdef';
+  // Simple IPFS gateway test
+  const testCID = 'bafybeitest1234567890abcdef0000000000000000000000000';
       const isValid = await validateIPFSEvidence(testCID);
       return { healthy: true, service: 'IPFS/Helia validation' };
     } catch (error) {

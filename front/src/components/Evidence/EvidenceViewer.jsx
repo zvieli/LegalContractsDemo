@@ -44,6 +44,27 @@ export default function EvidenceViewer({ cid, isOpen, onClose, heliaClient }) {
     }
   }
 
+  async function fetchViaApi() {
+    setLoading(true);
+    setError(null);
+    try {
+      const resp = await fetch(`/api/evidence/retrieve/${cid}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const json = await resp.json().catch(()=>null);
+      if (json && typeof json.heliaConfirmed !== 'undefined') {
+        setContent(json);
+      } else if (json && json.content) {
+        setContent(json.content);
+      } else {
+        setContent(json);
+      }
+    } catch (e) {
+      setError(`API fetch failed: ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleFetch() {
     const gateway = EVIDENCE_GATEWAYS[selectedGateway];
     if (gateway.type === 'helia') {

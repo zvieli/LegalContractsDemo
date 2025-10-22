@@ -52,15 +52,15 @@ async function mockHeliaValidation(cid) {
   
   // Mock validation logic
   const validationResults = {
-    // Test CIDs that should pass
-    'QmTest1234567890abcdef': true,
-    'bafyTest1234567890abcdef': true,
-    'QmValidEvidence123456789': true,
-    'bafyValidAppeal987654321': true,
+  // Test CIDs that should pass
+  'bafybeitest1234567890abcdef0000000000000000000000000': true,
+  'bafyTest1234567890abcdef': true,
+  'bafybeitestvalidEvidence1234567890000000000000000000': true,
+  'bafyValidAppeal987654321': true,
     
-    // Test CIDs that should fail
-    'QmInvalidEvidence': false,
-    'bafyBadContent': false
+  // Test CIDs that should fail
+  'bafybeitestinvalidEvidence000000000000000000000000000': false,
+  'bafyBadContent': false
   };
   
   // Check if it's a known test CID

@@ -62,7 +62,7 @@ describe("CCIP mock integration (smoke)", function () {
       deployer.address,
       1,
       ethers.keccak256(ethers.toUtf8Bytes('evidence')),
-      "ipfs://QmTest",
+  "ipfs://bafybeitestcid0000000000000000000000000000000000000",
       ethers.parseEther('0'),
       0, // pay in NATIVE
       { value: ethers.parseEther('0.01') }
@@ -124,7 +124,7 @@ describe("CCIP mock integration (smoke)", function () {
       deployer.address,
       2,
       ethers.keccak256(ethers.toUtf8Bytes('evidence2')),
-      "ipfs://QmTest2",
+  "ipfs://bafybeitestcid0000000000000000000000000000000000001",
       ethers.parseEther('0'),
       0,
       { value: ethers.parseEther('0.01') }

@@ -226,6 +226,10 @@ export class CCIPArbitrationIntegration {
     }
 
     try {
+      // attach global forwarder if present
+      try {
+        if (global && global.__DISPUTE_FORWARDER_INSTANCE) this.forwarder = global.__DISPUTE_FORWARDER_INSTANCE;
+      } catch (e) {}
       // Check available events
       const availableEvents = this.contracts.ccipReceiver.interface.fragments
         .filter(f => f.type === 'event')
@@ -327,7 +331,26 @@ export class CCIPArbitrationIntegration {
       // Parse dispute data
       const parsedData = this.parseDisputeData(encodedDisputeData);
 
-      // Call LLM arbitration
+
+      // If a forwarder is configured, enqueue job instead of calling LLM directly
+      if (this.forwarder) {
+        try {
+          const job = this.forwarder.enqueueJob({
+            evidenceRef: parsedData.evidenceDescription || null,
+            caseId: null,
+            contractAddress: contractAddress || null,
+            triggerSource: 'ccip',
+            messageId: requestId,
+            disputeId: requestId
+          });
+          console.log('📥 Enqueued CCIP arbitration job to forwarder:', job.jobId);
+          return job;
+        } catch (e) {
+          console.warn('⚠️ Failed to enqueue CCIP job to forwarder, falling back to direct LLM call:', e && e.message ? e.message : e);
+        }
+      }
+
+      // Call LLM arbitration (fallback)
       const arbitrationResult = await this.callLLMArbitration(parsedData);
 
       // Send result back via CCIP

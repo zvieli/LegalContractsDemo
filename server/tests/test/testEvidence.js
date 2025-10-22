@@ -8,16 +8,16 @@ async function testEvidenceValidation() {
   
   // Test valid CIDs
   const validCIDs = [
-    'QmTest1234567890abcdef',
+    'bafybeitest1234567890abcdef0000000000000000000000000',
     'bafyTest1234567890abcdef',
-    'QmValidEvidence123456789',
+    'bafybeitestvalidEvidence1234567890000000000000000000',
     'bafyValidAppeal987654321'
   ];
   
   // Test invalid CIDs
   const invalidCIDs = [
     'invalid-cid',
-    'QmInvalidEvidence',
+    'bafybeitestinvalidEvidence000000000000000000000000000',
     'short',
     '',
     null
@@ -37,7 +37,7 @@ async function testEvidenceValidation() {
   
   // Test metadata
   console.log('\nTesting evidence metadata:');
-  const testCID = 'QmTest1234567890abcdef';
+  const testCID = 'bafybeitest1234567890abcdef0000000000000000000000000';
   const metadata = await getEvidenceMetadata(testCID);
   console.log(`  Metadata for ${testCID}:`, metadata);
   

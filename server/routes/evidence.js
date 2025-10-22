@@ -9,13 +9,59 @@ import fs from 'fs';
 
 const router = express.Router();
 
+// POST /api/start-appeal
+// body: { contractAddress, fromBlock?, toBlock?, abiPaths? }
+// Collects contract history, uploads it to Helia (via uploadPayload) and returns a historyRef (cid)
+router.post('/start-appeal', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { contractAddress, fromBlock, toBlock, abiPaths: abiPathsBody } = body;
+    if (!contractAddress) return res.status(400).json({ error: 'contractAddress required' });
+
+    const provider = await getProvider();
+
+    const abiPathsEnv = process.env.EVIDENCE_ABI_PATHS || '';
+    const abiPaths = Array.isArray(abiPathsBody) && abiPathsBody.length ? abiPathsBody
+      : (abiPathsEnv ? abiPathsEnv.split(',').map(p => path.resolve(p)) : []);
+
+    let history = [];
+    try {
+      history = await collectContractHistory(provider, contractAddress, abiPaths.length ? abiPaths : [path.resolve('artifacts', 'contracts')], fromBlock || 0, toBlock || 'latest');
+    } catch (err) {
+      console.warn('[start-appeal] collectContractHistory failed, proceeding with empty history. error=', err && (err.message || err));
+      history = [];
+    }
+
+    const payload = {
+      contractAddress,
+      collectedAt: Date.now(),
+      history,
+      server: { hostname: process.env.HOSTNAME || null }
+    };
+
+    let uploadResult = null;
+    try {
+      uploadResult = await uploadPayload(JSON.stringify(payload), { name: `history_${contractAddress}` });
+    } catch (e) {
+      console.error('[start-appeal] upload failed', e && e.message);
+      return res.status(500).json({ error: 'failed to store history', details: String(e && e.message) });
+    }
+
+    const historyRef = uploadResult.uri || uploadResult.http || uploadResult.path || uploadResult.cid || null;
+    return res.json({ historyRef, upload: uploadResult });
+  } catch (e) {
+    console.error('[/api/start-appeal] error', e && e.stack ? e.stack : e);
+    return res.status(500).json({ error: String(e && e.message ? e.message : e) });
+  }
+});
+
 // POST /api/submit-appeal
 // body: { contractAddress, userEvidence, fromBlock?, toBlock? }
 router.post('/submit-appeal', async (req, res) => {
   try {
     // Accept both JSON and legacy plaintext ciphertexts
     const body = req.body || {};
-    const { contractAddress, userEvidence, fromBlock, toBlock, metadata, recipients, encryptToAdmin = true } = body;
+    const { contractAddress, userEvidence, complaintCid, historyRef, inlineHistory = false, fromBlock, toBlock, metadata, recipients, encryptToAdmin = true } = body;
     if (!contractAddress) return res.status(400).json({ error: 'contractAddress required' });
 
   // Provider - prefer local Hardhat when available
@@ -25,21 +71,54 @@ router.post('/submit-appeal', async (req, res) => {
     const abiPathsEnv = process.env.EVIDENCE_ABI_PATHS || '';
     const abiPaths = abiPathsEnv ? abiPathsEnv.split(',').map(p => path.resolve(p)) : [];
 
+    // Determine history: if caller supplied a historyRef (CID/URI) we will use it instead of re-running collectContractHistory.
     let history = [];
+    let resolvedHistoryRef = null;
     try {
-      history = await collectContractHistory(provider, contractAddress, abiPaths.length ? abiPaths : [path.resolve('artifacts', 'contracts')], fromBlock || 0, toBlock || 'latest');
-    } catch (err) {
-      console.warn('[submit-appeal] collectContractHistory failed, proceeding with empty history. error=', err && (err.message || err));
-      // fallback: empty history so evidence can still be submitted and encrypted
-      history = [];
+      if (historyRef) {
+        // normalize schemes like helia:// or ipfs://
+        resolvedHistoryRef = String(historyRef).replace(/^helia:\/\//i, '').replace(/^ipfs:\/\//i, '');
+        if (inlineHistory) {
+          try {
+            const content = await heliaService.getEvidenceFromHelia(resolvedHistoryRef);
+            try { history = JSON.parse(content); } catch (e) { history = content; }
+          } catch (e) {
+            console.warn('[submit-appeal] failed to inline history from helia', e && e.message);
+            history = [];
+          }
+        }
+      } else {
+        try {
+          history = await collectContractHistory(provider, contractAddress, abiPaths.length ? abiPaths : [path.resolve('artifacts', 'contracts')], fromBlock || 0, toBlock || 'latest');
+        } catch (err) {
+          console.warn('[submit-appeal] collectContractHistory failed, proceeding with empty history. error=', err && (err.message || err));
+          history = [];
+        }
+      }
+    } catch (e) {
+      console.warn('[submit-appeal] history resolution error', e && e.message);
+    }
+
+    // If complaintCid not provided but userEvidence raw text is, upload complaint to Helia to obtain a complaintCid
+    let resolvedComplaintRef = complaintCid || null;
+    if (!resolvedComplaintRef && userEvidence) {
+      try {
+        const complaintUpload = await uploadPayload(typeof userEvidence === 'string' ? userEvidence : JSON.stringify(userEvidence), { name: `complaint_${contractAddress}` });
+        resolvedComplaintRef = complaintUpload.uri || complaintUpload.http || complaintUpload.path || complaintUpload.cid || null;
+      } catch (e) {
+        console.error('[submit-appeal] complaint upload failed', e && e.message);
+      }
     }
 
     const combined = {
       contractAddress,
       collectedAt: Date.now(),
-      history,
+      // include inline history if available, otherwise reference by historyRef when provided
+      history: (Array.isArray(history) && history.length) ? history : null,
+      historyRef: resolvedHistoryRef,
       metadata: metadata || {},
-      userEvidence: userEvidence || null,
+      complaintRef: resolvedComplaintRef,
+      userEvidence: userEvidence && !resolvedComplaintRef ? userEvidence : null,
       server: { hostname: process.env.HOSTNAME || null }
     };
 

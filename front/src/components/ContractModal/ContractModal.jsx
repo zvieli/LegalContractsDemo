@@ -63,6 +63,14 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [showAppealEvidenceModal, setShowAppealEvidenceModal] = useState(false);
   const [appealEvidenceInput, setAppealEvidenceInput] = useState('');
+  const [pendingAppealEvidence, setPendingAppealEvidence] = useState(null);
+  const [showServerSubmitConfirm, setShowServerSubmitConfirm] = useState(false);
+  const [serverSubmitting, setServerSubmitting] = useState(false);
+  const [serverSubmitError, setServerSubmitError] = useState(null);
+  // Human-friendly progress message from server/flow (e.g. "Collecting contract history...")
+  const [submitProgressMessage, setSubmitProgressMessage] = useState(null);
+  // Toggle to reveal technical error detail
+  const [showServerErrorDetails, setShowServerErrorDetails] = useState(false);
   const [disputeForm, setDisputeForm] = useState({ dtype: 4, amountEth: '0', evidence: '' });
 
   // Confirmation modal state for payable actions
@@ -830,11 +838,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
   // Start cancellation flow and optionally upload appeal evidence first
   const handleStartCancellationWithAppeal = async () => {
+    // Show confirmation modal to indicate we're preferring server-side evidence assembly and upload
     try {
-      setActionLoading(true);
-      const svc = new ContractService(provider, signer, chainId);
-
-      // Prefer dispute form evidence if present, otherwise use appealEvidenceInput from modal
+      // Determine evidence string to use
       let evidence = null;
       if (disputeForm && disputeForm.evidence) {
         evidence = disputeForm.evidence;
@@ -842,15 +848,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         evidence = appealEvidenceInput.trim();
       }
 
-      const res = await svc.startCancellationWithAppeal(contractAddress, { appealEvidence: evidence, feeValueEth: feeToSend });
-      alert('Cancellation transaction submitted. Check transactions/notifications for status.');
-      setShowAppealEvidenceModal(false);
-      setAppealEvidenceInput('');
-      await loadContractData();
+      setPendingAppealEvidence(evidence);
+      setServerSubmitError(null);
+      setShowServerSubmitConfirm(true);
+
+      // No prefetch: history will be collected when the user explicitly "Submit to Server".
     } catch (e) {
-      console.error('startCancellationWithAppeal failed', e);
-      alert('Failed to start cancellation with appeal: ' + (e?.reason || e?.message || e));
-    } finally { setActionLoading(false); }
+      console.error('prepare startCancellationWithAppeal failed', e);
+      alert('Failed to prepare cancellation with appeal: ' + (e?.reason || e?.message || e));
+    }
   };
 
   const handleCopyAddress = async () => {
@@ -1135,6 +1141,76 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             onCancel={onConfirmCancel} 
             busy={confirmBusy} 
           />
+          {/* Server-prefer submission confirmation for appeal evidence */}
+          {showServerSubmitConfirm && (
+            <div className="modal-overlay" style={{position:'fixed',zIndex:9999,background:'rgba(0,0,0,0.6)'}} onClick={() => { if(!serverSubmitting) setShowServerSubmitConfirm(false); }}>
+              <div className="modal-content" style={{maxWidth:720,margin:'40px auto',padding:12}} onClick={(e)=>e.stopPropagation()}>
+                <h3>Submit appeal evidence via server</h3>
+                <p>The platform will assemble the required contract history and upload evidence to the server-managed Helia instance. This is preferred for privacy and reliability.</p>
+                <div style={{whiteSpace:'pre-wrap',background:'#f6f6f6',padding:8,borderRadius:6,marginBottom:8}}>{pendingAppealEvidence || '(no evidence provided)'}</div>
+                {serverSubmitError && (
+                  <div className="error" role="alert">
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <div>Error: {String(serverSubmitError?.message || serverSubmitError)}</div>
+                      <button className="btn-link" onClick={() => setShowServerErrorDetails(s => !s)} style={{marginLeft:12}}>{showServerErrorDetails ? 'Hide details' : 'Details'}</button>
+                    </div>
+                    {showServerErrorDetails && (
+                      <pre style={{whiteSpace:'pre-wrap',maxHeight:200,overflow:'auto',background:'#111',color:'#fff',padding:8,borderRadius:6,marginTop:8}}>{String(serverSubmitError)}</pre>
+                    )}
+                  </div>
+                )}
+                {submitProgressMessage && (
+                  <div aria-live="polite" style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
+                    <div className="submit-spinner" role="status" aria-live="polite" aria-label="Submitting"></div>
+                    <div className="spinner-label">{submitProgressMessage}</div>
+                  </div>
+                )}
+                <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+                  <button className="btn-secondary" disabled={serverSubmitting} onClick={() => { if(!serverSubmitting) setShowServerSubmitConfirm(false); }}>Cancel</button>
+                  <button className="btn-primary" disabled={serverSubmitting} onClick={async () => {
+                    try {
+                      setServerSubmitting(true);
+                      setServerSubmitError(null);
+                      setSubmitProgressMessage('Collecting contract history and preparing evidence...');
+                      const svc = new ContractService(provider, signer, chainId);
+                      // Pass a progress callback if the service supports it (best-effort)
+                      const res = await svc.startCancellationWithAppeal(contractAddress, { appealEvidence: pendingAppealEvidence, feeValueEth: feeToSend, progress: (msg) => setSubmitProgressMessage(msg) });
+                      // persist a record of the successful submission for UI traceability
+                      try {
+                        const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+                        const prev = JSON.parse(localStorage.getItem(key) || '[]');
+                        const entry = { id: Date.now(), createdAt: new Date().toISOString(), evidence: pendingAppealEvidence, serverResponse: res };
+                        prev.unshift(entry);
+                        localStorage.setItem(key, JSON.stringify(prev.slice(0,20)));
+                      } catch (e) { console.warn('Failed to persist appealEvidence record', e); }
+                      alert('Cancellation transaction submitted. Check transactions/notifications for status.');
+                      setShowServerSubmitConfirm(false);
+                      setShowAppealEvidenceModal(false);
+                      setAppealEvidenceInput('');
+                      await loadContractData();
+                    } catch (e) {
+                      console.error('server submit failed', e);
+                      // Prefer structured message when available
+                      const friendly = e && e.userMessage ? e.userMessage : (e && e.message ? e.message : 'Submission failed.');
+                      setServerSubmitError({ message: friendly, detail: e });
+                      setSubmitProgressMessage(null);
+                      // persist failed attempt so user can retry
+                      try {
+                        const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+                        const prev = JSON.parse(localStorage.getItem(key) || '[]');
+                        const entry = { id: Date.now(), createdAt: new Date().toISOString(), evidence: pendingAppealEvidence, error: String(e?.message || e) };
+                        prev.unshift(entry);
+                        localStorage.setItem(key, JSON.stringify(prev.slice(0,20)));
+                      } catch (ee) { console.warn('Failed to persist failed appealEvidence', ee); }
+                    } finally {
+                      setServerSubmitting(false);
+                      setSubmitProgressMessage(null);
+                    }
+                  }}>Submit to Server</button>
+                </div>
+              </div>
+            </div>
+          )}
           {/* Top-level quick actions removed to keep actions inside the Actions tab */}
         </div>
 

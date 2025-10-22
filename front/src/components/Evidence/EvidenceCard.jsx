@@ -111,7 +111,7 @@ export default function EvidenceCard({ ev, onView, heliaClient }) {
           </span>
         )}
       </div>
-      <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
         <div style={{flex:1}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <strong>CID:</strong> 
@@ -151,6 +151,9 @@ export default function EvidenceCard({ ev, onView, heliaClient }) {
           >
             📂 Open Evidence
           </button>
+          {ev.cid && (
+            <a href={`/api/evidence/retrieve/${ev.cid}`} target="_blank" rel="noreferrer" className="btn-sm outline">View via API</a>
+          )}
           {ev.cid && <a className="btn-sm outline" href={`https://ipfs.io/ipfs/${ev.cid}`} target="_blank" rel="noreferrer">IPFS</a>}
           {ev.fetched && <button className="btn-sm outline" onClick={() => { try { const blob = new Blob([JSON.stringify(ev.fetched,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`evidence-${ev.cidDigestEvent.slice(2,10)}.json`; a.click(); } catch(_){} }}>Export</button>}
         </div>

@@ -75,7 +75,7 @@
       "path": "/api/evidence/validate/:cid",
       "method": "GET",
       "description": "Validate evidence CID accessibility/validity (dev/test returns valid)",
-      "response_example": { "valid": true, "accessible": true, "cid": "Qm..." },
+  "response_example": { "valid": true, "accessible": true, "cid": "bafybeiexample..." },
       "auth": false
     },
     {

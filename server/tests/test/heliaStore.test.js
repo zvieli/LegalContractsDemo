@@ -7,7 +7,7 @@ describe('heliaStore.removeEvidenceFromHelia (unit)', () => {
     const origFetch = global.fetch;
     global.fetch = vi.fn(() => { throw new Error('network'); });
     try {
-      const res = await heliaStore.removeEvidenceFromHelia('QmDummyCid', 'http://127.0.0.1:59999');
+  const res = await heliaStore.removeEvidenceFromHelia('bafybeidummycid000000000000000000000000000000000', 'http://127.0.0.1:59999');
       expect(res).toHaveProperty('removed', false);
     } finally {
       global.fetch = origFetch;
