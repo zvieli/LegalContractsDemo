@@ -2,22 +2,22 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { runEvidenceFlow } from '../../hooks/useEvidenceFlow';
 
 describe('runEvidenceFlow register-dispute payload', () => {
-  const originalFetch = global.fetch;
-  beforeEach(() => {
-    global.fetch = vi.fn();
-  });
-  afterEach(() => {
-    global.fetch = originalFetch;
-    vi.restoreAllMocks();
-  });
+  const originalFetch = globalThis.fetch;
+    beforeEach(() => {
+      globalThis.fetch = vi.fn();
+    });
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+      vi.restoreAllMocks();
+    });
 
   it('sends cid and cidHash to /register-dispute when /submit-evidence returns heliaCid and cidHash', async () => {
     const fakeCid = 'bafybeiadummycid1234567890';
     const fakeCidHash = '0x' + 'ab'.repeat(32);
     const fakeDigest = '0x' + '11'.repeat(32);
 
-    // Mock /submit-evidence response
-    global.fetch.mockImplementationOnce(async (url, opts) => {
+  // Mock /submit-evidence response
+  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
       if (String(url).endsWith('/submit-evidence')) {
         return {
           ok: true,
@@ -36,7 +36,7 @@ describe('runEvidenceFlow register-dispute payload', () => {
     // Capture the register-dispute body
     let registerBody = null;
     // Next fetch is /register-dispute
-    global.fetch.mockImplementationOnce(async (url, opts) => {
+      globalThis.fetch.mockImplementationOnce(async (url, opts) => {
       if (String(url).endsWith('/register-dispute')) {
         try {
           registerBody = JSON.parse(opts && opts.body ? opts.body : '{}');
@@ -74,7 +74,7 @@ describe('runEvidenceFlow register-dispute payload', () => {
     const fakeDigest = '0x' + '22'.repeat(32);
 
     // Mock /submit-evidence response returning heliaUri
-    global.fetch.mockImplementationOnce(async (url, opts) => {
+  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
       if (String(url).endsWith('/submit-evidence')) {
         return {
           ok: true,
@@ -89,7 +89,7 @@ describe('runEvidenceFlow register-dispute payload', () => {
 
     // Capture the register-dispute body
     let registerBody = null;
-    global.fetch.mockImplementationOnce(async (url, opts) => {
+  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
       if (String(url).endsWith('/register-dispute')) {
         registerBody = JSON.parse(opts && opts.body ? opts.body : '{}');
         return { ok: true, json: async () => ({ ok: true, id: 'reg2' }) };
@@ -117,7 +117,7 @@ describe('runEvidenceFlow register-dispute payload', () => {
     const serverDigest = '0x' + 'bb'.repeat(32);
 
     // Mock /submit-evidence to return a different digest
-    global.fetch.mockImplementationOnce(async (url, opts) => {
+  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
       if (String(url).endsWith('/submit-evidence')) {
         return { ok: true, json: async () => ({ digest: serverDigest }) };
       }

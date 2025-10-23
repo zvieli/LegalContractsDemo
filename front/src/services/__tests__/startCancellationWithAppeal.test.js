@@ -1,3 +1,4 @@
+/* global global */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // localStorage polyfill for Node test environment

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+/* global Buffer */
 import './EvidenceSubmit.css';
 import { prepareEvidencePayload } from '../../utils/evidence';
 
@@ -95,7 +96,8 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceTyp
         if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
           ciphertextToSend = window.btoa(ctSource);
         } else {
-          ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
+          // Buffer may not exist in some browser test environments; guard it
+          try { ciphertextToSend = (typeof Buffer !== 'undefined') ? Buffer.from(ctSource, 'utf8').toString('base64') : btoa(ctSource); } catch (err) { ciphertextToSend = btoa(ctSource); }
         }
       } catch (e) {
         ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');

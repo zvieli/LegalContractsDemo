@@ -6,7 +6,7 @@ import './CreateNDA.css';
 import '../../styles/notAllowed.css';
 
 function CreateNDA() {
-  const { isConnected, signer, chainId, account, provider, loading } = useEthers();
+  const { isConnected, signer, chainId, account, provider, loading, isConnecting, connectWallet } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
   useEffect(() => {
     async function checkAdmin() {

@@ -1,3 +1,4 @@
+/* global global */
 /* eslint-env jest */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ContractService } from '../contractService';

@@ -8,8 +8,11 @@ import { ArbitrationService } from '../../services/arbitrationService';
 // decrypted/processed version of the payload only when provided by a trusted
 // admin/service. The frontend performs NO pinning or direct IPFS interactions.
 import * as ethers from 'ethers';
-import { parseEtherSafe, formatEtherSafe } from '../../utils/eth';
+import { ContractService } from '../../services/contractService';
+// removed unused eth helpers to avoid lint noise; use ethers.parseEther where needed
 import { createContractInstanceAsync, getLocalDeploymentAddresses } from '../../utils/contracts';
+import { computeDigestForCiphertext, decryptCiphertextJson } from '../../utils/evidence.js';
+import { isAdminDecryptEnabled } from '../../utils/env.js';
 import './ResolveModal.css';
 import useEvidenceFlow from '../../hooks/useEvidenceFlow';
 
@@ -53,6 +56,8 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const [tenantDepositEth, setTenantDepositEth] = useState('');
   const [debtorDepositEth, setDebtorDepositEth] = useState('');
   const [debtorDepositWei, setDebtorDepositWei] = useState(0n);
+  const [initiatorWithdrawableEth, setInitiatorWithdrawableEth] = useState('0');
+  const [outstandingJudgementEth, setOutstandingJudgementEth] = useState('0');
   const [decision, setDecision] = useState('');
   const [requiredFeeEth, setRequiredFeeEth] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -68,9 +73,62 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const [adminAutoTried, setAdminAutoTried] = useState(false);
   const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
 
+  // Missing UI state used throughout the modal
+  const [rationale, setRationale] = useState('');
+  const [confirmPay, setConfirmPay] = useState(false);
+  const [forwardEth, setForwardEth] = useState('');
+  const [willBeDebitedEth, setWillBeDebitedEth] = useState('0');
+  const [debtRemainderEth, setDebtRemainderEth] = useState('0');
+
+  // Admin decrypt helper state
+  const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
+  const [fetchStatusMessage, setFetchStatusMessage] = useState(null);
+  const [fetchedUrl, setFetchedUrl] = useState(null);
+  const [adminDigest, setAdminDigest] = useState(null);
+
+  // Evidence upload progress tracked by useEvidenceFlow/upload hooks
+  const [evidenceProgress, setEvidenceProgress] = useState(null);
+
+  // Read admin decrypt flag via helper to avoid relying on build-time globals
+  const adminDecryptEnabled = isAdminDecryptEnabled();
+
+  // Small computed helpers to avoid no-undef/runtime errors during iterative cleanup
+  const reporterBondEth = '0';
+  const requiredFeeWei = (() => {
+    try {
+      if (requiredFeeEth && String(requiredFeeEth).trim().length > 0) return ethers.parseEther(String(requiredFeeEth));
+    } catch (err) { /* ignore parse errors and return 0n */ }
+    return 0n;
+  })();
+
+  // Helper actions for admin UI
+  const handleCopyDigest = async () => {
+    if (!adminDigest) return;
+    try {
+      if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(adminDigest);
+        alert('Digest copied to clipboard');
+      }
+    } catch (e) { /* ignore */ }
+  };
+
+  const handleDownloadPlaintext = () => {
+    if (!adminDecrypted) return;
+    try {
+      const blob = new Blob([adminDecrypted], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'evidence-plaintext.json';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) { /* ignore */ }
+  };
+
   // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
-  const key1 = `incomingDispute:${resolvedAddress}`;
-  const key2 = `incomingDispute:${String(resolvedAddress).toLowerCase()}`;
+  const key1 = resolvedAddress ? `incomingDispute:${resolvedAddress}` : null;
+  const key2 = resolvedAddress ? `incomingDispute:${String(resolvedAddress).toLowerCase()}` : null;
   let js = null;
   try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
   if (!js) {
@@ -80,11 +138,13 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
         const o = JSON.parse(sess);
   if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(resolvedAddress).toLowerCase()) js = sess;
       }
-    } catch (_) { js = js; }
+  } catch (_) { /* ignore JSON parse/read errors */ }
   }
   if (js) {
-    try { setAppealLocal(JSON.parse(js)); } catch { setAppealLocal(null); }
-  } else setAppealLocal(null);
+    try { setAppealLocal(JSON.parse(js)); } catch (parseErr) { console.debug('Failed to parse incomingDispute session data', parseErr); setAppealLocal(null); }
+  } else {
+    setAppealLocal(null);
+  }
 
 
 
@@ -118,6 +178,15 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
               const debtorDep = BigInt(await rent.partyDeposit(debtorAddr));
               setDebtorDepositEth(ethers.formatEther(debtorDep));
               setDebtorDepositWei(debtorDep);
+              // Fetch on-chain withdrawable for initiator and outstanding judgement
+              try {
+                const initWithdraw = await svc.getWithdrawable(resolvedAddress, initiator).catch(() => 0n);
+                setInitiatorWithdrawableEth(ethers.formatEther(BigInt(initWithdraw || 0n)));
+              } catch (_) { setInitiatorWithdrawableEth('0'); }
+              try {
+                const oj = await svc.getOutstandingJudgement(resolvedAddress, i).catch(() => 0n);
+                setOutstandingJudgementEth(ethers.formatEther(BigInt(oj || 0n)));
+              } catch (_) { setOutstandingJudgementEth('0'); }
               break;
             }
           } catch (_) {}
@@ -125,6 +194,25 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
       }
     } catch (e) { console.debug('refreshDisputeState failed', e); }
   };
+
+  // Wire the evidence flow hook with a submitToContract helper so uploadAndSubmit
+  // can call the on-chain reporting function. This avoids uploadAndSubmit being
+  // undefined and centralizes the contract submit logic used by the hook.
+  const { uploadAndSubmit } = useEvidenceFlow({
+    submitToContract: async ({ digest: onChainRef }) => {
+      // onChainRef may be a heliaUri, cid or the digest; pass through to contract
+      try {
+        const svc = new ContractService(provider, signer, chainId);
+        const rent = await svc.getRentContract(resolvedAddress);
+        // Some contract helpers return awaited receipts or tx objects
+        const tx = await rent.reportDispute(onChainRef);
+        return tx;
+      } catch (err) {
+        throw err;
+      }
+    },
+    apiBaseUrl: (import.meta && import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || ''
+  });
 
 
   useEffect(() => {
@@ -301,8 +389,9 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
             await svc2.applyResolutionToTargetViaService(arbAddr, resolvedAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
             } else {
             // Otherwise treat as cancellation finalize and forward early-termination fee if required
+            // Prefer landlord-triggered finalize path which will call finalizeByLandlord when appropriate
             const feeToSend = requiredFeeWei && typeof requiredFeeWei === 'bigint' ? requiredFeeWei : 0n;
-            await svc2.finalizeCancellationViaService(arbAddr, resolvedAddress, feeToSend);
+            await svc2.finalizeByLandlordViaService(arbAddr, resolvedAddress, feeToSend);
           }
           } else {
             // Evidence flow already finalized on-chain via uploadAndSubmit (submitToContract). Skip duplicate finalize.
@@ -440,6 +529,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
               <div style={{marginBottom:6}}><strong>Reporter bond (fixed):</strong> 0.002 ETH</div>
               <div style={{marginBottom:6}}><strong>Reporter bond (held):</strong> {reporterBondEth} ETH</div>
               <div style={{marginBottom:6}}><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
+              <div style={{marginBottom:6}}><strong>Outstanding judgement recorded:</strong> {outstandingJudgementEth} ETH</div>
               <div style={{fontSize:12, color:'#555'}}>Approving will transfer the requested amount to the beneficiary. This action may move funds on-chain.</div>
               <div style={{marginTop:8}}>
                 <label><input type="checkbox" checked={confirmPay} onChange={e => setConfirmPay(e.target.checked)} /> I confirm approving will transfer {disputeAmountEth} ETH to {disputeInfo.initiator}</label>
@@ -500,7 +590,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   <EvidencePanel initialEvidenceRef={disputeInfo?.evidenceRef || disputeInfo?.evidenceDigest || ''} />
 
           {/* Admin decrypt button & modal (optional in-browser decryption). WARNING: private key must be transient and not stored. */}
-          {isAuthorizedArbitrator && ENABLE_ADMIN_DECRYPT && (
+          {isAuthorizedArbitrator && adminDecryptEnabled && (
             <div style={{marginTop:12}}>
                       <button type="button" className="btn-sm" onClick={async () => {
                         setShowAdminDecryptModal(true);
@@ -656,7 +746,25 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
             <div style={{marginTop:12}}>
               <div><strong>Reporter bond (fixed):</strong> 0.002 ETH</div>
               <div><strong>Reporter bond (held):</strong> {reporterBondEth} ETH</div>
-              <div><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
+                          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+                            <div><strong>Initiator withdrawable:</strong> {initiatorWithdrawableEth} ETH</div>
+                            {Number(initiatorWithdrawableEth || '0') > 0 && (
+                              <button type="button" className="btn-sm" onClick={async () => {
+                                try {
+                                  setSubmitting(true);
+                                  const svc = new ContractService(provider, signer, chainId);
+                                  const receipt = await svc.withdrawRentPayments(resolvedAddress);
+                                  alert('Withdraw tx submitted: ' + (receipt && receipt.transactionHash ? receipt.transactionHash : 'receipt'));
+                                  // Refresh balances
+                                  await refreshDisputeState();
+                                } catch (e) {
+                                  alert('Withdraw failed: ' + (e?.message || e));
+                                } finally {
+                                  setSubmitting(false);
+                                }
+                              }}>Withdraw</button>
+                            )}
+                          </div>
               {/* Reporter bond is paid with the initial report transaction; no separate post button needed. */}
               <div style={{marginTop:8}}>
                 <em style={{color:'#555'}}>Arbitration owner withdraws (if any) are handled off-chain or via the owner's UI.</em>

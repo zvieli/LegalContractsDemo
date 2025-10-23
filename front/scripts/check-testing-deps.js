@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* eslint-env node */
+/* global process */
 // check-testing-deps.js
 // Quick script to report outdated testing-related packages and to run tests and flag stderr lines.
 

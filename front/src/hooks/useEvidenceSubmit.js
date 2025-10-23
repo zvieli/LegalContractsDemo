@@ -1,3 +1,4 @@
+/* global Buffer, process */
 import { useState } from 'react';
 import { prepareEvidencePayload } from '../utils/evidence';
 import { keccak256, toUtf8Bytes } from 'ethers';

@@ -11,6 +11,8 @@
  *   Example: submitToContract = async ({ digest }) => { const tx = await contract.reportDispute(digest); return tx; }
  */
 
+/* global Buffer, process */
+
 import { useCallback } from 'react';
 import { hexlify, keccak256, toUtf8Bytes } from 'ethers';
 
@@ -107,7 +109,15 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
     if (typeof window !== 'undefined' && typeof window.btoa === 'function') {
       ciphertextToSend = window.btoa(ctSource);
     } else {
-      ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
+      // In Node/tests Buffer is available via globalThis.Buffer; guard to avoid lint no-undef
+      const _Buffer = (typeof globalThis !== 'undefined' && globalThis.Buffer) ? globalThis.Buffer : null;
+      if (_Buffer && typeof _Buffer.from === 'function') {
+        ciphertextToSend = _Buffer.from(ctSource, 'utf8').toString('base64');
+      } else if (typeof btoa === 'function') {
+        ciphertextToSend = btoa(ctSource);
+      } else {
+        ciphertextToSend = ctSource;
+      }
     }
   } catch (e) {
     // fallback: if encoding fails, send as-is (server may still accept wrapper form)

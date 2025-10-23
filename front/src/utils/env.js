@@ -1,4 +1,6 @@
-import process from 'process';
+// Use globalThis.process when available to support both browser and Node contexts
+let _proc = null;
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
 
 // Environment helper utilities
 export function isProduction() {
@@ -26,7 +28,7 @@ export function isAdminDecryptEnabled() {
 // fall back to process.env (TESTING or VITE_E2E_TESTING) so tests can import
 // frontend helpers without throwing during module evaluation.
 export const IN_E2E = (
-	typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_E2E_TESTING === 'true'
+  typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_E2E_TESTING === 'true'
 ) || (
-	typeof process !== 'undefined' && process.env && (process.env.VITE_E2E_TESTING === 'true' || process.env.TESTING === '1')
+  _proc && _proc.env && (_proc.env.VITE_E2E_TESTING === 'true' || _proc.env.TESTING === '1')
 );

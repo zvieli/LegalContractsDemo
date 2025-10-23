@@ -1,3 +1,5 @@
+/* eslint-env node */
+/* global process */
 import { defineConfig } from '@playwright/test';
 
 // Ensure test runs are deterministic: prefer noble secp256k1 fallback and enable TESTING diagnostics

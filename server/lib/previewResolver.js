@@ -74,7 +74,6 @@ export async function fetchPlaintext(ref) {
     const decryptPath = path.join(process.cwd(), 'server', 'lib', 'decrypt.js');
     if (fs.existsSync(decryptPath)) {
       // dynamic import to avoid circular
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const dec = await import(`../lib/decrypt.js`);
       if (dec && typeof dec.decryptWithAdminPrivKey === 'function') {
         try {

@@ -1,6 +1,10 @@
+/* global Buffer process */
+/* eslint no-unused-vars: "off" */
 import crypto from 'crypto';
 import { Buffer } from 'buffer';
-import process from 'process';
+// Use globalThis.process when available (avoid importing 'process' directly)
+let _proc = null;
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
 
 function aesDecryptUtf8(ciphertextBase64, ivBase64, tagBase64, symKeyBuffer) {

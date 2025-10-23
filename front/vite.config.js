@@ -1,7 +1,11 @@
+/* global __dirname process */
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import fs from 'node:fs';
 import path from 'node:path';
+
+// Guard Node-only globals when linting in browser/ES environments
+const __rootDir = typeof __dirname !== 'undefined' ? __dirname : process && process.cwd ? process.cwd() : '.';
 
 // Vite middleware to serve ABI/deployment files from src/utils/contracts
 function contractsMiddleware() {
@@ -26,7 +30,7 @@ function contractsMiddleware() {
 export default defineConfig({
   plugins: [react(), contractsMiddleware()],
   define: {
-    global: 'window'
+      global: 'window'
   },
   resolve: {
     alias: {
@@ -65,11 +69,11 @@ export default defineConfig({
     },
     fs: {
       allow: [
-        path.resolve(__dirname),
-        path.resolve(__dirname, 'src'),
-        path.resolve(__dirname, 'src/utils/contracts'),
-        path.resolve(__dirname, 'src/config'),
-        path.resolve(__dirname, 'config')
+          path.resolve(__rootDir),
+          path.resolve(__rootDir, 'src'),
+          path.resolve(__rootDir, 'src/utils/contracts'),
+          path.resolve(__rootDir, 'src/config'),
+          path.resolve(__rootDir, 'config')
       ]
     }
   },

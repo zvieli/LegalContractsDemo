@@ -92,6 +92,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [appealEvidenceList, setAppealEvidenceList] = useState([]);
   const [escrowBalanceWei, setEscrowBalanceWei] = useState(0n);
   const [partyDepositWei, setPartyDepositWei] = useState(0n);
+  const [contractBalanceWei, setContractBalanceWei] = useState(0n);
   const [topUpAmountEth, setTopUpAmountEth] = useState('0');
   const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
   const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
@@ -284,6 +285,13 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       const pd = account ? await svc.getPartyDeposit(contractAddress, account).catch(() => 0n) : 0n;
       setEscrowBalanceWei(BigInt(eb || 0n));
       setPartyDepositWei(BigInt(pd || 0n));
+      try {
+        const bal = await provider.getBalance(contractAddress).catch(() => 0n);
+        setContractBalanceWei(BigInt(bal || 0n));
+      } catch (e) {
+        console.debug('getBalance failed', e);
+        setContractBalanceWei(0n);
+      }
     } catch (e) {
       console.debug('refreshBalances failed', e);
     }
@@ -369,6 +377,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         } catch (e) {
           setTransactionHistory(evts => [{ type:'RentPaid', data:{ tenant, amount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
         }
+        // Refresh escrow/withdrawable balances after rent paid
+        try { refreshBalances(); } catch (e) { console.debug('refreshBalances after RentPaid failed', e); }
       };
       contractInstance.on('RentPaid', rentPaidHandler);
       listeners.push(() => contractInstance.off('RentPaid', rentPaidHandler));
@@ -381,6 +391,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         } catch (e) {
           setTransactionHistory(evts => [{ type:'SecurityDepositPaid', data:{ by, amount, total }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
         }
+        // refresh balances so UI shows updated party deposit / escrow
+        try { refreshBalances(); } catch (e) { console.debug('refreshBalances after DepositPaid failed', e); }
       };
       contractInstance.on('SecurityDepositPaid', depositHandler);
       listeners.push(() => contractInstance.off('SecurityDepositPaid', depositHandler));
@@ -803,6 +815,18 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       let amountEthForCalc = disputeForm.amountEth;
       const amountWei = amountEthForCalc ? ethers.parseEther(String(amountEthForCalc || '0')) : 0n;
 
+      // Block submission if requested amount exceeds contract ETH balance
+      try {
+        const cb = BigInt(contractBalanceWei || 0n);
+        if (amountWei > 0n && BigInt(amountWei) > cb) {
+          alert('Requested amount exceeds the contract\'s ETH balance. Please reduce the requested amount or top up the contract before submitting.');
+          setActionLoading(false);
+          return null;
+        }
+      } catch (e) {
+        // ignore and continue
+      }
+
       let evidenceDigest = '';
       try {
         if (evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw)) evidenceDigest = evidenceRaw;
@@ -899,6 +923,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
             complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
             requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null
+            ,contractBalance: contractBalanceWei ? String(ethers.formatEther(contractBalanceWei)) : '0'
           };
 
           // Minimal client-side validation (reduced schema)
@@ -1058,6 +1083,20 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       try { return ethers.formatEther(bond); } catch { return String(bond); }
     } catch (_) { return '0'; }
   })();
+
+  // Validate that requested amount does not exceed on-chain contract balance
+  const requestedAmountExceedsContract = useMemo(() => {
+    try {
+      if (!disputeForm || !disputeForm.amountEth) return false;
+      // parseEther may throw on invalid input; wrap safely
+      const reqWei = ethers.parseEther(String(disputeForm.amountEth || '0'));
+      const cb = BigInt(contractBalanceWei || 0n);
+      return BigInt(reqWei) > cb;
+    } catch (e) {
+      // If parse failed, consider it not exceeding (other validation handles numeric format)
+      return false;
+    }
+  }, [disputeForm?.amountEth, contractBalanceWei]);
 
   const handleCreateDispute = async () => {
     try {
@@ -1729,6 +1768,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
               <div style={{display:'flex', gap:12, marginBottom:10, alignItems:'center'}}>
                 <div style={{fontSize:13}}>Escrow: <strong>{escrowBalanceWei ? ethers.formatEther(escrowBalanceWei) : '0'} ETH</strong></div>
+                <div style={{fontSize:13}}>Contract balance: <strong>{contractBalanceWei ? ethers.formatEther(contractBalanceWei) : '0'} ETH</strong></div>
                 <div style={{fontSize:13}}>Your deposit: <strong>{partyDepositWei ? ethers.formatEther(partyDepositWei) : '0'} ETH</strong></div>
               </div>
 
@@ -1764,6 +1804,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
               <label style={{marginTop:8}}>Requested amount (ETH)</label>
               <input type="number" step="any" className="text-input" value={disputeForm.amountEth} onChange={(e) => setDisputeForm(s => ({ ...s, amountEth: e.target.value }))} />
+              {requestedAmountExceedsContract && (
+                <div style={{color:'#a00', marginTop:6, fontSize:13}}>Requested amount exceeds the contract's ETH balance. Please enter a smaller amount or top up the contract.</div>
+              )}
 
               <label style={{marginTop:8}}>Evidence (text, CID or digest)</label>
               <textarea className="text-input" rows={6} value={disputeForm.evidence} onChange={(e) => setDisputeForm(s => ({ ...s, evidence: e.target.value }))} />
@@ -1799,7 +1842,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                       defendant: defendant,
                       txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
                       complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
-                      requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null
+                      requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null,
+                      contractBalance: contractBalanceWei ? String(ethers.formatEther(contractBalanceWei)) : '0'
                     };
                     const canonStr = canonicalize(canonicalPayloadForServer);
                     // Basic validation
@@ -1809,7 +1853,10 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     try { if (defendant && !ethers.isAddress(defendant)) errs.push('Invalid defendant address'); } catch (e) {}
                     if ((!canonicalPayloadForServer.txHistory || canonicalPayloadForServer.txHistory.length === 0) && !canonicalPayloadForServer.complaint) errs.push('Either txHistory must be present or complaint required');
                     if (canonicalPayloadForServer.requestedAmount && !/^[0-9]+(\.[0-9]+)?$/.test(String(canonicalPayloadForServer.requestedAmount))) errs.push('requestedAmount must be numeric');
-                    if (errs.length) {
+                    if (requestedAmountExceedsContract) {
+                      setPreviewError('Requested amount exceeds contract balance.');
+                      console.warn('Preview blocked: requested amount exceeds contract balance');
+                    } else if (errs.length) {
                       setPreviewError('Validation issues: ' + errs.join('; '));
                       console.warn('Preview payload validation failed', errs);
                     } else {

@@ -1,6 +1,9 @@
 import * as ethers from 'ethers';
 import { Buffer } from 'buffer';
-import process from 'process';
+// Avoid importing 'process' directly; use globalThis.process where available so
+// browser builds don't trigger ESLint no-undef for `process`.
+let _proc = null;
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
 import { safeGetAddress } from './signer.js';
 import { computeCidDigest, computeContentDigest, canonicalize } from './evidenceCanonical.js';
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
@@ -8,7 +11,7 @@ import { IN_E2E } from './env.js';
 
 // Import testing helpers for frontend debugging (browser compatible check)
 let testingHelpers = null;
-if (typeof process !== 'undefined' && process.env && process.env.TESTING) {
+if (_proc && _proc.env && _proc.env.TESTING) {
   try {
     // Note: In browser environments, this import may fail, which is expected
     import('../../../utils/testing-helpers.js').then(module => {
@@ -143,7 +146,7 @@ export async function buildEncryptedEnvelope(contentObj, recipientsPublicKeys = 
     tagB64 = Buffer.from(tag).toString('base64');
   } else {
     // Node fallback - only import crypto in Node.js environments
-    if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+  if (_proc && _proc.versions && _proc.versions.node) {
       const cryptoModule = await import('crypto');
       const cipher = cryptoModule.createCipheriv('aes-256-gcm', Buffer.from(symKey), Buffer.from(iv));
       const ct = Buffer.concat([cipher.update(jsonCanon, 'utf8'), cipher.final()]);
@@ -194,7 +197,7 @@ export async function signEvidenceEIP712(evidenceData, contractInfo, signer) {
   
   // EIP-712 domain
   const domain = {
-  // ...existing code...
+    name: 'TemplateRentContract',
     version: '1',
     chainId: chainId,
     verifyingContract: verifyingContract
@@ -211,10 +214,8 @@ export async function signEvidenceEIP712(evidenceData, contractInfo, signer) {
     ]
   };
   
-  // Get uploader address
-  const contractService = new ContractService(provider, signer, chainId);
-  const readProvider = contractService._providerForRead() || provider || null;
-  const uploader = await safeGetAddress(signer, readProvider || contractService);
+  // Get uploader address (prefer direct signer address)
+  const uploader = await safeGetAddress(signer);
   
   // Evidence message
   const message = {

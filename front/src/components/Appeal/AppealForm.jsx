@@ -3,11 +3,12 @@ import { Buffer } from 'buffer';
 import './AppealForm.css';
 import EvidenceSubmit from '../EvidenceSubmit/EvidenceSubmit';
 import { useEthers } from '../../contexts/EthersContext';
+import { ContractService } from '../../services/contractService';
 import { createContractInstanceAsync } from '../../utils/contracts';
 
-export default function AppealForm({ contractAddress, disputeId, contractName = 'EnhancedRentContract', methodName = 'appealDispute' }) {
+export default function AppealForm({ contractAddress, disputeId, contractName = 'EnhancedRentContract', methodName = 'appealDispute', onSubmitted }) {
   // note: we will perform evidence preparation + submit in handleSubmit below
-  const { signer, account } = useEthers();
+  const { signer, account, provider, chainId } = useEthers();
   const [evidenceResult, setEvidenceResult] = useState(null);
   const [txResult, setTxResult] = useState(null);
   const [error, setError] = useState(null);

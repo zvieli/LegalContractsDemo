@@ -38,8 +38,8 @@ export class DocumentGenerator {
     })();
 
     // Cancellation policy (for rent only)
-    const cxl = isRent ? (contractData.cancellation || {}) : {};
-    const policyHTML = (isRent && (cxl || {}).hasOwnProperty('requireMutualCancel')) ? `
+  const cxl = isRent ? (contractData.cancellation || {}) : {};
+  const policyHTML = (isRent && Object.prototype.hasOwnProperty.call(cxl, 'requireMutualCancel')) ? `
       <div class="section">
         <h2 style="font-size:18px;margin:0 0 8px;">Cancellation Policy</h2>
         <div class="grid">

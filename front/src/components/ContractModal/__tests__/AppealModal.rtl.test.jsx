@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import React from 'react';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { describe, it, beforeEach, afterEach, vi, expect } from 'vitest';
 
 // Provide a simple localStorage polyfill for the test environment if missing
+/* global global */
 if (typeof localStorage === 'undefined' || localStorage === null) {
   global.localStorage = (function () {
     let store = {};

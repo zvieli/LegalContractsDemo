@@ -12,13 +12,16 @@ const ndaActivate = path.join(repoRoot, 'scripts', 'debug', 'nda-activate.js');
 const ndaSetup = path.join(repoRoot, 'scripts', 'debug', 'nda-setup.js');
 
 function runNodeScript(scriptPath, args = [], envOverrides = {}) {
-  const nodeExe = process.execPath; // absolute node path
+  // Resolve node executable path defensively so lint/build in browser contexts won't error
+  let _proc = null;
+  try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
+  const nodeExe = _proc && _proc.execPath ? _proc.execPath : 'node'; // absolute node path
   const fullArgs = [scriptPath, ...args];
-  console.log('Running:', nodeExe, fullArgs.join(' '));
+  try { console.log('Running:', nodeExe, fullArgs.join(' ')); } catch (_) {}
   const res = execFileSync(nodeExe, fullArgs, {
     stdio: 'inherit',
     cwd: repoRoot,
-    env: Object.assign({}, process.env, envOverrides),
+    env: Object.assign({}, (typeof globalThis !== 'undefined' && globalThis.process && globalThis.process.env) ? globalThis.process.env : {}, envOverrides),
     windowsHide: true,
   });
   return res;

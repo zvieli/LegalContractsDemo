@@ -4,6 +4,12 @@ import { computePayloadDigest } from '../utils/cidDigest';
 import EnhancedRentContractJson from '../utils/contracts/EnhancedRentContract.json';
 import NDATemplateJson from '../utils/contracts/NDATemplate.json';
 
+// Global runtime flag used by some debug/E2E traces. Provide safe fallback.
+// Prefer globalThis.process to avoid ESLint no-undef in browser contexts
+let _proc = null;
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
+const IN_E2E = (typeof window !== 'undefined' && !!window.__IN_E2E__) || (_proc && !!_proc.env && String(_proc.env.IN_E2E) === 'true') || false;
+
 function extractCidFromUri(uri) {
   if (!uri) return null;
   try {
@@ -88,6 +94,12 @@ export async function reportRentDispute(id, evidencePayloadString = '', override
 export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   const runtimeEndpoint = getEvidenceEndpoint();
   const runtimeAdmin = getAdminPub();
+  // Safe runtime flags used in debug/E2E traces. Provide fallbacks to avoid no-undef.
+  // Prefer globalThis.process to avoid ESLint no-undef in browser contexts
+  let _localProc = null;
+  try { _localProc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _localProc = null; }
+  const IN_E2E = (typeof window !== 'undefined' && !!window.__IN_E2E__) || (_localProc && !!_localProc.env && String(_localProc.env.IN_E2E) === 'true') || false;
+  const e2eFlag = IN_E2E;
   if (!runtimeEndpoint || !runtimeAdmin) throw new Error('Evidence endpoint or admin public key not configured');
   // prepare (encrypt) payload
   const { prepareEvidencePayload } = await import('../utils/evidence.js');
@@ -158,9 +170,20 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
         }
         const parsed = await res.json();
         const returnedDigest = parsed && parsed.digest ? parsed.digest : newDigest;
-        // Report on-chain
-        await contract.reportDispute(id, returnedDigest, overrides);
-        return returnedDigest;
+        // Report on-chain: obtain a contract instance and call reportDispute
+        try {
+          const targetAddr = (overrides && overrides.contractAddress) ? overrides.contractAddress : null;
+          const inst = await (async () => {
+            try { return await createContractInstanceAsync('EnhancedRentContract', targetAddr, (typeof window !== 'undefined' ? (window.ethereum || null) : null)); } catch (_) { return null; }
+          })();
+          if (inst && typeof inst.reportDispute === 'function') {
+            await inst.reportDispute(id, returnedDigest, overrides);
+            return returnedDigest;
+          }
+          throw new Error('Could not obtain contract instance to call reportDispute');
+        } catch (innerErr) {
+          throw innerErr;
+        }
       } catch (reErr) {
         throw reErr;
       }
@@ -181,9 +204,20 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
 
   // Compose the on-chain reference: prefer heliaUri (full scheme) then rawCid then digest
   const toSend = heliaUri ? heliaUri : (rawCid ? rawCid : returnedDigest);
-  // Report on-chain
-  await contract.reportDispute(id, toSend, overrides);
-  return toSend;
+  // Report on-chain: ensure we have a contract instance before calling reportDispute
+  try {
+    const targetAddr = (overrides && overrides.contractAddress) ? overrides.contractAddress : null;
+    const inst = await (async () => {
+      try { return await createContractInstanceAsync('EnhancedRentContract', targetAddr, (typeof window !== 'undefined' ? (window.ethereum || null) : null)); } catch (_) { return null; }
+    })();
+    if (inst && typeof inst.reportDispute === 'function') {
+      await inst.reportDispute(id, toSend, overrides);
+      return toSend;
+    }
+    throw new Error('Could not obtain contract instance to call reportDispute');
+  } catch (innerErr) {
+    throw innerErr;
+  }
 }
 
 export class ContractService {
@@ -747,10 +781,12 @@ export class ContractService {
       addr = address; // keep as-is
     }
   const primary = this.provider;
+    // Local placeholder for optional fallback RPC code
+    let fallbackCode = null;
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        let code;
+        try {
+          let code;
         try {
           code = await primary.getCode(addr);
         } catch (primaryErr) {
@@ -778,9 +814,10 @@ export class ContractService {
         const isLocal = Number(this.chainId) === 31337 || Number(this.chainId) === 1337 || Number(this.chainId) === 5777;
         if (isLocal && code === '0x') {
           try {
-  throw new Error('getCodeSafe: provider fallback not allowed. Pass the correct provider from EthersContext.');
             // console.log(`[DEBUG] getCodeSafe: Fallback local RPC for address ${addr} returned:`, fallbackCode); // TEMP: silenced for production
             if (fallbackCode && fallbackCode !== '0x') return fallbackCode;
+            // If no fallback available, surface a descriptive error so callers know to pass the proper provider
+            throw new Error('getCodeSafe: provider fallback not allowed. Pass the correct provider from EthersContext.');
           } catch (rpcErr) {
             // ignore and fall through to returning the original empty code
             console.warn('Local RPC fallback getCode failed', rpcErr);
@@ -873,6 +910,31 @@ export class ContractService {
     } catch (error) {
       // If ABI mismatch or getter not present, return 0
       console.debug('getWithdrawable not available or failed', error);
+      return 0n;
+    }
+  }
+
+  // Read outstandingJudgement for a specific caseId. Returns BigInt value or 0n.
+  async getOutstandingJudgement(contractAddress, caseId) {
+    try {
+      const rentContract = await this.getRentContract(contractAddress);
+      const val = await rentContract.outstandingJudgement(Number(caseId));
+      return BigInt(val || 0);
+    } catch (error) {
+      try {
+        // fallback: attempt low-level call and decode using TemplateRentContract ABI
+        const rentAbi = await getContractAddress('TemplateRentContract');
+        const iface = new ethers.Interface(rentAbi || []);
+        const data = iface.encodeFunctionData('outstandingJudgement', [Number(caseId)]);
+        const p = this._providerForRead();
+        if (p && typeof p.call === 'function') {
+          const res = await p.call({ to: contractAddress, data });
+          const decoded = iface.decodeFunctionResult('outstandingJudgement', res);
+          return BigInt(decoded[0] || 0);
+        }
+      } catch (err) {
+        console.debug('getOutstandingJudgement not available or failed', error);
+      }
       return 0n;
     }
   }
@@ -1729,9 +1791,11 @@ export class ContractService {
               evidenceArg = ethers.keccak256(ethers.toUtf8Bytes(evidence));
             }
         }
-        // Debugging instrumentation: log signer, target code and calldata so we can
-        // diagnose CALL_EXCEPTION / missing revert data issues during E2E runs.
-        try {
+  // Debugging instrumentation: log signer, target code and calldata so we can
+  // diagnose CALL_EXCEPTION / missing revert data issues during E2E runs.
+  // Declare `calldata` here so the outer catch block can inspect it when a send fails.
+  let calldata = null;
+  try {
         const signerAddr = await this._getSignerAddressSafe();
           console.debug('reportRentDispute: signerAddr=', signerAddr, 'target=', contractAddress, 'disputeType=', disputeType, 'amount=', String(amount), 'evidence=', evidenceArg);
           try {
@@ -1740,14 +1804,14 @@ export class ContractService {
           } catch (codeErr) {
             console.warn('reportRentDispute: could not fetch target code', codeErr);
           }
-          // Build calldata so we can attempt a low-level call for revert payload if the send fails
-          let calldata = null;
+            // Build calldata so we can attempt a low-level call for revert payload if the send fails
+            calldata = null;
             try {
-            calldata = rent.interface.encodeFunctionData('reportDispute', [disputeType, amount, evidenceArg]);
-            console.debug('reportRentDispute: calldata=', calldata.slice(0, 10) + '...');
-          } catch (encErr) {
-            console.warn('reportRentDispute: failed to encode calldata', encErr);
-          }
+              calldata = rent.interface.encodeFunctionData('reportDispute', [disputeType, amount, evidenceArg]);
+              console.debug('reportRentDispute: calldata=', calldata.slice(0, 10) + '...');
+            } catch (encErr) {
+              console.warn('reportRentDispute: failed to encode calldata', encErr);
+            }
 
           // Use a signer-attached contract for the write
           const rentForWrite = await this.getEnhancedRentContractForWrite(contractAddress);
@@ -2506,12 +2570,8 @@ async signNDA(contractAddress) {
       nda.penaltyBps(),
       nda.customClausesHash(),
     ]);
-    const domain = {
-      name: 'NDATemplate',
-      version: '1',
-      chainId: Number(this.chainId),
-      verifyingContract: contractAddress,
-    };
+      const { ndaDomain } = await import('../utils/eip712.js');
+      const domain = ndaDomain(this.chainId, contractAddress);
     const types = {
       NDA: [
         { name: 'contractAddress', type: 'address' },
@@ -2665,12 +2725,9 @@ async signRent(contractAddress) {
       const dueDate = await rent.dueDate();
       const rentAmount = await rent.rentAmount();
       // The on-chain contract sets EIP712 name to "TemplateRentContract" (see constructor)
-      const domain = {
-        name: 'TemplateRentContract',
-        version: '1',
-        chainId: Number(this.chainId),
-        verifyingContract: contractAddress
-      };
+      // Use centralized helper to avoid drift between front and contract tests
+      const { rentDomain } = await import('../utils/eip712.js');
+      const domain = rentDomain(this.chainId, contractAddress);
       const types = {
         RENT: [
           { name: 'contractAddress', type: 'address' },

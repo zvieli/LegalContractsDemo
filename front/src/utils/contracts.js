@@ -8,6 +8,7 @@ import { ethers } from 'ethers';
 import { CONTRACT_ADDRESSES } from '../../config/chains';
 
 let ContractFactoryABI = null;
+let EnhancedRentContractABI = null;
 // ...existing code...
 let NDATemplateABI = null;
 let ArbitratorABI = null;

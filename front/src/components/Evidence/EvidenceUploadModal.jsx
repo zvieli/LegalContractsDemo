@@ -8,6 +8,8 @@ import { safeGetAddress } from '../../utils/signer.js';
 import { listRecipients } from '../../utils/recipientKeys.js';
 import { addJson } from '../../utils/heliaClient.js';
 import * as ethers from 'ethers';
+import { useEthers } from '../../contexts/EthersContext';
+import { ContractService } from '../../services/contractService';
 
 // Props: { contract, onClose, onSubmitted, recipientsPubkeys (array hex), caseId }
 export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onSubmitted, recipientsPubkeys = [], signer }) {
@@ -33,6 +35,11 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
     chainId,
     verifyingContract
   });
+
+  // Get provider and chainId from shared ethers context when available
+  const { provider, chainId } = useEthers();
+  // Prefer explicit chainId if provided by context; keep naming consistent
+  const _chainId = chainId;
 
   async function buildPreview() {
     setError(null);
@@ -82,7 +89,9 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
     if (!signer) return;
     if (!preview) return;
     try {
-  const chain = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
+      const contractService = new ContractService(provider, signer, _chainId || chain);
+      const readProvider = contractService._providerForRead() || provider || null;
+      const chain = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
       const evidenceData = {
         caseId: caseId,
         contentDigest: preview.contentDigest,
@@ -114,7 +123,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       toStore.chainId = preview.base.chainId;
       toStore.verifyingContract = preview.base.verifyingContract;
 
-  // Upload to Helia/IPFS (client-side helper)
+    // Upload to Helia/IPFS (client-side helper)
   const cid = await addJson(toStore);
   const cidDigest = computeCidDigest(cid);
   // Normalize server-style metadata locally
@@ -160,8 +169,11 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       // Try new secure method first
       let tx;
       if (typeof contract.submitEvidenceWithSignature === 'function') {
-  // Re-sign with actual CID
-  const chain = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
+        // Build a ContractService to obtain a read provider if available
+        const contractService = new ContractService(provider, signer, _chainId || chainId);
+        const readProvider = contractService._providerForRead() || provider || null;
+        // Re-sign with actual CID
+        const chain = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
         const evidenceData = {
           caseId: caseId,
           contentDigest: preview.contentDigest,
