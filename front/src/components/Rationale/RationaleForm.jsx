@@ -27,7 +27,7 @@ export default function RationaleForm({ contractAddress = null, txHash = null, o
       try {
         const mod = await import('../../utils/evidence');
         digest = await mod.computeDigestForText(payloadStr);
-      } catch (e) {
+      } catch (e) { void e;
         digest = null;
       }
       const body = { txHash: txHash || null, digest: digest, contractAddress: contractAddress || null, type: 'rationale', content: payloadStr };
@@ -35,7 +35,7 @@ export default function RationaleForm({ contractAddress = null, txHash = null, o
       setResult(resp);
       if (typeof onSubmitted === 'function') onSubmitted(resp);
       return resp;
-    } catch (e) {
+    } catch (e) { void e;
       setError(String(e));
       throw e;
     }

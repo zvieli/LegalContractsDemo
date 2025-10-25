@@ -18,9 +18,9 @@ function CreateNDA() {
   const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
-        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
         setIsAdmin(owner && account.toLowerCase() === owner.toLowerCase());
-      } catch { setIsAdmin(false); }
+      } catch (_){ void _; setIsAdmin(false); }
     }
     checkAdmin();
   }, [provider, signer, chainId, account]);
@@ -38,6 +38,16 @@ function CreateNDA() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  // Loading spinner helpers must be declared as hooks at the top-level (before any early returns)
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  const shouldShowSpinner = isConnecting || (loading && !provider && !account);
+  useEffect(() => {
+    let t;
+    if (loading) t = setTimeout(() => setLoadingTimedOut(true), 5000);
+    else setLoadingTimedOut(false);
+    return () => clearTimeout(t);
+  }, [loading]);
+ 
   const handleCreateNDA = async (e) => {
     e.preventDefault();
     try {
@@ -124,16 +134,7 @@ function CreateNDA() {
       </div>
     );
   }
-
-  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
-  const shouldShowSpinner = isConnecting || (loading && !provider && !account);
-  useEffect(() => {
-    let t;
-    if (loading) t = setTimeout(() => setLoadingTimedOut(true), 5000);
-    else setLoadingTimedOut(false);
-    return () => clearTimeout(t);
-  }, [loading]);
-
+ 
   if (shouldShowSpinner && !loadingTimedOut) {
     return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
   }
@@ -144,7 +145,7 @@ function CreateNDA() {
         <div style={{fontSize:16,marginBottom:12}}>Wallet not connected</div>
         <div style={{marginBottom:12}}><small>Please connect your Ethereum wallet to create an NDA.</small></div>
         <div>
-          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch(e){ console.error('connectWallet failed', e); } }}>Connect Wallet</button>
+          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch (e) { void e; console.error('connectWallet failed', e); } }}>Connect Wallet</button>
         </div>
       </div>
     );

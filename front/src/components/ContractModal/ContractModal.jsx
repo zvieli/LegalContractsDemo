@@ -1,7 +1,6 @@
 // ---- Rent EIP712 signing wrapper ----
     
-import React from 'react';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import { ContractService } from '../../services/contractService';
 import * as ethers from 'ethers';
@@ -9,20 +8,21 @@ import { ArbitrationService } from '../../services/arbitrationService';
 import { DocumentGenerator } from '../../utils/documentGenerator';
 import { computePayloadDigest } from '../../utils/cidDigest';
 import { getContractAddress, createContractInstanceAsync } from '../../utils/contracts';
-import ConfirmPayModal from '../common/ConfirmPayModal';
+import _ConfirmPayModal from '../common/ConfirmPayModal';
 import './ContractModal.css';
 import { decryptCiphertextJson } from '../../utils/adminDecrypt';
-import { useNotifications } from '../../contexts/NotificationContext.jsx';
-import { registerRecipient } from '../../utils/recipientKeys.js';
-import { IN_E2E } from '../../utils/env';
+import { useNotifications as _useNotifications } from '../../contexts/NotificationContext.jsx';
+import { registerRecipient as _registerRecipient } from '../../utils/recipientKeys.js';
+import { IN_E2E as _IN_E2E } from '../../utils/env';
 import EnhancedRentContractJson from '../../utils/contracts/EnhancedRentContract.json';
 import NDATemplateJson from '../../utils/contracts/NDATemplate.json';
 import { canonicalize } from '../../utils/evidenceCanonical.js';
 import { computeContentDigest } from '../../utils/evidenceCanonical.js';
 import { signEvidenceEIP712, hashRecipients } from '../../utils/evidence.js';
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
-  const contractInstanceRef = useRef(null);
-  const { account, signer, chainId, provider, contracts: globalContracts, loading, isConnecting, connectWallet } = useEthers();
+  const _contractInstanceRef = useRef(null);
+void _contractInstanceRef;
+    const { account, signer, chainId, provider, contracts: _globalContracts, loading, isConnecting, connectWallet } = useEthers();
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   
@@ -32,32 +32,43 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     // Use optional chaining to avoid reading signer.provider directly which can throw in some injected-provider setups
     console.log('[ContractModal] signer provider URL:', signer?.provider?.connection?.url ?? null);
   }, [provider, signer]);
+
+  // If loading persists for too long, fall back to the connect UI
+  useEffect(() => {
+    let t;
+    if (loading) {
+      t = setTimeout(() => setLoadingTimedOut(true), 5000);
+    } else {
+      setLoadingTimedOut(false);
+    }
+    return () => { if (t) clearTimeout(t); };
+  }, [loading]);
   
   const [contractDetails, setContractDetails] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [transactionHistory, setTransactionHistory] = useState([]);
-  const [pendingDeposit, setPendingDeposit] = useState(null);
+  const [_pendingDeposit, _setPendingDeposit] = useState(null);
   const [activeTab, setActiveTab] = useState('details');
-  const [requiredEth, setRequiredEth] = useState(null);
-  const [requiredEthWei, setRequiredEthWei] = useState(null);
-  const [withdrawableAmt, setWithdrawableAmt] = useState('0');
-  const [feeDueEth, setFeeDueEth] = useState(null);
-  const [timeRemaining, setTimeRemaining] = useState(null);
+  const [_requiredEth, _setRequiredEth] = useState(null);
+  const [requiredEthWei, _setRequiredEthWei] = useState(null);
+  const [withdrawableAmt, _setWithdrawableAmt] = useState('0');
+  const [_feeDueEth, setFeeDueEth] = useState(null);
+  const [_timeRemaining, setTimeRemaining] = useState(null);
   const [policyDraft, setPolicyDraft] = useState({ notice: '', feeBps: '', mutual: false });
   const [feeToSend, setFeeToSend] = useState('');
-  const [cancellationEvents, setCancellationEvents] = useState([]);
-  const [ndaEvents, setNdaEvents] = useState([]);
-  const [ndaCanSign, setNdaCanSign] = useState(true);
-  const [ndaAlreadySigned, setNdaAlreadySigned] = useState(false);
-  const [arbOwner, setArbOwner] = useState(null);
+  const [_cancellationEvents, _setCancellationEvents] = useState([]);
+  const [_ndaEvents, setNdaEvents] = useState([]);
+  const [_ndaCanSign, setNdaCanSign] = useState(true);
+  const [_ndaAlreadySigned, setNdaAlreadySigned] = useState(false);
+  const [arbOwner, _setArbOwner] = useState(null);
   const [factoryOwner, setFactoryOwner] = useState(null);
   const [arbitrationOwner, setArbitrationOwner] = useState(null);
   const [creator, setCreator] = useState(null);
-  const [isAuthorizedArbitrator, setIsAuthorizedArbitrator] = useState(false);
-  const [arbCaseId, setArbCaseId] = useState('');
-  const [arbApprove, setArbApprove] = useState(true);
-  const [arbBeneficiary, setArbBeneficiary] = useState('');
+  const [_isAuthorizedArbitrator, _setIsAuthorizedArbitrator] = useState(false);
+  const [_arbCaseId, _setArbCaseId] = useState('');
+  const [_arbApprove, _setArbApprove] = useState(true);
+  const [_arbBeneficiary, _setArbBeneficiary] = useState('');
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewPayloadStr, setPreviewPayloadStr] = useState('');
@@ -74,19 +85,19 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [confirmBusy, setConfirmBusy] = useState(false);
 
   // NDA report states (replace ad-hoc DOM reads)
-  const [ndaReportOffender, setNdaReportOffender] = useState('');
-  const [ndaReportPenalty, setNdaReportPenalty] = useState('');
-  const [ndaReportEvidenceText, setNdaReportEvidenceText] = useState('');
+  const [ndaReportOffender, _setNdaReportOffender] = useState('');
+  const [ndaReportPenalty, _setNdaReportPenalty] = useState('');
+  const [_ndaReportEvidenceText, _setNdaReportEvidenceText] = useState('');
   
-  const [createDisputeCaseId, setCreateDisputeCaseId] = useState('');
-  const [createDisputeEvidence, setCreateDisputeEvidence] = useState('');
+  const [createDisputeCaseId, _setCreateDisputeCaseId] = useState('');
+  const [createDisputeEvidence, _setCreateDisputeEvidence] = useState('');
   const [rentSigning, setRentSigning] = useState(false);
   const [rentAlreadySigned, setRentAlreadySigned] = useState(false);
   const [rentCanSign, setRentCanSign] = useState(true);
   const [hasAppeal, setHasAppeal] = useState(false);
-  const [arbResolution, setArbResolution] = useState(null);
-  const [rationaleRevealed, setRationaleRevealed] = useState(false);
-  const [hasActiveDisputeAgainstLandlord, setHasActiveDisputeAgainstLandlord] = useState(false);
+  const [_arbResolution, _setArbResolution] = useState(null);
+  const [_rationaleRevealed, _setRationaleRevealed] = useState(false);
+  const [_hasActiveDisputeAgainstLandlord, _setHasActiveDisputeAgainstLandlord] = useState(false);
   const [showAppealModal, setShowAppealModal] = useState(false);
   const [appealData, setAppealData] = useState(null);
   const [appealEvidenceList, setAppealEvidenceList] = useState([]);
@@ -94,20 +105,22 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const [partyDepositWei, setPartyDepositWei] = useState(0n);
   const [contractBalanceWei, setContractBalanceWei] = useState(0n);
   const [topUpAmountEth, setTopUpAmountEth] = useState('0');
-  const [showAdminDecryptModal, setShowAdminDecryptModal] = useState(false);
-  const [adminCiphertextInput, setAdminCiphertextInput] = useState('');
-  const [adminPrivateKeyInput, setAdminPrivateKeyInput] = useState('');
-  const [adminDecrypted, setAdminDecrypted] = useState(null);
-  const [adminDecryptBusy, setAdminDecryptBusy] = useState(false);
+  const [showAdminDecryptModal, _setShowAdminDecryptModal] = useState(false);
+  const [adminCiphertextInput, _setAdminCiphertextInput] = useState('');
+  const [adminPrivateKeyInput, _setAdminPrivateKeyInput] = useState('');
+  const [_adminDecrypted, setAdminDecrypted] = useState(null);
+  const [_adminDecryptBusy, setAdminDecryptBusy] = useState(false);
   const [adminAutoTried, setAdminAutoTried] = useState(false);
-  const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
-  const [fetchStatusMessage, setFetchStatusMessage] = useState(null);
-  const [fetchedUrl, setFetchedUrl] = useState(null);
+  const [_adminCiphertextReadOnly, _setAdminCiphertextReadOnly] = useState(false);
+  const [_fetchStatusMessage, _setFetchStatusMessage] = useState(null);
+  const [_fetchedUrl, _setFetchedUrl] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingModalOpen, setPendingModalOpen] = useState(false);
   const [pendingQueue, setPendingQueue] = useState([]);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
-  const formatDuration = (sec) => {
+  const _formatDuration = (sec) => {
+void _formatDuration;
     const s = Number(sec || 0);
     if (!s) return '0s';
     const d = Math.floor(s / 86400);
@@ -131,7 +144,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   }, [account, contractDetails]);
 
   // Load contract data function
-  const loadContractData = async () => {
+  const loadContractData = useCallback(async () => {
     if (!contractAddress || !provider) {
       console.log('[loadContractData] Missing contractAddress or provider', { contractAddress, provider });
       return;
@@ -168,19 +181,17 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           const appealKey = `appealEvidence:${String(contractAddress).toLowerCase()}`;
           const appealExists = !!localStorage.getItem(appealKey);
           if (incoming || appealExists) setHasAppeal(true);
-        } catch (e) {
-          // noop
-        }
+        } catch (e) { void e; /* preserve error for debugging */ }
       }
     } catch (error) {
       console.error('[loadContractData] Error loading contract data:', error);
     } finally {
       setDataLoading(false);
     }
-  };
+  }, [contractAddress, provider, signer, chainId, account, loadTransactionHistory]);
 
   // Load transaction history
-  const loadTransactionHistory = async (details) => {
+  const loadTransactionHistory = useCallback(async (details) => {
     try {
       if (!details || !details.address || !provider) {
         setTransactionHistory([]);
@@ -242,11 +253,15 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           try {
             const block = await (p && typeof p.getBlock === 'function' ? p.getBlock(log.blockNumber) : provider.getBlock(log.blockNumber));
             entry.date = new Date((block.timestamp || 0) * 1000).toLocaleString();
-          } catch (_) {
+          } catch (err) {
+            // use the error variable to avoid unused-var warnings
+            void err;
             entry.date = '';
           }
           return entry;
-        } catch (e) {
+        } catch (e) { void e;
+          // keep error available for debugging while satisfying lint
+          void e;
           return null;
         }
       };
@@ -267,17 +282,17 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       console.error('Error loading transaction history:', error);
       setTransactionHistory([]);
     }
-  };
+  }, [provider, signer, chainId]);
 
   // Load contract data when component mounts or contractAddress changes
   useEffect(() => {
     if (isOpen && contractAddress) {
       loadContractData();
     }
-  }, [isOpen, contractAddress]);
+  }, [isOpen, contractAddress, loadContractData]);
 
   // Refresh escrow/party deposit balances
-  const refreshBalances = async () => {
+  const refreshBalances = useCallback(async () => {
     try {
       if (!contractAddress || !provider) return;
       const svc = new ContractService(provider, signer, chainId);
@@ -288,16 +303,16 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       try {
         const bal = await provider.getBalance(contractAddress).catch(() => 0n);
         setContractBalanceWei(BigInt(bal || 0n));
-      } catch (e) {
+      } catch (e) { void e;
         console.debug('getBalance failed', e);
         setContractBalanceWei(0n);
       }
-    } catch (e) {
+    } catch (e) { void e;
       console.debug('refreshBalances failed', e);
     }
-  };
+  }, [contractAddress, provider, account, signer, chainId]);
 
-  useEffect(() => { if (isOpen && contractAddress) { refreshBalances(); } }, [isOpen, contractAddress, account]);
+  useEffect(() => { if (isOpen && contractAddress) { refreshBalances(); } }, [isOpen, contractAddress, account, refreshBalances]);
 
   // Fetch factory owner and arbitration owner for debug/admin checks
   useEffect(() => {
@@ -314,8 +329,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           try {
             const cr = await factory.getCreatorOf(contractAddress).catch(() => null);
             if (!canceled) setCreator(cr || null);
-          } catch (_) { if (!canceled) setCreator(null); }
-        } catch (e) {
+          } catch (_) { void _; if (!canceled) setCreator(null); }
+        } catch (e) { void e;
           if (!canceled) { setFactoryOwner(null); setCreator(null); }
         }
 
@@ -331,10 +346,10 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           } else {
             if (!canceled) setArbitrationOwner(null);
           }
-        } catch (e) {
+        } catch (e) { void e;
           if (!canceled) setArbitrationOwner(null);
         }
-      } catch (e) {
+      } catch (e) { void e;
         if (!canceled) { setFactoryOwner(null); setArbitrationOwner(null); }
       }
     };
@@ -350,7 +365,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       try {
         const c = svc.getPendingEvidenceCount();
         if (mounted) setPendingCount(c);
-      } catch (e) {}
+      } catch (e) { void e;}
     };
     refresh();
     const iv = setInterval(refresh, 5000);
@@ -374,11 +389,11 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         try {
           const amt = ethers.formatEther(amount);
           setTransactionHistory(evts => [{ type:'RentPaid', amount: amt, data: { tenant, amount: amt }, txHash: event.transactionHash, hash: event.transactionHash, date: new Date().toLocaleString(), new:true }, ...evts.map(e=>({...e,new:false}))]);
-        } catch (e) {
+        } catch (e) { void e;
           setTransactionHistory(evts => [{ type:'RentPaid', data:{ tenant, amount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
         }
         // Refresh escrow/withdrawable balances after rent paid
-        try { refreshBalances(); } catch (e) { console.debug('refreshBalances after RentPaid failed', e); }
+        try { refreshBalances(); } catch (e) { void e; console.debug('refreshBalances after RentPaid failed', e); }
       };
       contractInstance.on('RentPaid', rentPaidHandler);
       listeners.push(() => contractInstance.off('RentPaid', rentPaidHandler));
@@ -388,11 +403,11 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           const amt = ethers.formatEther(amount);
           const tot = ethers.formatEther(total);
           setTransactionHistory(evts => [{ type:'SecurityDepositPaid', amount: amt, data:{ by, amount: amt, total: tot }, txHash:event.transactionHash, hash:event.transactionHash, date: new Date().toLocaleString(), new:true }, ...evts.map(e=>({...e,new:false}))]);
-        } catch (e) {
+        } catch (e) { void e;
           setTransactionHistory(evts => [{ type:'SecurityDepositPaid', data:{ by, amount, total }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
         }
         // refresh balances so UI shows updated party deposit / escrow
-        try { refreshBalances(); } catch (e) { console.debug('refreshBalances after DepositPaid failed', e); }
+        try { refreshBalances(); } catch (e) { void e; console.debug('refreshBalances after DepositPaid failed', e); }
       };
       contractInstance.on('SecurityDepositPaid', depositHandler);
       listeners.push(() => contractInstance.off('SecurityDepositPaid', depositHandler));
@@ -401,7 +416,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         try {
           const req = ethers.formatEther(requestedAmount);
           setTransactionHistory(evts => [{ type:'DisputeReported', amount: req, data:{ caseId: caseId.toString(), initiator, disputeType: disputeType.toString(), requestedAmount: req }, txHash:event.transactionHash, hash:event.transactionHash, date: new Date().toLocaleString(), new:true }, ...evts.map(e=>({...e,new:false}))]);
-        } catch (e) {
+        } catch (e) { void e;
           setTransactionHistory(evts => [{ type:'DisputeReported', data:{ caseId, initiator, disputeType, requestedAmount }, txHash:event.transactionHash, new:true }, ...evts.map(e=>({...e,new:false}))]);
         }
       };
@@ -430,11 +445,12 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           console.error('Error during event listener cleanup:', error);
         }
       });
-    };
-  }, []);
+      };
+  }, [contractAddress, provider, refreshBalances]);
 
   // Confirmation modal handlers
-  const openConfirm = (amountEth, action) => {
+  const _openConfirm = (amountEth, action) => {
+void _openConfirm;
     setConfirmAmountEth(amountEth);
     setConfirmAction(() => action);
     setConfirmOpen(true);
@@ -450,7 +466,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     setConfirmBusy(true);
     try {
       await confirmAction();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Action failed: ${e?.message || e}`);
     } finally {
       setConfirmBusy(false);
@@ -467,11 +483,13 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         const feeWei = (requiredEthWei * BigInt(bps)) / 10000n;
         const feeEth = ethers.formatEther(feeWei);
         setFeeDueEth(feeEth);
-        if (!feeToSend) setFeeToSend(feeEth);
+        // Set a default without reading feeToSend from outer scope
+        setFeeToSend(prev => prev ?? feeEth);
       } else {
         setFeeDueEth(null);
       }
-    } catch (_) {
+    } catch (err) {
+      console.debug('fee calculation failed', err);
       setFeeDueEth(null);
     }
   }, [requiredEthWei, contractDetails]);
@@ -523,8 +541,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
 
     try {
       setActionLoading(true);
-      const contractService = new ContractService(provider, signer, chainId);
-      const receipt = await contractService.payRent(contractAddress, paymentAmount);
+  const _contractService = new ContractService(provider, signer, chainId);
+    const receipt = await _contractService.payRent(contractAddress, paymentAmount);
       
       alert(`✅ Rent paid successfully!\nTransaction: ${receipt.hash}`);
       setPaymentAmount('');
@@ -546,7 +564,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       await service.withdrawRentPayments(contractAddress);
       alert('Withdraw successful');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Withdraw failed', e);
       alert(`Withdraw failed: ${e?.reason || e?.message || e}`);
     } finally {
@@ -571,7 +589,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     }
     setRentSigning(true);
     try {
-      const contractService = new ContractService(provider, signer, chainId);
+  const _contractService = new ContractService(provider, signer, chainId);
 
       // Try to load any incoming dispute JSON for this contract from storage
       let incoming = null;
@@ -579,7 +597,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         const key1 = `incomingDispute:${contractAddress}`;
         const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
         incoming = localStorage.getItem(key1) || localStorage.getItem(key2) || sessionStorage.getItem('incomingDispute');
-      } catch (err) {
+      } catch (err) { void err;
         incoming = null;
       }
 
@@ -588,11 +606,11 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         let obj = null;
         try {
           obj = JSON.parse(incoming);
-        } catch (err) {
-          console.error('Malformed incoming dispute JSON', err, incoming);
-          alert('Stored dispute data is malformed.');
-          return;
-        }
+        } catch (err) { void err;
+            console.error('Malformed incoming dispute JSON', err, incoming);
+            alert('Stored dispute data is malformed.');
+            return;
+          }
         setAppealData(obj);
         try {
           const key = `appealEvidence:${String(contractAddress).toLowerCase()}`;
@@ -603,7 +621,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           } else {
             setAppealEvidenceList([]);
           }
-        } catch (err) {
+        } catch (err) { void err;
           setAppealEvidenceList([]);
         }
         setShowAppealModal(true);
@@ -636,7 +654,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       const q = svc.getPendingEvidenceQueue() || [];
       setPendingQueue(q);
       setPendingCount(q.length);
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Failed to open pending modal', e);
     }
   };
@@ -649,7 +667,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       setPendingQueue(q);
       setPendingCount(q.length);
       alert('Retry attempted; check logs for result.');
-    } catch (e) {
+    } catch (e) { void e;
       alert('Retry failed: ' + (e?.message || e));
     }
   };
@@ -661,12 +679,13 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       const q = svc.getPendingEvidenceQueue() || [];
       setPendingQueue(q);
       setPendingCount(q.length);
-    } catch (e) {
+    } catch (e) { void e;
       alert('Remove failed: ' + (e?.message || e));
     }
   };
 
-  const handleFinalizeCancellation = async () => {
+  const _handleFinalizeCancellation = async () => {
+void _handleFinalizeCancellation;
     if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return;
     try {
       setActionLoading(true);
@@ -682,14 +701,14 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             const cf = await resp.json();
             arbAddr = cf?.contracts?.ArbitrationService || null;
           }
-        } catch (_) { arbAddr = null; }
+        } catch (_) { void _; arbAddr = null; }
       }
       
       if (!arbAddr) {
         try {
           const maybe = await getContractAddress(chainId, 'ArbitrationService');
           if (maybe) arbAddr = maybe;
-        } catch (_) {}
+        } catch (_) { void _;}
       }
 
       if (!arbAddr || arbAddr === 'MISSING_ARBITRATION_SERVICE' || arbAddr === ethers.ZeroAddress) {
@@ -713,7 +732,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       
       alert(`✅ Cancellation finalized\nTransaction: ${receipt.transactionHash || receipt.hash}`);
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Finalize failed:', e);
       alert(`Failed to finalize: ${e?.reason || e?.message || e}`);
     } finally {
@@ -722,43 +741,47 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   };
 
   // NDA actions
-  const handleNdaSign = async () => {
+  const _handleNdaSign = async () => {
+void _handleNdaSign;
     try {
       setActionLoading(true);
       const service = new ContractService(provider, signer, chainId);
       await service.signNDA(contractAddress);
       alert('Signed NDA');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Failed to sign: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
 
-  const handleNdaDeposit = async (amount) => {
+  const _handleNdaDeposit = async (amount) => {
+void _handleNdaDeposit;
     try {
       setActionLoading(true);
       const service = new ContractService(provider, signer, chainId);
       await service.ndaDeposit(contractAddress, amount);
       alert('Deposit successful');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Deposit failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
 
-  const handleNdaWithdraw = async (amount) => {
+  const _handleNdaWithdraw = async (amount) => {
+void _handleNdaWithdraw;
     try {
       setActionLoading(true);
       const service = new ContractService(provider, signer, chainId);
       await service.ndaWithdraw(contractAddress, amount);
       alert('Withdraw successful');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Withdraw failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
 
-  const handleNdaReport = async (offender, penalty, evidence) => {
+  const _handleNdaReport = async (offender, penalty, evidence) => {
+void _handleNdaReport;
     try {
       setActionLoading(true);
       const service = new ContractService(provider, signer, chainId);
@@ -778,28 +801,30 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       await service.ndaReportBreach(contractAddress, offender, penalty, digestToUse);
       alert('Breach reported');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Report failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
 
-  const handleNdaDeactivate = async () => {
+  const _handleNdaDeactivate = async () => {
     try {
       setActionLoading(true);
       const service = new ContractService(provider, signer, chainId);
       await service.ndaDeactivate(contractAddress, 'User action');
       alert('NDA deactivated');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Deactivate failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
 
-  const handleNdaResolveByArbitrator = async () => {
+  const _handleNdaResolveByArbitrator = async () => {
+void _handleNdaResolveByArbitrator;
     alert('Resolve action must be performed by the platform arbitrator via ArbitrationService');
   };
 
-  const submitDisputeForm = async (payloadOverride) => {
+  const _submitDisputeForm = async (payloadOverride) => {
+void _submitDisputeForm;
     const overrideStr = typeof payloadOverride === 'string' ? payloadOverride : null;
     if (overrideStr !== null) {
       setDisputeForm(s => ({ ...s, evidence: overrideStr }));
@@ -823,7 +848,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           setActionLoading(false);
           return null;
         }
-      } catch (e) {
+      } catch (e) { void e;
         // ignore and continue
       }
 
@@ -832,7 +857,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         if (evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw)) evidenceDigest = evidenceRaw;
         else if (evidenceRaw) evidenceDigest = ethers.keccak256(ethers.toUtf8Bytes(String(evidenceRaw)));
         else evidenceDigest = '';
-      } catch (e) {
+      } catch (e) { void e;
         evidenceDigest = '';
       }
 
@@ -855,7 +880,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             return null;
           }
         }
-      } catch (e) {
+      } catch (e) { void e;
         // ignore balance check failures - allow submission
       }
 
@@ -913,7 +938,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             } else {
               defendant = (effectiveDetails && (effectiveDetails.landlord || effectiveDetails.tenant)) ? (effectiveDetails.landlord || effectiveDetails.tenant) : null;
             }
-          } catch (_) { defendant = null; }
+          } catch (_) { void _; defendant = null; }
 
           const canonicalPayloadForServer = {
             contractAddress: String(targetAddress),
@@ -929,8 +954,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           // Minimal client-side validation (reduced schema)
           const errs = [];
           if (!/^0x[0-9a-fA-F]{40}$/.test(canonicalPayloadForServer.contractAddress)) errs.push('Invalid contractAddress');
-          try { if (plaintiff && !ethers.isAddress(plaintiff)) errs.push('Invalid plaintiff address'); } catch (e) {}
-          try { if (defendant && !ethers.isAddress(defendant)) errs.push('Invalid defendant address'); } catch (e) {}
+          try { if (plaintiff && !ethers.isAddress(plaintiff)) errs.push('Invalid plaintiff address'); } catch (e) { void e;}
+          try { if (defendant && !ethers.isAddress(defendant)) errs.push('Invalid defendant address'); } catch (e) { void e;}
           if ((!canonicalPayloadForServer.txHistory || canonicalPayloadForServer.txHistory.length === 0) && !canonicalPayloadForServer.complaint) errs.push('Either txHistory must be present or complaint required');
           if (canonicalPayloadForServer.requestedAmount && !/^[0-9]+(\.[0-9]+)?$/.test(String(canonicalPayloadForServer.requestedAmount))) errs.push('requestedAmount must be numeric');
           if (errs.length) {
@@ -943,7 +968,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           let sig191 = null;
           try {
             sig191 = await signer.signMessage(signedPayloadStr);
-          } catch (e) {
+          } catch (e) { void e;
             console.error('EIP-191 sign failed', e);
             sig191 = null;
           }
@@ -963,12 +988,12 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
               } else {
                 console.warn('Server submit-appeal returned non-ok', resp && resp.status);
               }
-            } catch (e) {
+            } catch (e) { void e;
               console.error('submit-appeal POST failed', e);
             }
           }
         }
-      } catch (e) {
+      } catch (e) { void e;
         console.error('Failed to sign/submit canonical payload to server', e);
       }
 
@@ -987,7 +1012,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       try {
         const perKey = `incomingDispute:${targetAddress}`;
         localStorage.setItem(perKey, JSON.stringify(incoming));
-      } catch (e) {
+      } catch (e) { void e;
         console.warn('Failed to persist per-contract incomingDispute', e);
       }
 
@@ -1011,7 +1036,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
               } else {
                 defendantP = (effectiveDetails && (effectiveDetails.landlord || effectiveDetails.tenant)) ? (effectiveDetails.landlord || effectiveDetails.tenant) : null;
               }
-            } catch (_) { defendantP = null; }
+            } catch (_) { void _; defendantP = null; }
 
             const canonicalPayload = {
               contractAddress: targetAddress,
@@ -1051,7 +1076,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             } catch (onChainErr) {
               console.error('Failed to submit evidence on-chain:', onChainErr);
             }
-          } catch (e) {
+          } catch (e) { void e;
             console.error('Failed to compute/sign canonical payload for on-chain anchor:', e);
           }
         })();
@@ -1080,8 +1105,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       const amt = disputeForm.amountEth ? ethers.parseEther(String(disputeForm.amountEth || '0')) : 0n;
       const svc = new ContractService(provider, signer, chainId);
       const bond = svc.computeReporterBond(amt);
-      try { return ethers.formatEther(bond); } catch { return String(bond); }
-    } catch (_) { return '0'; }
+      try { return ethers.formatEther(bond); } catch (_){ void _; return String(bond); }
+    } catch (_) { void _; return '0'; }
   })();
 
   // Validate that requested amount does not exceed on-chain contract balance
@@ -1092,28 +1117,30 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       const reqWei = ethers.parseEther(String(disputeForm.amountEth || '0'));
       const cb = BigInt(contractBalanceWei || 0n);
       return BigInt(reqWei) > cb;
-    } catch (e) {
+    } catch (e) { void e;
       // If parse failed, consider it not exceeding (other validation handles numeric format)
       return false;
     }
-  }, [disputeForm?.amountEth, contractBalanceWei]);
+  }, [disputeForm, contractBalanceWei]);
 
-  const handleCreateDispute = async () => {
+  const _handleCreateDispute = async () => {
+void _handleCreateDispute;
     try {
       setActionLoading(true);
       const svc = new ArbitrationService(signer, chainId);
       const { disputeId } = await svc.createDisputeForCase(contractAddress, createDisputeCaseId, createDisputeEvidence);
       alert(`Dispute created${disputeId != null ? ` (ID ${disputeId})` : ''}`);
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Create dispute failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
 
-  const isArbitrator = useMemo(() => {
+  const _isArbitrator = useMemo(() => {
+void _isArbitrator;
     try {
       if (!arbOwner || !account) return false;
       return arbOwner.toLowerCase() === account.toLowerCase();
-    } catch { return false; }
+    } catch (_){ void _; return false; }
   }, [arbOwner, account]);
 
   const handleSetPolicy = async () => {
@@ -1127,7 +1154,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       });
       alert('Policy updated');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Failed to set policy: ${e?.reason || e?.message}`);
     } finally {
       setActionLoading(false);
@@ -1141,7 +1168,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       await service.initiateCancellation(contractAddress);
       alert('Cancellation initiated');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
@@ -1153,7 +1180,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       await service.approveCancellation(contractAddress);
       alert('Cancellation approved');
       await loadContractData();
-    } catch (e) {
+    } catch (e) { void e;
       alert(`Failed: ${e?.reason || e?.message}`);
     } finally { setActionLoading(false); }
   };
@@ -1165,7 +1192,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     try {
       await navigator.clipboard.writeText(contractAddress);
       alert('Address copied to clipboard');
-    } catch (_) {
+    } catch (_) { void _;
       const input = document.createElement('input');
       input.value = contractAddress;
       document.body.appendChild(input);
@@ -1181,7 +1208,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     try {
       await navigator.clipboard.writeText(txHash);
       alert('Transaction hash copied to clipboard');
-    } catch (_) {
+    } catch (_) { void _;
       try {
         const input = document.createElement('input');
         input.value = txHash;
@@ -1190,7 +1217,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         document.execCommand('copy');
         document.body.removeChild(input);
         alert('Transaction hash copied to clipboard');
-      } catch (e) {
+      } catch (e) { void e;
         console.error('Copy failed', e);
         alert('Failed to copy transaction hash');
       }
@@ -1211,7 +1238,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(contractAddress).toLowerCase()) {
               json = sess;
             }
-          } catch (_) { json = null; }
+          } catch (_) { void _; json = null; }
         }
       }
       
@@ -1232,9 +1259,9 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         } else {
           setAppealEvidenceList([]);
         }
-      } catch (e) { setAppealEvidenceList([]); }
+      } catch (e) { void e; setAppealEvidenceList([]); }
       setShowAppealModal(true);
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Show appeal failed', e);
       alert('Failed to show appeal');
     }
@@ -1247,7 +1274,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         await navigator.clipboard.writeText(text);
         return true;
       }
-    } catch (e) {
+    } catch (e) { void e;
       // fallback
     }
     
@@ -1262,13 +1289,14 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       document.execCommand('copy');
       document.body.removeChild(ta);
       return true;
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Clipboard fallback failed', e);
       return false;
     }
   };
 
-  const handleCopyComplaint = async () => {
+  const _handleCopyComplaint = async () => {
+void _handleCopyComplaint;
     try {
       if (!appealData) throw new Error('No appeal data');
 
@@ -1303,7 +1331,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
       } else {
         alert('Failed to copy appeal');
       }
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Copy complaint failed', e);
       alert(`Failed to copy complaint: ${e?.message || e}`);
     }
@@ -1327,12 +1355,12 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
           const resp = await fetch(payload);
           if (!resp.ok) throw new Error('Fetch failed: ' + resp.statusText);
           fetched = await resp.text();
-        } catch (e) { return; }
+        } catch (e) { void e; return; }
         
         try {
           const plain = await decryptCiphertextJson(fetched, pk);
           setAdminDecrypted(plain);
-        } catch (_) {}
+        } catch (_) { void _;}
       } finally {
         setAdminAutoTried(true);
         setAdminDecryptBusy(false);
@@ -1340,7 +1368,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     };
     
     tryAuto();
-  }, [showAdminDecryptModal]);
+  }, [showAdminDecryptModal, adminAutoTried, adminCiphertextInput, adminPrivateKeyInput]);
 
   // Show spinner while an explicit wallet connection is in progress, or
   // if the provider is loading and we don't yet have provider/account.
@@ -1349,17 +1377,6 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
     return <div style={{textAlign:'center',marginTop:'48px'}}><div className="loading-spinner" style={{marginBottom:'16px'}}></div>Connecting to wallet...</div>;
   }
 
-  // If loading persists for too long, fall back to the connect UI
-  useEffect(() => {
-    let t;
-    if (loading) {
-      t = setTimeout(() => setLoadingTimedOut(true), 5000);
-    } else {
-      setLoadingTimedOut(false);
-    }
-    return () => { if (t) clearTimeout(t); };
-  }, [loading]);
-
   // If not loading but wallet/provider/account are missing, show a friendly fallback
   if (!provider || !account) {
     return (
@@ -1367,14 +1384,14 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         <div style={{fontSize:16,marginBottom:12}}>Wallet not connected</div>
         <div style={{marginBottom:12}}><small>Please connect your Ethereum wallet to interact.</small></div>
         <div>
-          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch(e){ console.error('connectWallet failed', e); } }}>Connect Wallet</button>
+          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch (e) { void e; console.error('connectWallet failed', e); } }}>Connect Wallet</button>
         </div>
       </div>
     );
   }
 
   // Debug UI toggle (helps inspect why landlord/tenant controls may be hidden)
-  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  // Debug UI toggle (moved to top-level state declarations to satisfy hooks order)
 
   const handleExport = () => {
     try {
@@ -1382,7 +1399,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
         ...contractDetails,
         transactions: transactionHistory
       });
-    } catch (e) {
+    } catch (e) { void e;
       const blob = new Blob([JSON.stringify({ contractDetails, transactionHistory }, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1421,7 +1438,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
             </button>
           </div>
 
-          <ConfirmPayModal 
+          <_ConfirmPayModal 
             open={confirmOpen} 
             title="Confirm dispute bond" 
             amountEth={confirmAmountEth} 
@@ -1487,7 +1504,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                           const p = Date.parse(String(v));
                           if (!isNaN(p)) return new Date(p).toLocaleString();
                           return String(v) || new Date().toLocaleString();
-                        } catch (e) { return new Date().toLocaleString(); }
+                        } catch (e) { void e; return new Date().toLocaleString(); }
                       })()}</span></div>
                       <div className="pending-times">Attempts: {item.attempts || 0} &middot; Last: {item.lastAttemptAt ? new Date(item.lastAttemptAt).toLocaleString() : 'n/a'}</div>
                       {item.lastError && <div className="pending-error">Error: {String(item.lastError).slice(0,240)}</div>}
@@ -1675,7 +1692,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                             try {
                               if (!confirm('Are you sure you want to initiate cancellation for this contract?')) return;
                               await handleInitiateCancel();
-                            } catch (e) { console.error('Initiate cancel failed', e); alert('Failed to initiate cancellation: ' + (e?.message || e)); }
+                            } catch (e) { void e; console.error('Initiate cancel failed', e); alert('Failed to initiate cancellation: ' + (e?.message || e)); }
                           }} disabled={readOnly || actionLoading}>
                             Initiate Cancellation
                           </button>
@@ -1689,7 +1706,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                                 try {
                                   if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
                                   await handleApproveCancel();
-                                } catch (e) { console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
+                                } catch (e) { void e; console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
                               }} disabled={readOnly || actionLoading || isInitiator} title={isInitiator ? 'Cancel initiator cannot approve their own cancellation' : undefined}>
                                 Approve Cancellation
                               </button>
@@ -1698,7 +1715,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                         )}
                         {/* Allow landlord or tenant to submit an appeal/dispute */}
                         {(isLandlord || isTenant) && (
-                          <button className="btn-action" onClick={async () => { try { setShowDisputeForm(true); } catch(e){console.error(e);} }} disabled={readOnly || actionLoading}>
+                          <button className="btn-action" onClick={async () => { try { setShowDisputeForm(true); } catch (e) { void e;console.error(e);} }} disabled={readOnly || actionLoading}>
                             Submit Appeal / Dispute
                           </button>
                         )}
@@ -1724,7 +1741,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     </div>
                   ) : (
                     <button 
-                      onClick={handleNdaDeactivate}
+                      onClick={_handleNdaDeactivate}
                       disabled={readOnly || actionLoading || !contractDetails.isActive}
                       className="btn-action danger"
                     >
@@ -1783,10 +1800,10 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     const wei = ethers.parseEther(String(topUpAmountEth || '0'));
                     const tx = await svc.depositToEscrow(contractAddress, wei);
                     alert('Top-up transaction sent: ' + (tx.hash || tx.transactionHash || tx.hash));
-                    try { await tx.wait?.(); } catch (_) {}
+                    try { await tx.wait?.(); } catch (_) { void _;}
                     await refreshBalances();
                     setTopUpAmountEth('0');
-                  } catch (e) {
+                  } catch (e) { void e;
                     console.error('Top-up failed', e);
                     alert('Top-up failed: ' + (e?.reason || e?.message || e));
                   } finally { setActionLoading(false); }
@@ -1833,7 +1850,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                       } else {
                         defendant = (contractDetails && (contractDetails.landlord || contractDetails.tenant)) ? (contractDetails.landlord || contractDetails.tenant) : null;
                       }
-                    } catch (_) { defendant = null; }
+                    } catch (_) { void _; defendant = null; }
 
                     const canonicalPayloadForServer = {
                       contractAddress: String(contractAddress),
@@ -1849,8 +1866,8 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     // Basic validation
                     const errs = [];
                     if (!/^0x[0-9a-fA-F]{40}$/.test(canonicalPayloadForServer.contractAddress)) errs.push('Invalid contractAddress');
-                    try { if (plaintiff && !ethers.isAddress(plaintiff)) errs.push('Invalid plaintiff address'); } catch (e) {}
-                    try { if (defendant && !ethers.isAddress(defendant)) errs.push('Invalid defendant address'); } catch (e) {}
+                    try { if (plaintiff && !ethers.isAddress(plaintiff)) errs.push('Invalid plaintiff address'); } catch (e) { void e;}
+                    try { if (defendant && !ethers.isAddress(defendant)) errs.push('Invalid defendant address'); } catch (e) { void e;}
                     if ((!canonicalPayloadForServer.txHistory || canonicalPayloadForServer.txHistory.length === 0) && !canonicalPayloadForServer.complaint) errs.push('Either txHistory must be present or complaint required');
                     if (canonicalPayloadForServer.requestedAmount && !/^[0-9]+(\.[0-9]+)?$/.test(String(canonicalPayloadForServer.requestedAmount))) errs.push('requestedAmount must be numeric');
                     if (requestedAmountExceedsContract) {
@@ -1865,7 +1882,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                       setPreviewError(null);
                       setShowPreviewModal(true);
                     }
-                  } catch (e) {
+                  } catch (e) { void e;
                     console.error('Failed to build preview:', e);
                     alert('Failed to build preview: ' + (e?.message || e));
                   }
@@ -1925,7 +1942,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     // EIP-191 sign
                     if (!signer || !previewPayloadStr) throw new Error('Signer or payload missing');
                     let sig191 = null;
-                    try { sig191 = await signer.signMessage(previewPayloadStr); } catch (e) { throw new Error('EIP-191 signing failed: ' + (e?.message || e)); }
+                    try { sig191 = await signer.signMessage(previewPayloadStr); } catch (e) { void e; throw new Error('EIP-191 signing failed: ' + (e?.message || e)); }
 
                     // POST to server /api/submit-appeal
                     let evidenceRefFromServer = null;
@@ -1941,7 +1958,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                       }
                       const parsed = await resp.json();
                       evidenceRefFromServer = parsed && parsed.evidenceRef ? parsed.evidenceRef : null;
-                    } catch (e) {
+                    } catch (e) { void e;
                       throw new Error('submit-appeal failed: ' + (e?.message || e));
                     }
 
@@ -1968,7 +1985,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                         } else {
                           console.warn('Contract missing submitEvidenceWithSignature');
                         }
-                      } catch (e) {
+                      } catch (e) { void e;
                         console.error('On-chain anchoring failed', e);
                       }
                     }
@@ -1978,7 +1995,7 @@ function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
                     setDisputeForm({ dtype: 4, amountEth: '0', evidence: '' });
                     alert('Appeal submitted. EvidenceRef: ' + (evidenceRefFromServer || 'n/a'));
                     await loadContractData();
-                  } catch (e) {
+                  } catch (e) { void e;
                     console.error('Preview submit failed', e);
                     setPreviewError(e?.message || String(e));
                   } finally {

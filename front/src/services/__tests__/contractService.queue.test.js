@@ -48,12 +48,14 @@ describe('ContractService pending evidence queue', () => {
     // Mock fetch to succeed
     global.fetch.mockResolvedValue({ ok: true, json: async () => ({ heliaCid: 'cid:1' }) });
     const ret = await svc.retryPendingEvidence(id);
+void ret;
     expect(svc.getPendingEvidenceCount()).toBe(0);
   });
 
   test('background uploader records lastError on failure', async () => {
     const svc = new ContractService(null, null, 31337);
     const id = svc.enqueuePendingEvidence({ payload: 'x', digest: '0xdead', endpoint: 'http://127.0.0.1/submit-evidence', ciphertext: '{}' , createdAt: Date.now() });
+    void id;
     // Mock fetch to return non-ok response
     global.fetch.mockResolvedValue({ ok: false, status: 500, text: async () => 'server oops' });
     // Run background uploader directly

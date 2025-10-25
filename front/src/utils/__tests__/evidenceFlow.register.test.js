@@ -17,7 +17,8 @@ describe('runEvidenceFlow register-dispute payload', () => {
     const fakeDigest = '0x' + '11'.repeat(32);
 
   // Mock /submit-evidence response
-  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
+  globalThis.fetch.mockImplementationOnce(async (url, _opts) => {
+    void _opts;
       if (String(url).endsWith('/submit-evidence')) {
         return {
           ok: true,
@@ -36,11 +37,12 @@ describe('runEvidenceFlow register-dispute payload', () => {
     // Capture the register-dispute body
     let registerBody = null;
     // Next fetch is /register-dispute
-      globalThis.fetch.mockImplementationOnce(async (url, opts) => {
+      globalThis.fetch.mockImplementationOnce(async (url, _opts) => {
+          void _opts;
       if (String(url).endsWith('/register-dispute')) {
         try {
-          registerBody = JSON.parse(opts && opts.body ? opts.body : '{}');
-        } catch (e) {
+          registerBody = JSON.parse(_opts && _opts.body ? _opts.body : '{}');
+        } catch (e) { void e;
           registerBody = null;
         }
         return { ok: true, json: async () => ({ ok: true, id: 'reg1' }) };
@@ -49,7 +51,7 @@ describe('runEvidenceFlow register-dispute payload', () => {
     });
 
     // runEvidenceFlow - pass submitToContract that returns fakeTx
-    const prepareEvidencePayloadFn = async (raw) => ({ digest: fakeDigest, ciphertext: 'hello' });
+    const prepareEvidencePayloadFn = async (raw) => { void raw; return { digest: fakeDigest, ciphertext: 'hello' }; };
     const result = await runEvidenceFlow(async ({ digest }) => {
       // ensure we receive the helia uri/cid or digest as passed to submitToContract
       expect([fakeCid, `ipfs://${fakeCid}`, fakeDigest]).toContain(digest);
@@ -74,8 +76,9 @@ describe('runEvidenceFlow register-dispute payload', () => {
     const fakeDigest = '0x' + '22'.repeat(32);
 
     // Mock /submit-evidence response returning heliaUri
-  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
-      if (String(url).endsWith('/submit-evidence')) {
+  globalThis.fetch.mockImplementationOnce(async (url, _opts) => {
+    void _opts;
+    if (String(url).endsWith('/submit-evidence')) {
         return {
           ok: true,
           json: async () => ({ digest: fakeDigest, heliaUri: fakeHeliaUri, cidHash: fakeCidHash })
@@ -89,15 +92,16 @@ describe('runEvidenceFlow register-dispute payload', () => {
 
     // Capture the register-dispute body
     let registerBody = null;
-  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
-      if (String(url).endsWith('/register-dispute')) {
-        registerBody = JSON.parse(opts && opts.body ? opts.body : '{}');
+  globalThis.fetch.mockImplementationOnce(async (url, _opts) => {
+      void _opts;
+      if (String(url).endsWith('/submit-evidence')) {
+        registerBody = JSON.parse(_opts && _opts.body ? _opts.body : '{}');
         return { ok: true, json: async () => ({ ok: true, id: 'reg2' }) };
       }
       throw new Error('unexpected second fetch ' + url);
     });
 
-    const prepareEvidencePayloadFn = async (raw) => ({ digest: fakeDigest, ciphertext: 'hello' });
+  const prepareEvidencePayloadFn = async (raw) => { void raw; return { digest: fakeDigest, ciphertext: 'hello' }; };
 
     const result = await runEvidenceFlow(async ({ digest }) => {
       // submitToContract should receive the heliaUri string as the digest parameter
@@ -117,14 +121,15 @@ describe('runEvidenceFlow register-dispute payload', () => {
     const serverDigest = '0x' + 'bb'.repeat(32);
 
     // Mock /submit-evidence to return a different digest
-  globalThis.fetch.mockImplementationOnce(async (url, opts) => {
+  globalThis.fetch.mockImplementationOnce(async (url, _opts) => {
+      void _opts;
       if (String(url).endsWith('/submit-evidence')) {
         return { ok: true, json: async () => ({ digest: serverDigest }) };
       }
       throw new Error('unexpected fetch ' + url);
     });
 
-    const prepareEvidencePayloadFn = async (raw) => ({ digest: computedDigest, ciphertext: 'hello' });
+  const prepareEvidencePayloadFn = async (raw) => { void raw; return { digest: computedDigest, ciphertext: 'hello' }; };
 
     await expect(runEvidenceFlow(async () => ({ hash: '0x1' }), '', { fileOrText: 'x' }, prepareEvidencePayloadFn)).rejects.toThrow(/digest_mismatch/);
   });

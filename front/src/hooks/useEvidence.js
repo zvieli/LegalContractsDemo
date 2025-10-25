@@ -30,16 +30,16 @@ export function useEvidence(contractInstance, caseId, heliaFetch) {
         let readProvider = null;
         try {
           if (contractInstance && contractInstance.runner && contractInstance.runner.provider) readProvider = contractInstance.runner.provider;
-        } catch (e) {}
+        } catch (e) { void e;}
         try {
           if (!readProvider && typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) readProvider = window.__APP_ETHERS__.provider;
-        } catch (e) {}
+        } catch (e) { void e;}
         try {
           if (!readProvider && typeof window !== 'undefined' && window.ethereum) readProvider = new BrowserProvider(window.ethereum);
-        } catch (e) {}
+        } catch (e) { void e;}
         try {
           if (!readProvider) readProvider = new JsonRpcProvider('http://127.0.0.1:8545');
-        } catch (e) {}
+        } catch (e) { void e;}
 
         let readContract = null;
         try {
@@ -47,7 +47,7 @@ export function useEvidence(contractInstance, caseId, heliaFetch) {
             const addr = contractInstance.target || contractInstance.address;
             readContract = new Contract(addr, contractInstance.interface, readProvider);
           }
-        } catch (e) {
+        } catch (e) { void e;
           readContract = null;
         }
 
@@ -60,18 +60,18 @@ export function useEvidence(contractInstance, caseId, heliaFetch) {
           if (typeof latestBlock === 'number' && latestBlock > 5000) {
             fromBlock = latestBlock - 5000;
           }
-        } catch (_) {}
+        } catch (_) { void _;}
         if (readContract && readContract.queryFilter) {
           try {
             events = await readContract.queryFilter(filter, fromBlock, toBlock);
-          } catch (e) {
+          } catch (e) { void e;
             console.warn('readContract.queryFilter failed, falling back to original contractInstance.queryFilter', e);
             try { events = await contractInstance.queryFilter(filter, fromBlock, toBlock); } catch (e2) { console.error('queryFilter EvidenceSubmitted failed', e2); }
           }
         } else {
-          try { events = await contractInstance.queryFilter(filter, fromBlock, toBlock); } catch (e) { console.error('queryFilter EvidenceSubmitted failed', e); }
+          try { events = await contractInstance.queryFilter(filter, fromBlock, toBlock); } catch (e) { void e; console.error('queryFilter EvidenceSubmitted failed', e); }
         }
-      } catch (e) {
+      } catch (e) { void e;
         console.error('queryFilter EvidenceSubmitted failed', e);
       }
       const enriched = await Promise.all(events.map(async (ev) => {
@@ -87,7 +87,7 @@ export function useEvidence(contractInstance, caseId, heliaFetch) {
           if (cidDigestLocal.toLowerCase() !== String(cidDigestEvent).toLowerCase()) {
             status = 'cid-mismatch';
           }
-          try { fetched = await heliaFetch(cid); } catch (fe) { status = 'fetch-failed'; }
+          try { fetched = await heliaFetch(cid); } catch (fe) { void fe; status = 'fetch-failed'; }
           if (fetched) {
             // Determine canonical content for digest recompute (exclude signature & envelope-only fields)
             const baseForDigest = { ...fetched };
@@ -109,11 +109,11 @@ export function useEvidence(contractInstance, caseId, heliaFetch) {
                 const recovered = verifyTypedData(domain, types, value, fetched.signature);
                 sigValid = recovered.toLowerCase() === String(fetched.uploader).toLowerCase();
                 if (!sigValid) status = status === 'pending' ? 'sig-invalid' : status;
-              } catch (se) { sigValid = false; status = status === 'pending' ? 'sig-invalid' : status; }
+              } catch (se) { void se; sigValid = false; status = status === 'pending' ? 'sig-invalid' : status; }
             }
             if (status === 'pending') status = 'verified';
           }
-        } catch (e) {
+        } catch (e) { void e;
           if (status === 'pending') status = 'error';
         }
         return {
@@ -131,7 +131,7 @@ export function useEvidence(contractInstance, caseId, heliaFetch) {
         };
       }));
       setItems(enriched);
-    } catch (e) {
+    } catch (e) { void e;
       setError(e.message || String(e)); setItems([]);
     } finally { setLoading(false); }
   }, [contractInstance, caseId, heliaFetch]);

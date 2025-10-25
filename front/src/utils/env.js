@@ -1,12 +1,12 @@
 // Use globalThis.process when available to support both browser and Node contexts
 let _proc = null;
-try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { void e; _proc = null; }
 
 // Environment helper utilities
 export function isProduction() {
   try {
     return import.meta.env && String(import.meta.env.MODE || '').toLowerCase() === 'production';
-  } catch (e) {
+  } catch (e) { void e;
     return false;
   }
 }
@@ -18,7 +18,7 @@ export function isAdminDecryptEnabled() {
     // Default to disabled in production builds unless explicitly set
     if (isProduction()) return !!flag && flag === true;
     return !!flag;
-  } catch (e) {
+  } catch (e) { void e;
     return false;
   }
 }

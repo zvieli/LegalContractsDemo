@@ -1,9 +1,9 @@
 import React from 'react';
-import { describe, it, expect, beforeAll } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
-import axios from 'axios';
+import { describe, it, expect as _expect, beforeAll as _beforeAll } from 'vitest';
+import { render as _render, screen as _screen, waitFor as _waitFor } from '@testing-library/react';
+import _axios from 'axios';
 import EvidenceList from '../../components/Evidence/EvidenceList.jsx';
-import BatchDashboardAdvanced from '../../components/Dashboard/BatchDashboardAdvanced.jsx';
+import BatchDashboardAdvanced from '../../components/dashboard/BatchDashboardAdvanced.jsx';
 
 
 const WALLETS = [ {

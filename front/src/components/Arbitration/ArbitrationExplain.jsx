@@ -5,7 +5,7 @@ const API_BASE = '/api/v7';
 
 export default function ArbitrationExplain({ disputeId, useSimulateIfDown = true, overrideExplain = null }) {
   const [loading, setLoading] = useState(true);
-  const [health, setHealth] = useState(null);
+  const [_health, _setHealth] = useState(null);
   const [explain, setExplain] = useState(null);
   const [error, setError] = useState(null);
   const [showRaw, setShowRaw] = useState(false);
@@ -16,17 +16,17 @@ export default function ArbitrationExplain({ disputeId, useSimulateIfDown = true
       setLoading(true);
       setError(null);
       // If caller supplied an override explain object, use it directly and skip fetching
-      if (overrideExplain) {
+        if (overrideExplain) {
         setExplain(overrideExplain);
-        setHealth({ ok: true, override: true });
+        _setHealth({ ok: true, override: true });
         setLoading(false);
         return;
       }
       try {
         const hRes = await fetch(`${API_BASE}/arbitration/ollama/health`);
         const hJson = await hRes.json().catch(() => null);
-        if (!mounted) return;
-        setHealth(hJson || (hRes.ok ? { ok: true } : { ok: false }));
+  if (!mounted) return;
+  _setHealth(hJson || (hRes.ok ? { ok: true } : { ok: false }));
 
   // Try to fetch explain
         const exRes = await fetch(`${API_BASE}/arbitration/explain/${encodeURIComponent(disputeId)}`);
@@ -47,7 +47,7 @@ export default function ArbitrationExplain({ disputeId, useSimulateIfDown = true
           const txt = await exRes.text().catch(() => '');
           throw new Error('Explain API failed: ' + (txt || exRes.status));
         }
-      } catch (e) {
+      } catch (e) { void e;
         if (mounted) setError(String(e.message || e));
       } finally {
         if (mounted) setLoading(false);
@@ -55,7 +55,7 @@ export default function ArbitrationExplain({ disputeId, useSimulateIfDown = true
     }
     load();
     return () => { mounted = false; };
-  }, [disputeId, useSimulateIfDown]);
+  }, [disputeId, useSimulateIfDown, overrideExplain]);
 
   if (loading) return <div className="arb-explain-loading">Loading arbitration explanation...</div>;
   if (error) return <div className="arb-explain-error">Error: {error}</div>;

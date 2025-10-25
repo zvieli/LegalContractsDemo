@@ -9,7 +9,7 @@ export async function loadAbis() {
     if (indexResp.ok) {
       abisIndex = await indexResp.json();
     }
-  } catch (e) {
+  } catch (e) { void e;
     // fallback: no abisIndex.json, do nothing
     return;
   }
@@ -20,7 +20,7 @@ export async function loadAbis() {
       if (!resp.ok) return;
       const data = await resp.json();
       window.__ABIS__[key] = data;
-    } catch (e) {
+    } catch (e) { void e;
       // ignore individual failures
     }
   }));

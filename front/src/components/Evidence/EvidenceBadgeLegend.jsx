@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 const badgeInfo = {
   verified: { color: '#d2f8d2', desc: 'Evidence fully verified (CID + content + signature)' },

@@ -5,7 +5,7 @@ import { describe, it, vi, expect } from 'vitest';
 
 // A tiny test component that mimics the spinner area in ContractModal
 function SpinnerTestComponent({ startFn }) {
-  const [submitting, setSubmitting] = useState(false);
+  const [_submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState(null);
 
   const onClick = async () => {

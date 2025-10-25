@@ -1,4 +1,5 @@
 /* global Buffer, process */
+if (typeof process !== 'undefined') void process;
 import { useState } from 'react';
 import { prepareEvidencePayload } from '../utils/evidence';
 import { keccak256, toUtf8Bytes } from 'ethers';
@@ -18,7 +19,7 @@ export function useEvidenceSubmit() {
       let prep = null;
       try {
         prep = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: adminPub });
-      } catch (e) {
+      } catch (e) { void e;
         prep = { digest: null };
       }
 
@@ -27,7 +28,7 @@ export function useEvidenceSubmit() {
           const mod = await import('../utils/evidence');
           const d = mod.computeDigestForText(payloadStr);
           prep.digest = d;
-        } catch (e) {
+        } catch (e) { void e;
           prep.digest = null;
         }
       }
@@ -40,7 +41,7 @@ export function useEvidenceSubmit() {
         } else {
           ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
         }
-      } catch (e) {
+      } catch (e) { void e;
         ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
       }
 

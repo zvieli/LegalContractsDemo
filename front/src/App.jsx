@@ -1,6 +1,7 @@
 import { getContractAddress } from './utils/contracts';
 getContractAddress(31337, 'ContractFactory').then(addr => {
-});
+  void addr;
+}).catch(() => {});
 import './utils/fetchLogger';
 import Header from './components/common/Header/Header';
 import Footer from './components/common/Footer/Footer';
@@ -17,12 +18,13 @@ import './App.css';
 
 function App() {
   // Force test: call getContractAddress to verify contracts.js is loaded and logging works
-  import('./utils/contracts').then(mod => {
+    import('./utils/contracts').then(mod => {
     if (mod.getContractAddress) {
       mod.getContractAddress(31337, 'ContractFactory').then(addr => {
-      });
+        void addr;
+      }).catch(() => {});
     }
-  });
+  }).catch(() => {});
   // Simple routing based on URL path
   const currentPath = window.location.pathname;
   
@@ -34,10 +36,11 @@ function App() {
     if (isProtected && admin) {
       try {
         const accounts = (window.ethereum && window.ethereum.request) ? (window.ethereum.request({ method: 'eth_accounts' }) || []) : [];
+void accounts;
         // If the current selected account isn't the admin, show Home instead
         // Note: window.ethereum.request returns a Promise; to avoid making this function async
         // we conservatively allow the component to render and the Header to hide nav items.
-      } catch (_) {}
+      } catch (_) { void _;}
     }
 
     // No platform redirect — platform page is removed per user request

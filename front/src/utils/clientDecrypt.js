@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import { Buffer } from 'buffer';
 // Use globalThis.process when available (avoid importing 'process' directly)
 let _proc = null;
-try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { void e; _proc = null; }
 import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
 
 function aesDecryptUtf8(ciphertextBase64, ivBase64, tagBase64, symKeyBuffer) {
@@ -21,7 +21,7 @@ async function loadEthCrypto() {
   try {
     const m = await import('eth-crypto');
     return m.default || m;
-  } catch (e) {
+  } catch (e) { void e;
     return null;
   }
 }
@@ -35,15 +35,15 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
 
   // find recipient based on pubkey derived from private key using the browser ECIES helper
   let derivedPub = null;
-  try { derivedPub = await ecies.getPublicKeyFromPrivate(pkRaw); } catch (e) { derivedPub = null; }
+  try { derivedPub = await ecies.getPublicKeyFromPrivate(pkRaw); } catch (e) { void e; derivedPub = null; }
   let derivedNorm = null;
-  try { if (derivedPub) derivedNorm = normalizePublicKeyHex(derivedPub); } catch (e) { derivedNorm = (derivedPub || '').replace(/^0x/, '').toLowerCase(); }
+  try { if (derivedPub) derivedNorm = normalizePublicKeyHex(derivedPub); } catch (e) { void e; derivedNorm = (derivedPub || '').replace(/^0x/, '').toLowerCase(); }
   const match = recipients.find(r => {
     try {
       if (!r || !r.pubkey) return false;
       const rn = normalizePublicKeyHex(r.pubkey);
       return rn === derivedNorm;
-    } catch (e) {
+    } catch (e) { void e;
       return (r.pubkey || '').replace(/^0x/, '').toLowerCase() === (derivedPub || '').replace(/^0x/, '').toLowerCase();
     }
   });
@@ -53,19 +53,19 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
     const errors = [];
     let encKey = encKeyRaw;
     if (typeof encKey === 'string') {
-      try { encKey = JSON.parse(encKey); } catch (e) { /* keep as-is */ }
+      try { encKey = JSON.parse(encKey); } catch (e) { void e; /* keep as-is */ }
     }
     // Try canonical ECIES browser implementation first
     try {
       const plain = await ecies.decryptWithPrivateKey(pkRaw, encKey);
       // plain MAY be raw bytes (latin1), hex, base64, or utf8. Try raw-first.
       let symBuf = null;
-      try { const raw = Buffer.from(String(plain), 'latin1'); if (raw && raw.length === 32) symBuf = raw; } catch (e) {}
+  try { const raw = Buffer.from(String(plain), 'latin1'); if (raw && raw.length === 32) symBuf = raw; } catch (err) { void err; }
       if (!symBuf) {
-        try { if (/^[0-9a-fA-F]+$/.test(String(plain).trim())) symBuf = Buffer.from(String(plain).trim(), 'hex'); } catch (e) {}
+  try { if (/^[0-9a-fA-F]+$/.test(String(plain).trim())) symBuf = Buffer.from(String(plain).trim(), 'hex'); } catch (err) { void err; }
       }
-      if (!symBuf) { try { symBuf = Buffer.from(String(plain), 'base64'); } catch (e) {} }
-      if (!symBuf) { try { symBuf = Buffer.from(String(plain), 'utf8'); } catch (e) {} }
+  if (!symBuf) { try { symBuf = Buffer.from(String(plain), 'base64'); } catch (err) { void err; } }
+  if (!symBuf) { try { symBuf = Buffer.from(String(plain), 'utf8'); } catch (err) { void err; } }
 
       // Double-hex fallback: sometimes producer records hex of hex (ASCII hex bytes)
       if (!symBuf) {
@@ -80,15 +80,15 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
               }
             }
           }
-        } catch (e) {}
+  } catch (err) { void err; }
       }
 
       if (symBuf) {
         const plaintext = aesDecryptUtf8(envelope.ciphertext, envelope.encryption.aes.iv, envelope.encryption.aes.tag, symBuf);
-        try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
+        try { return JSON.parse(plaintext); } catch (e) { void e; return plaintext; }
       }
-    } catch (e) {
-      try { if (process && process.env && process.env.TESTING) errors.push('ecies:' + (e && e.message ? e.message : e)); } catch (ee) {}
+    } catch (e) { void e;
+  try { if (process && process.env && process.env.TESTING) errors.push('ecies:' + (e && e.message ? e.message : e)); } catch (ee) { void ee; }
       // fallback to eth-crypto if available
     }
     const EthCrypto = await loadEthCrypto();
@@ -96,21 +96,21 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
       try {
         // Try both non-0x and 0x-prefixed private key variants for compatibility
         let symHex = null;
-        try { symHex = await EthCrypto.decryptWithPrivateKey(pkRaw, encKey); } catch (e) {}
+  try { symHex = await EthCrypto.decryptWithPrivateKey(pkRaw, encKey); } catch (err) { void err; }
         if (!symHex) {
-          try { symHex = await EthCrypto.decryptWithPrivateKey('0x' + pkRaw, encKey); } catch (e) {}
+          try { symHex = await EthCrypto.decryptWithPrivateKey('0x' + pkRaw, encKey); } catch (err) { void err; }
         }
         // eth-crypto historically returns hex, but be defensive: try raw-first then hex/base64/utf8
         let symBuf = null;
-        try { const raw = Buffer.from(String(symHex), 'latin1'); if (raw && raw.length === 32) symBuf = raw; } catch (e) {}
-        if (!symBuf) { try { if (/^[0-9a-fA-F]+$/.test(String(symHex).trim())) symBuf = Buffer.from(String(symHex).trim(), 'hex'); } catch (e) {} }
-        if (!symBuf) { try { symBuf = Buffer.from(String(symHex), 'base64'); } catch (e) {} }
-        if (!symBuf) { try { symBuf = Buffer.from(String(symHex), 'utf8'); } catch (e) {} }
+  try { const raw = Buffer.from(String(symHex), 'latin1'); if (raw && raw.length === 32) symBuf = raw; } catch (err) { void err; }
+  if (!symBuf) { try { if (/^[0-9a-fA-F]+$/.test(String(symHex).trim())) symBuf = Buffer.from(String(symHex).trim(), 'hex'); } catch (err) { void err; } }
+  if (!symBuf) { try { symBuf = Buffer.from(String(symHex), 'base64'); } catch (err) { void err; } }
+  if (!symBuf) { try { symBuf = Buffer.from(String(symHex), 'utf8'); } catch (err) { void err; } }
         if (symBuf) {
           const plaintext = aesDecryptUtf8(envelope.ciphertext, envelope.encryption.aes.iv, envelope.encryption.aes.tag, symBuf);
-          try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
+          try { return JSON.parse(plaintext); } catch (e) { void e; return plaintext; }
         }
-      } catch (e) { try { if (process && process.env && process.env.TESTING) errors.push('eth-crypto:' + (e && e.message ? e.message : e)); } catch (ee) {} return null; }
+  } catch (e) { void e; try { if (process && process.env && process.env.TESTING) errors.push('eth-crypto:' + (e && e.message ? e.message : e)); } catch (ee) { void ee; } return null; }
     }
     // Try eccrypto fallback similar to server-side helper
     try {
@@ -118,7 +118,7 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
       const eccrypto = eccryptoModule && (eccryptoModule.default || eccryptoModule);
       let ob = encKey;
       if (typeof ob === 'string') {
-        try { ob = JSON.parse(ob); } catch (e) { ob = null; }
+        try { ob = JSON.parse(ob); } catch (e) { void e; ob = null; }
       }
       if (ob && typeof ob === 'object') {
         try {
@@ -135,31 +135,31 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
             let maybe = null;
             try { // first, raw as latin1 string
               const raw = Buffer.from(String(decBuf), 'latin1'); if (raw && raw.length === 32) maybe = raw; 
-            } catch (e) {}
-            if (!maybe) try { maybe = Buffer.from(decBuf.toString('hex'), 'hex'); } catch (e) {}
-            if (!maybe) try { maybe = Buffer.from(decBuf.toString('base64'), 'base64'); } catch (e) {}
-            if (!maybe) try { maybe = Buffer.from(String(decBuf), 'utf8'); } catch (e) {}
+            } catch (err) { void err; }
+            if (!maybe) try { maybe = Buffer.from(decBuf.toString('hex'), 'hex'); } catch (err) { void err; }
+            if (!maybe) try { maybe = Buffer.from(decBuf.toString('base64'), 'base64'); } catch (err) { void err; }
+            if (!maybe) try { maybe = Buffer.from(String(decBuf), 'utf8'); } catch (err) { void err; }
             // double-hex fallback
             if (!maybe) {
               try {
                 const first = Buffer.from(decBuf.toString('hex'), 'hex');
                 const asText = first.toString('utf8').trim();
                 if (/^[0-9a-fA-F]{64}$/.test(asText)) maybe = Buffer.from(asText, 'hex');
-              } catch (e) {}
+              } catch (err) { void err; }
             }
             if (maybe && maybe.length === 32) {
               const plaintext = aesDecryptUtf8(envelope.ciphertext, envelope.encryption.aes.iv, envelope.encryption.aes.tag, maybe);
-              try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
+              try { return JSON.parse(plaintext); } catch (e) { void e; return plaintext; }
             }
           }
-        } catch (e) {}
+  } catch (err) { void err; }
       }
-    } catch (e) {}
+  } catch (err) { void err; }
     // if in TESTING mode, surface attempt errors for debugging
     if (process && process.env && process.env.TESTING) {
       try {
         console.error('TESTING_CLIENT_DECRYPT_ATTEMPTS errors=', JSON.stringify(errors));
-      } catch (e) {}
+  } catch (err) { void err; }
     }
     return null;
   };
@@ -180,13 +180,13 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
             try {
               const asText = first.toString('utf8').trim();
               if (/^[0-9a-fA-F]{64}$/.test(asText)) symBuf = Buffer.from(asText, 'hex');
-            } catch (e) {}
+            } catch (e) { void e;}
           }
           if (symBuf) {
             const plaintext = aesDecryptUtf8(envelope.ciphertext, envelope.encryption.aes.iv, envelope.encryption.aes.tag, symBuf);
-            try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
+            try { return JSON.parse(plaintext); } catch (e) { void e; return plaintext; }
           }
-        } catch (e) {}
+  } catch (err) { void err; }
       }
       for (const r of recipients || []) {
         try {
@@ -200,27 +200,27 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
                 try {
                   const asText = first.toString('utf8').trim();
                   if (/^[0-9a-fA-F]{64}$/.test(asText)) symBuf = Buffer.from(asText, 'hex');
-                } catch (e) {}
+                } catch (e) { void e;}
               }
               if (symBuf) {
                 const plaintext = aesDecryptUtf8(envelope.ciphertext, envelope.encryption.aes.iv, envelope.encryption.aes.tag, symBuf);
-                try { return JSON.parse(plaintext); } catch (e) { return plaintext; }
+                try { return JSON.parse(plaintext); } catch (e) { void e; return plaintext; }
               }
-            } catch (e) {}
+            } catch (e) { void e;}
           }
-        } catch (e) {}
+        } catch (e) { void e;}
       }
     }
-  } catch (e) {}
+  } catch (e) { void e;}
 
   // Try top-level envelope.crypto first (backwards compatibility with older clients)
   if (envelope && envelope.crypto) {
     try {
       const tryTop = await tryDecryptEncKey(envelope.crypto);
       if (tryTop !== null) return tryTop;
-    } catch (e) {
+    } catch (e) { void e;
       // ignore and continue to recipient-based attempts
-      try { if (process && process.env && process.env.TESTING) console.error('TESTING_CLIENT_DECRYPT_CRYPTO_FAIL=' + (e && e.message ? e.message : e)); } catch (ee) {}
+  try { if (process && process.env && process.env.TESTING) console.error('TESTING_CLIENT_DECRYPT_CRYPTO_FAIL=' + (e && e.message ? e.message : e)); } catch (ee) { void ee; }
     }
   }
 
@@ -233,14 +233,14 @@ export async function decryptEnvelopeWithPrivateKey(envelope, privateKey) {
     try {
       const ok = await tryDecryptEncKey(r.encryptedKey);
       if (ok !== null) return ok;
-    } catch (e) {}
+    } catch (e) { void e;}
   }
   if (process && process.env && process.env.TESTING) {
     try {
       console.error('TESTING_CLIENT_DECRYPT_FINAL derivedPub=' + String(derivedPub));
       console.error('TESTING_CLIENT_DECRYPT_FINAL derivedNorm=' + String(derivedNorm));
-      try { console.error('TESTING_CLIENT_DECRYPT_FINAL recipients=' + JSON.stringify(recipients.map(r => ({ address: r.address, pubkey: r.pubkey })), null, 2)); } catch (e) {}
-    } catch (e) {}
+      try { console.error('TESTING_CLIENT_DECRYPT_FINAL recipients=' + JSON.stringify(recipients.map(r => ({ address: r.address, pubkey: r.pubkey })), null, 2)); } catch (e) { void e;}
+    } catch (e) { void e;}
   }
   throw new Error('Decryption failed: no recipient matched or authentication failed. Verify the private key matches one of the recipients.');
 }

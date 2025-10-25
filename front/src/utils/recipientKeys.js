@@ -19,5 +19,5 @@ export function listRecipients() {
 
 // Seed: platform admin or known participants can be injected at runtime (e.g., window.__EVIDENCE_RECIPIENTS)
 if(typeof window !== 'undefined' && window.__EVIDENCE_RECIPIENTS) {
-  try { for(const r of window.__EVIDENCE_RECIPIENTS){ registerRecipient(r.address, r.pubkey); } } catch(_){}
+  try { for(const r of window.__EVIDENCE_RECIPIENTS){ registerRecipient(r.address, r.pubkey); } } catch (_) { void _;}
 }

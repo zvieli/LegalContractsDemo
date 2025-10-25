@@ -22,7 +22,7 @@ export default function EvidenceViewer({ cid, isOpen, onClose, heliaClient }) {
       const { getJson } = await import('../../utils/heliaClient.js');
       const json = await getJson(cid);
       setContent(json);
-    } catch (e) {
+    } catch (e) { void e;
       setError(`Direct fetch failed: ${e.message}`);
     } finally {
       setLoading(false);
@@ -37,33 +37,14 @@ export default function EvidenceViewer({ cid, isOpen, onClose, heliaClient }) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const json = await response.json();
       setContent(json);
-    } catch (e) {
+    } catch (e) { void e;
       setError(`Gateway fetch failed: ${e.message}`);
     } finally {
       setLoading(false);
     }
   }
 
-  async function fetchViaApi() {
-    setLoading(true);
-    setError(null);
-    try {
-      const resp = await fetch(`/api/evidence/retrieve/${cid}`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json().catch(()=>null);
-      if (json && typeof json.heliaConfirmed !== 'undefined') {
-        setContent(json);
-      } else if (json && json.content) {
-        setContent(json.content);
-      } else {
-        setContent(json);
-      }
-    } catch (e) {
-      setError(`API fetch failed: ${e.message}`);
-    } finally {
-      setLoading(false);
-    }
-  }
+  // fetchViaApi helper removed — not used. Keep fetchViaGateway and fetchViaDirect.
 
   async function handleFetch() {
     const gateway = EVIDENCE_GATEWAYS[selectedGateway];

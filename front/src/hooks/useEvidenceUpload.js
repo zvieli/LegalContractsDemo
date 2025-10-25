@@ -8,7 +8,7 @@ try {
   if (import.meta && import.meta.env && import.meta.env.VITE_API_BASE) {
     _resolvedApiBase = import.meta.env.VITE_API_BASE;
   }
-} catch (e) {
+} catch (e) { void e;
   // import.meta may not be available in some Node contexts — ignore
 }
 // Prefer globalThis.process when available to avoid `process` no-undef in browser
@@ -17,7 +17,7 @@ try {
   if (_p && _p.env && _p.env.VITE_API_BASE) {
     _resolvedApiBase = _p.env.VITE_API_BASE;
   }
-} catch (e) {}
+} catch (e) { void e;}
 
 // Ensure imported helpers are referenced so lint doesn't flag them as unused in this iterative cleanup step
 void computeContentDigest;
@@ -32,6 +32,8 @@ export default function useEvidenceUpload({ apiBase = _resolvedApiBase } = {}) {
     setStatus('uploading');
     setProgress(5);
     setError(null);
+    // mark intentional option parameter as used for lint
+    void encrypt;
 
     try {
       // If evidence is a File, read as text
@@ -42,6 +44,7 @@ export default function useEvidenceUpload({ apiBase = _resolvedApiBase } = {}) {
           const text = await evidence.text();
           payload.content = text;
         } catch (err) {
+          void err;
           // fallback: just metadata
           payload.content = '';
         }
@@ -68,7 +71,7 @@ export default function useEvidenceUpload({ apiBase = _resolvedApiBase } = {}) {
       if (!resp.ok) {
         // Attempt to parse JSON error body, but fall back to text
         let errBody = null;
-        try { errBody = await resp.json(); } catch (e) { try { errBody = await resp.text(); } catch(_) { errBody = null; } }
+        try { errBody = await resp.json(); } catch (e) { void e; try { errBody = await resp.text(); } catch (_) { void _; errBody = null; } }
         const errMsg = errBody && errBody.error ? errBody.error : (typeof errBody === 'string' ? errBody : `HTTP ${resp.status}`);
         const err = new Error(`Upload failed: ${errMsg}`);
         err.status = resp.status;

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { BrowserProvider, JsonRpcProvider } from 'ethers';
 import { IN_E2E } from '../utils/env';
@@ -12,7 +13,7 @@ export function EthersProvider({ children }) {
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [contracts, setContracts] = useState({});
+  const [contracts, _setContracts] = useState({});
   const [userContracts, setUserContracts] = useState([]);
   const [latestContractAddress, setLatestContractAddress] = useState(null);
 
@@ -61,9 +62,12 @@ export function EthersProvider({ children }) {
               setSigner(null);
             }
           });
+          // Use the locally-created web3Provider here instead of the stateful
+          // `provider` variable so this effect does not depend on external state
+          // (avoids exhaustive-deps warnings while preserving behavior).
           window.ethereum.on('chainChanged', async () => {
-            if (provider && typeof provider.getNetwork === 'function') {
-              const newNet = await provider.getNetwork();
+            if (web3Provider && typeof web3Provider.getNetwork === 'function') {
+              const newNet = await web3Provider.getNetwork();
               setChainId(Number(newNet.chainId));
             } else {
               setChainId(null);
@@ -114,7 +118,7 @@ export function EthersProvider({ children }) {
   setIsConnected(true);
     } catch (err) {
       console.error('[EthersContext] connectWallet failed:', err);
-      try { alert('Failed to connect wallet: ' + (err?.message || String(err))); } catch (_) {}
+      try { alert('Failed to connect wallet: ' + (err?.message || String(err))); } catch (_) { void _;}
     } finally {
       setIsConnecting(false);
       setLoading(false);

@@ -3,6 +3,7 @@ import * as ethers from 'ethers';
 import { useEthers } from '../contexts/EthersContext';
 
 export const useContractEvents = (contractAddress, abi, eventName, callback) => {
+void useContractEvents;
   const { provider } = useEthers();
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export const useContractEvents = (contractAddress, abi, eventName, callback) => 
 };
 
 export const useRentPaymentEvents = (contractAddress, callback) => {
+void useRentPaymentEvents;
   const { provider } = useEthers();
 
   useEffect(() => {

@@ -3,10 +3,10 @@ import { Buffer } from 'buffer';
 // Avoid importing 'process' directly; use globalThis.process where available so
 // browser builds don't trigger ESLint no-undef for `process`.
 let _proc = null;
-try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { void e; _proc = null; }
 import { safeGetAddress } from './signer.js';
-import { computeCidDigest, computeContentDigest, canonicalize } from './evidenceCanonical.js';
-import ecies, { normalizePublicKeyHex } from './ecies-browser.js';
+import { computeContentDigest, canonicalize } from './evidenceCanonical.js';
+import { normalizePublicKeyHex } from './ecies-browser.js';
 import { IN_E2E } from './env.js';
 
 // Import testing helpers for frontend debugging (browser compatible check)
@@ -20,7 +20,7 @@ if (_proc && _proc.env && _proc.env.TESTING) {
       // Expected to fail in browser, testing helpers are Node.js only
       testingHelpers = null;
     });
-  } catch (e) {
+  } catch (e) { void e;
     // Expected in browser environment
   }
 }
@@ -74,7 +74,7 @@ export async function encryptToAdminPubKey(payload, adminPublicKeyRaw) {
       const digest = computeDigestForCiphertext(ctStr);
       return { ciphertext: ctStr, digest };
     }
-  } catch (e) {
+  } catch (e) { void e;
     // fallthrough to eth-crypto fallback
   }
 
@@ -82,7 +82,7 @@ export async function encryptToAdminPubKey(payload, adminPublicKeyRaw) {
   let EthCrypto;
   try {
     EthCrypto = (await import('eth-crypto')).default || (await import('eth-crypto'));
-  } catch (e) {
+  } catch (e) { void e;
     throw new Error('Client-side encryption requested but no encryption module is available. For production keep encryption in `tools/admin`. For local demos install `eth-crypto` in `front/`.');
   }
   // EthCrypto expects the public key string without 0x prefix
@@ -118,7 +118,7 @@ export async function prepareEvidencePayload(payload, options = {}) {
           adminPubKeyUsed: options.encryptToAdminPubKey ? 'yes' : 'no'
         });
       }
-    } catch (__) {}
+  } catch (e) { void e; }
     return result;
   }
   // No encryption requested: compute digest over plaintext
@@ -164,7 +164,7 @@ export async function buildEncryptedEnvelope(contentObj, recipientsPublicKeys = 
       const { default: eciesMod } = await import('./ecies-browser.js');
       const encKey = await eciesMod.encryptWithPublicKey(pub.replace(/^0x/, ''), Buffer.from(symKey).toString('hex'));
       encryptedRecipients.push({ pubkey: pub, encryptedKey: encKey, ok: true });
-    } catch (e) {
+    } catch (e) { void e;
       encryptedRecipients.push({ pubkey: pub, encryptedKey: { code: 'ECIES_ENCRYPT_FAIL', message: e?.message || 'encrypt failed', legacy: true }, ok: false });
     }
   }

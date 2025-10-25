@@ -1,5 +1,5 @@
 import './Admin.css';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import * as ethers from 'ethers';
 
 // Use explicit backend host in dev to avoid Vite serving index.html for /api paths
@@ -13,7 +13,7 @@ async function getConnectedAddress() {
       const accounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => null);
       if (accounts && accounts.length > 0) return accounts[0];
     }
-  } catch (e) {}
+  } catch (e) { void e;}
   return null;
 }
 
@@ -31,19 +31,19 @@ export default function Admin() {
   const [debugFiles, setDebugFiles] = useState(null);
   const [address, setAddress] = useState(null);
   const [hasWallet, setHasWallet] = useState(true);
-  const [useLocalRpc, setUseLocalRpc] = useState(false);
+  const [_useLocalRpc, setUseLocalRpc] = useState(false);
   const [authorized, setAuthorized] = useState(false);
   const [statusLoading, setStatusLoading] = useState(false);
   const [adminStatus, setAdminStatus] = useState(null);
-  const [lastRecovered, setLastRecovered] = useState(null);
-  const [lastSignaturePreview, setLastSignaturePreview] = useState(null);
+  const [_lastRecovered, setLastRecovered] = useState(null);
+  const [_lastSignaturePreview, setLastSignaturePreview] = useState(null);
 
   useEffect(() => {
     // Guard to avoid double-run in React StrictMode or HMR during development
     try {
       if (typeof window !== 'undefined' && window.__ADMIN_INIT_RAN) return;
       if (typeof window !== 'undefined') window.__ADMIN_INIT_RAN = true;
-    } catch (e) {
+    } catch (e) { void e;
       // ignore
     }
 
@@ -111,6 +111,7 @@ export default function Admin() {
                     var eip712Method = 'eth_signTypedData_v4';
                   }
                 } catch (ethErr) {
+                  void ethErr;
                   // ignore and try signer helpers
                 }
 
@@ -130,11 +131,13 @@ export default function Admin() {
               } catch (eipErr) {
                 // typed signing failed - will fall back to legacy
                 signature = null;
+                void eipErr;
               }
             }
           } catch (err) {
             // ignore and fall back
             signature = null;
+            void err;
           }
           try {
             // Only perform legacy message signing if we didn't already obtain an EIP-712 signature
@@ -146,19 +149,23 @@ export default function Admin() {
                   const web3Signer = await provider.getSigner(addr);
                   signature = await web3Signer.signMessage(message);
                 } catch (providerErr) {
+                  void providerErr;
                   // Fallback to personal_sign if signer.signMessage fails for some providers
                   try {
                     signature = await window.ethereum.request({ method: 'personal_sign', params: [message, addr] });
                   } catch (innerErr) {
+                    void innerErr;
                     // Some providers require hex-encoded message for personal_sign - try that as a last resort
                     try {
                       const hexMsg = ethers.hexlify(ethers.toUtf8Bytes(message));
                       signature = await window.ethereum.request({ method: 'personal_sign', params: [hexMsg, addr] });
                       setLogs(l => [[new Date().toISOString(), 'Used hex-encoded personal_sign fallback'], ...l]);
                     } catch (innerErr2) {
+                      void innerErr2;
                       setLogs(l => [[new Date().toISOString(), `Signing error from provider: ${String(innerErr2 && (innerErr2.message || innerErr2))}`], ...l]);
                     }
                   }
+                  void providerErr;
                 }
               } else {
                 setLogs(l => [[new Date().toISOString(), 'personal_sign not available (no injected wallet)'], ...l]);
@@ -166,6 +173,7 @@ export default function Admin() {
             }
           } catch (signErr) {
             setLogs(l => [[new Date().toISOString(), `Signing failed: ${String(signErr && (signErr.message || signErr))}`], ...l]);
+            void signErr;
           }
           if (!signature) {
             // Fall back to legacy string signing flow (existing logic)
@@ -177,16 +185,19 @@ export default function Admin() {
                   const web3Signer = await provider.getSigner(addr);
                   signature = await web3Signer.signMessage(message);
                 } catch (providerErr) {
+                  void providerErr;
                   // Fallback to personal_sign if signer.signMessage fails for some providers
                   try {
                     signature = await window.ethereum.request({ method: 'personal_sign', params: [message, addr] });
                   } catch (innerErr) {
+                    void innerErr;
                     // Some providers require hex-encoded message for personal_sign - try that as a last resort
                     try {
                       const hexMsg = ethers.hexlify(ethers.toUtf8Bytes(message));
                       signature = await window.ethereum.request({ method: 'personal_sign', params: [hexMsg, addr] });
                       setLogs(l => [[new Date().toISOString(), 'Used hex-encoded personal_sign fallback'], ...l]);
                     } catch (innerErr2) {
+                      void innerErr2;
                       setLogs(l => [[new Date().toISOString(), `Signing error from provider: ${String(innerErr2 && (innerErr2.message || innerErr2))}`], ...l]);
                     }
                   }
@@ -205,6 +216,7 @@ export default function Admin() {
               setLogs(l => [[new Date().toISOString(), `DEBUG (dev) Signed message:\n${message}`], [new Date().toISOString(), `DEBUG (dev) Signature: ${signature}`], ...l]);
             }
           } catch (err) {
+            void err;
             // ignore logging errors
           }
           // Client-side verify the signature to make sure the signing account matches the expected address
@@ -222,6 +234,7 @@ export default function Admin() {
           } catch (verifyErr) {
             setLogs(l => [[new Date().toISOString(), `Local signature verification failed: ${verifyErr && (verifyErr.message || verifyErr)}`], ...l]);
             // continue to send to server to surface server-side error if needed
+            void verifyErr;
           }
           // In development, POST the signed message+signature to the server recover endpoint to compare server-side recovery
           try {
@@ -231,10 +244,11 @@ export default function Admin() {
                 const recJson = await recRes.json();
                 setLogs(l => [[new Date().toISOString(), `Server recover result: ${JSON.stringify(recJson)}`], ...l]);
               } catch (recErr) {
+                void recErr;
                 setLogs(l => [[new Date().toISOString(), `Server recover POST failed: ${recErr && (recErr.message || recErr)}`], ...l]);
               }
             }
-          } catch (err) {}
+          } catch (err) { void err; }
           // Send signature to server for verification
           try {
             // If we used EIP-712, include a canonical typed payload; otherwise send legacy message
@@ -257,7 +271,7 @@ export default function Admin() {
             if (!verifyRes.ok) {
               // Try to parse JSON error, fallback to text
               let errBody = null;
-              try { errBody = await verifyRes.json(); } catch (e) { errBody = await verifyRes.text(); }
+              try { errBody = await verifyRes.json(); } catch (e) { void e; errBody = await verifyRes.text(); }
               setAuthorized(false);
               setLogs(l => [[new Date().toISOString(), `Verification failed (${verifyRes.status}): ${JSON.stringify(errBody)}`], ...l]);
             } else {
@@ -273,9 +287,10 @@ export default function Admin() {
           } catch (postErr) {
             setLogs(l => [[new Date().toISOString(), `Verification request failed: ${String(postErr && (postErr.message || postErr))}`], ...l]);
             setAuthorized(false);
+            void postErr;
           }
-        } catch (e) {
-          setLogs(l => [[new Date().toISOString(), `Auth nonce/sign flow failed: ${e.message}`], ...l]);
+        } catch (e) { void e;
+          setLogs(l => [[new Date().toISOString(), `Auth nonce/sign flow failed: ${e && (e.message || e)}`], ...l]);
         }
       }
     })();

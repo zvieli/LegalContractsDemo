@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
+import React, { useState, useEffect, useCallback } from 'react';
 import './KeyManagement.css';
 
 const KeyManagement = ({ 
   walletAddress, 
-  provider, 
+  provider: _provider, 
   keyRegistryContract, 
   onKeyUpdate 
 }) => {
+  // _provider prop intentionally unused in this component; mark as referenced for ESLint
+  void _provider;
   const [keys, setKeys] = useState([]);
-  const [activeKeyId, setActiveKeyId] = useState(null);
+  const [_activeKeyId, _setActiveKeyId] = useState(null);
   const [newKeyData, setNewKeyData] = useState({
     publicKey: '',
     lifetime: '',
@@ -24,15 +25,15 @@ const KeyManagement = ({
     if (keyRegistryContract && walletAddress) {
       loadUserKeys();
     }
-  }, [keyRegistryContract, walletAddress]);
+  }, [keyRegistryContract, walletAddress, loadUserKeys]);
   
-  const loadUserKeys = async () => {
+  const loadUserKeys = useCallback(async () => {
     try {
       setLoading(true);
       
       // Get active key info
-      const [activePublicKey, activeId, isValid] = await keyRegistryContract.getActiveKey(walletAddress);
-      setActiveKeyId(isValid ? Number(activeId) : null);
+    const [_activePublicKey, activeId, isValid] = await keyRegistryContract.getActiveKey(walletAddress);
+  _setActiveKeyId(isValid ? Number(activeId) : null);
       
       // Get all keys (paginated)
       const [keyIds, publicKeys, validFroms, validUntils, revokeds, metadatas] = 
@@ -55,7 +56,7 @@ const KeyManagement = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [keyRegistryContract, walletAddress]);
   
   const generateKeyPair = async () => {
     try {

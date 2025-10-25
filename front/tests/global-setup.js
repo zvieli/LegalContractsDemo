@@ -14,10 +14,10 @@ const ndaSetup = path.join(repoRoot, 'scripts', 'debug', 'nda-setup.js');
 function runNodeScript(scriptPath, args = [], envOverrides = {}) {
   // Resolve node executable path defensively so lint/build in browser contexts won't error
   let _proc = null;
-  try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
+  try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { void e; _proc = null; }
   const nodeExe = _proc && _proc.execPath ? _proc.execPath : 'node'; // absolute node path
   const fullArgs = [scriptPath, ...args];
-  try { console.log('Running:', nodeExe, fullArgs.join(' ')); } catch (_) {}
+  try { console.log('Running:', nodeExe, fullArgs.join(' ')); } catch (e) { void e; }
   const res = execFileSync(nodeExe, fullArgs, {
     stdio: 'inherit',
     cwd: repoRoot,

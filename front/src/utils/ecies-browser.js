@@ -49,7 +49,7 @@ export function normalizePublicKeyHex(pub) {
           const yh = toHex32(p.y);
           return ('04' + xh + yh).toLowerCase();
         }
-      } catch (e) {
+      } catch (e) { void e;
         // try next
       }
     }
@@ -95,7 +95,7 @@ export async function decryptWithPrivateKey(privHex, enc) {
     const plainBuf = await globalThis.crypto.subtle.decrypt({ name: 'AES-GCM', iv, tagLength: 128 }, cryptoKey, combined);
     const dec = new TextDecoder().decode(plainBuf);
     return dec; // expected to be symmetric key hex
-  } catch (e) {
+  } catch (e) { void e;
     throw new Error('ecies-browser decryption failed: ' + (e && e.message ? e.message : e));
   }
 }

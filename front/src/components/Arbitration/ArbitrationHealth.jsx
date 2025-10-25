@@ -13,7 +13,7 @@ export default function ArbitrationHealth({ intervalMs = 20000, onChange = null 
         if (!mounted) return;
         setHealth(h);
         if (typeof onChange === 'function') onChange(h);
-      } catch (e) {
+      } catch (e) { void e;
         const h = { ok: false, err: String(e?.message || e) };
         if (!mounted) return;
         setHealth(h);

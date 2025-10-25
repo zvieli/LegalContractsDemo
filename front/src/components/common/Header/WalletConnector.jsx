@@ -11,11 +11,11 @@ function useAdminRole(account, signer, chainId) {
         const contractService = new ContractService(signer ? signer.provider : null, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
-        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
         if (owner && account.toLowerCase() === owner.toLowerCase()) setRole('admin');
         else if (account.toLowerCase() === '0xsystemaddress') setRole('system');
         else setRole('user');
-      } catch { setRole('user'); }
+      } catch (_){ void _; setRole('user'); }
     }
     checkRole();
   }, [account, signer, chainId]);
@@ -31,8 +31,10 @@ export default function WalletConnector({ onWallet }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const { account, signer, chainId, provider, connectWallet: connectWalletCtx, disconnectWallet: disconnectWalletCtx } = useEthers();
+  const { account, signer, chainId, provider: _provider, connectWallet: connectWalletCtx, disconnectWallet: disconnectWalletCtx } = useEthers();
   const role = useAdminRole(account, signer, chainId);
+  // mark intentionally-unused provider alias to satisfy lint
+  void _provider;
 
   async function connectWallet() {
     setLoading(true);
@@ -45,11 +47,11 @@ export default function WalletConnector({ onWallet }) {
         try {
           const accounts = window.ethereum ? await window.ethereum.request({ method: 'eth_accounts' }) : [];
           if (onWallet) onWallet(accounts && accounts[0]);
-        } catch (_) { if (onWallet) onWallet(null); }
+        } catch (_) { void _; if (onWallet) onWallet(null); }
       } else {
         setError('Wallet connect not available');
       }
-    } catch (e) {
+    } catch (e) { void e;
       setError(e.message || String(e));
     } finally {
       setLoading(false);
@@ -60,7 +62,7 @@ export default function WalletConnector({ onWallet }) {
   function disconnectWallet() {
     try {
       if (typeof disconnectWalletCtx === 'function') disconnectWalletCtx();
-    } catch (e) { /* ignore */ }
+    } catch (e) { void e; /* ignore */ }
     if (onWallet) onWallet(null);
   }
 

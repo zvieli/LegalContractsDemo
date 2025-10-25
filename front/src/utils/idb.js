@@ -17,7 +17,7 @@ export async function idbPut(key, value) {
           tx.onerror = (e) => { db.close(); reject(e); };
         };
         req.onerror = (e) => reject(e);
-      } catch (e) {
+      } catch (e) { void e;
         reject(e);
       }
     });
@@ -26,7 +26,7 @@ export async function idbPut(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
     return true;
-  } catch (e) {
+  } catch (e) { void e;
     throw e;
   }
 }
@@ -48,7 +48,7 @@ export async function idbGet(key) {
           getReq.onerror = (e) => { db.close(); reject(e); };
         };
         req.onerror = (e) => reject(e);
-      } catch (e) {
+      } catch (e) { void e;
         reject(e);
       }
     });
@@ -56,7 +56,7 @@ export async function idbGet(key) {
   try {
     const v = localStorage.getItem(key);
     return v ? JSON.parse(v) : null;
-  } catch (e) {
+  } catch (e) { void e;
     throw e;
   }
 }
@@ -67,12 +67,12 @@ export function idbClear() {
   try {
     localStorage.clear();
     sessionStorage.clear();
-  } catch (e) {}
+  } catch (e) { void e;}
   // Delete arbitrust-idb database
   if (typeof indexedDB !== 'undefined') {
     try {
       indexedDB.deleteDatabase('arbitrust-idb');
-    } catch (e) {}
+    } catch (e) { void e;}
   }
   return true;
 }

@@ -10,7 +10,7 @@ import { loadAbis } from './utils/loadAbis';
 async function bootstrap() {
   try {
     await loadAbis();
-  } catch (e) {
+  } catch (e) { void e;
     // proceed regardless; contracts.js will still attempt other fallbacks
     console.warn('Failed loading ABIs early:', e);
   }

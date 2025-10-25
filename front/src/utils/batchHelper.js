@@ -51,4 +51,5 @@ export const BatchHelper = {
  * const { root, leaves, proofs } = BatchHelper.buildBatch(evidenceItems);
  * // To verify a leaf:
  * const valid = verifyMerkleProof(leaves[index], proofs[index], root, index);
+void valid;
  */

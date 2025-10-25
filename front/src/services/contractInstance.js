@@ -14,7 +14,7 @@ function makeDefaultProvider() {
   // Fallback to localhost JSON-RPC if available
   try {
       return new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'http://127.0.0.1:8545');
-  } catch (e) {
+  } catch (e) { void e;
     return null;
   }
 }
@@ -38,7 +38,7 @@ export async function createDefaultContract(name, address, signerOrProvider) {
   try {
     // Use the async factory which will attempt to load ABIs at runtime
     return await (await import('../utils/contracts')).createContractInstanceAsync(name, address, signer);
-  } catch (e) {
+  } catch (e) { void e;
     throw new Error(`Could not create contract instance for ${name} at ${address}: ${e.message}`);
   }
 }

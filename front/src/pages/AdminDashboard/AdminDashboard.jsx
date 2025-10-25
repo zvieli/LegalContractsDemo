@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { useEthers } from '../../contexts/EthersContext';
 import { getContractABI } from '../../utils/contracts';
@@ -6,7 +6,7 @@ import { getContractABI } from '../../utils/contracts';
 const ARBITRATION_SERVICE_ADDRESS = import.meta.env?.VITE_ARBITRATION_SERVICE_ADDRESS || '';
 
 export default function AdminDashboard() {
-  const { provider, signer, account, chainId, isConnected } = useEthers();
+  const { provider, signer, chainId } = useEthers();
   const [adminAddress, setAdminAddress] = useState('');
   const [transactions, setTransactions] = useState([]);
   const [totalDai, setTotalDai] = useState('0');
@@ -40,7 +40,7 @@ export default function AdminDashboard() {
           const rp = cs._providerForRead() || provider;
           const readContract = new ethers.Contract(ARBITRATION_SERVICE_ADDRESS, abi, rp);
           events = await readContract.queryFilter(filter, -10000);
-        } catch (e) {
+        } catch (e) { void e;
           // fallback to provider-bound contract
           events = await contract.queryFilter(filter, -10000);
         }
@@ -66,7 +66,7 @@ export default function AdminDashboard() {
       }
     }
     syncData();
-  }, [provider, chainId]);
+  }, [provider, chainId, signer]);
 
   // Withdraw logic
   const handleWithdraw = async () => {

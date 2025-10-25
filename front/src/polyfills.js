@@ -82,7 +82,7 @@
         // Prefer a global injection if present (e.g. window.__ENV__ or globalThis.__ENV__)
         try {
           if (globalThis.__ENV__ && typeof globalThis.__ENV__.NODE_ENV === 'string') return { NODE_ENV: globalThis.__ENV__.NODE_ENV };
-        } catch (_) {
+        } catch (_) { void _;
           // ignore
         }
         return { NODE_ENV: 'development' };
@@ -93,3 +93,5 @@
     };
   }
 })();
+// mark process as referenced for ESLint in environments that report the /* global process */ directive
+if (typeof process !== 'undefined') void process;

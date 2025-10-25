@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useCallback } from 'react';
 
 const NotificationContext = createContext();
@@ -34,7 +35,7 @@ export const NotificationProvider = ({ children }) => {
     }
 
     return id;
-  }, []);
+  }, [removeNotification]);
 
   const removeNotification = useCallback((id) => {
     setNotifications(prev => prev.filter(notif => notif.id !== id));

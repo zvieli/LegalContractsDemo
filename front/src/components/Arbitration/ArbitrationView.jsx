@@ -13,7 +13,7 @@ function EvidenceDigestItem({ digest }) {
     try {
       const resp = await fetch(`https://ipfs.io/ipfs/${digest}`);
       setVerified(resp.ok);
-    } catch {
+    } catch (_){ void _;
       setVerified(false);
     } finally {
       setVerifying(false);
@@ -87,7 +87,7 @@ export default function ArbitrationView({ dispute, evidence, contractText }) {
           setStatus(statusJson);
           setHistory(Array.isArray(histJson) ? histJson : (histJson.decisions || []));
         }
-      } catch (e) {
+      } catch (e) { void e;
         if (!cancelled) setError(e.message || String(e));
       } finally {
         if (!cancelled) setLoading(false);
@@ -179,7 +179,7 @@ export default function ArbitrationView({ dispute, evidence, contractText }) {
                         if (!resp.ok) throw new Error(json.error || `HTTP ${resp.status}`);
                         setSubmitStatus('Evidence submitted successfully!');
                         setEvidenceInput('');
-                      } catch (e) {
+                      } catch (e) { void e;
                         setSubmitStatus('Error submitting evidence: ' + (e.message || String(e)));
                       } finally {
                         setSubmitting(false);

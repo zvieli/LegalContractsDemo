@@ -9,7 +9,7 @@ import { useState, useEffect } from 'react';
 import { ContractService } from '../../services/contractService';
 
 function Home() {
-  const { account, signer, chainId, provider, isConnected, loading, isConnecting, connectWallet } = useEthers();
+  const { account, signer, chainId, provider, loading, isConnecting, connectWallet } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   useEffect(() => {
@@ -22,9 +22,9 @@ function Home() {
         const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
-        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
         setIsAdmin(owner && account.toLowerCase() === owner.toLowerCase());
-      } catch { setIsAdmin(false); }
+      } catch (_){ void _; setIsAdmin(false); }
     }
     checkAdmin();
   }, [provider, signer, chainId, account]);
@@ -46,7 +46,7 @@ function Home() {
         <div style={{fontSize:16,marginBottom:12}}>Wallet not connected</div>
         <div style={{marginBottom:12}}><small>Please connect your Ethereum wallet to view and manage your contracts.</small></div>
         <div>
-          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch(e){ console.error('connectWallet failed', e); } }}>Connect Wallet</button>
+          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch (e) { void e; console.error('connectWallet failed', e); } }}>Connect Wallet</button>
         </div>
       </div>
     );

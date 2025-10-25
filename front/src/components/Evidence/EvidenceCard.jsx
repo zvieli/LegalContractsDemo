@@ -37,7 +37,7 @@ export default function EvidenceCard({ ev, onView, heliaClient }) {
       await navigator.clipboard.writeText(ev.cid);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
+    } catch (e) { void e;
       console.warn('Copy failed:', e);
     }
   }
@@ -49,7 +49,7 @@ export default function EvidenceCard({ ev, onView, heliaClient }) {
         setFetchSource('helia');
         setShowViewer(true);
         // EvidenceViewer will use heliaClient prop
-      } catch (err) {
+      } catch (e) { void e;
         setFetchSource('gateway');
         setShowViewer(true);
       }
@@ -155,7 +155,7 @@ export default function EvidenceCard({ ev, onView, heliaClient }) {
             <a href={`/api/evidence/retrieve/${ev.cid}`} target="_blank" rel="noreferrer" className="btn-sm outline">View via API</a>
           )}
           {ev.cid && <a className="btn-sm outline" href={`https://ipfs.io/ipfs/${ev.cid}`} target="_blank" rel="noreferrer">IPFS</a>}
-          {ev.fetched && <button className="btn-sm outline" onClick={() => { try { const blob = new Blob([JSON.stringify(ev.fetched,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`evidence-${ev.cidDigestEvent.slice(2,10)}.json`; a.click(); } catch(_){} }}>Export</button>}
+          {ev.fetched && <button className="btn-sm outline" onClick={() => { try { const blob = new Blob([JSON.stringify(ev.fetched,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`evidence-${ev.cidDigestEvent.slice(2,10)}.json`; a.click(); } catch (e) { void e;} }}>Export</button>}
         </div>
       </div>
       {fetchSource && (

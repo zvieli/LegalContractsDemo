@@ -21,7 +21,7 @@ function downloadJSON(obj, filename) {
       // non-browser environment: log the JSON
       console.log('downloadJSON (non-browser) ->', content);
     }
-  } catch (e) {
+  } catch (e) { void e;
     console.error('downloadJSON failed', e);
   }
 }
@@ -40,7 +40,7 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceTyp
       // Try to parse JSON to ensure valid input; send string as-is if parsing fails
       const parsed = JSON.parse(payload);
       body = parsed;
-    } catch (err) {
+    } catch (e) { void e;
       // leave body as raw string
     }
     try {
@@ -52,7 +52,7 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceTyp
           const result = await submitHandler(payloadStr);
           setStatus({ ok: true, message: 'Evidence submitted', details: result });
           if (typeof onSubmitted === 'function') {
-            try { onSubmitted(result); } catch (e) {}
+            try { onSubmitted(result); } catch (e) { void e;}
           }
           return;
         } catch (err) {
@@ -71,7 +71,7 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceTyp
       let prep = null;
       try {
         prep = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: adminPub });
-      } catch (e) {
+      } catch (e) { void e;
         // If prepare failed, fall back to computing digest over plaintext via utils and send plaintext base64
         prep = { digest: null };
       }
@@ -83,7 +83,7 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceTyp
           const mod = await import('../../utils/evidence');
           const d = mod.computeDigestForText(payloadStr);
           prep.digest = d;
-        } catch (e) {
+        } catch (e) { void e;
           // last-resort: set empty digest (server will reject)
           prep.digest = null;
         }
@@ -97,10 +97,10 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceTyp
           ciphertextToSend = window.btoa(ctSource);
         } else {
           // Buffer may not exist in some browser test environments; guard it
-          try { ciphertextToSend = (typeof Buffer !== 'undefined') ? Buffer.from(ctSource, 'utf8').toString('base64') : btoa(ctSource); } catch (err) { ciphertextToSend = btoa(ctSource); }
+          try { ciphertextToSend = (typeof Buffer !== 'undefined') ? Buffer.from(ctSource, 'utf8').toString('base64') : btoa(ctSource); } catch (e) { void e; ciphertextToSend = btoa(ctSource); }
         }
-      } catch (e) {
-        ciphertextToSend = Buffer.from(ctSource, 'utf8').toString('base64');
+      } catch (e) { void e;
+        ciphertextToSend = (typeof Buffer !== 'undefined') ? Buffer.from(ctSource, 'utf8').toString('base64') : btoa(ctSource);
       }
 
   // evidence type for UI submissions - configurable via props
@@ -121,13 +121,13 @@ export default function EvidenceSubmit({ onSubmitted, submitHandler, evidenceTyp
         // Show CID/URI if present for user convenience
         setStatus({ ok: true, message: 'Evidence submitted', details: json });
         // Log backend response for debugging
-        try { console.log('submit-evidence response:', json); } catch (e) {}
+        try { console.log('submit-evidence response:', json); } catch (e) { void e;}
         // Prompt browser to download the backend response JSON for offline debugging
-        try { downloadJSON(json, `evidence-response-${(json && json.digest) ? json.digest.replace(/^0x/, '') : Date.now()}.json`); } catch (e) { console.error(e); }
+        try { downloadJSON(json, `evidence-response-${(json && json.digest) ? json.digest.replace(/^0x/, '') : Date.now()}.json`); } catch (e) { void e; console.error(e); }
         if (typeof onSubmitted === 'function') {
           try {
             onSubmitted(json);
-          } catch (e) {
+          } catch (e) { void e;
             // swallow callback errors
           }
         }

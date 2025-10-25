@@ -29,7 +29,7 @@ export default function AppealEvidenceList({ entries = [] }) {
               {gatewayUrl && (
                 <a className="btn-sm" href={gatewayUrl} target="_blank" rel="noreferrer">Open</a>
               )}
-              <button className="btn-sm" onClick={async () => { try { await navigator.clipboard.writeText(ref); alert('Copied'); } catch(e){ alert('Copy failed'); } }}>Copy</button>
+              <button className="btn-sm" onClick={async () => { try { await navigator.clipboard.writeText(ref); alert('Copied'); } catch (e) { void e; alert('Copy failed'); } }}>Copy</button>
             </div>
           </li>
         );

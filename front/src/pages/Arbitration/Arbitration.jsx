@@ -8,12 +8,12 @@ import ResolveModal from '../../components/ResolveModal/ResolveModal';
 import { ContractService } from '../../services/contractService';
 
 function Arbitration() {
-  const { isConnected, account } = useEthers();
+  const { isConnected, account, signer, chainId } = useEthers();
   const [disputes, setDisputes] = useState([]);
   const [loading, setLoading] = useState(true);
   // incomingDispute removed: per-contract appeals are handled in the Contract modal/card
 
-  const { signer, chainId } = useEthers();
+  
 
   useEffect(() => {
     // Try to load on-chain cancellation-based disputes when connected as admin
@@ -58,10 +58,10 @@ function Arbitration() {
               const effectiveAt = await inst.cancelEffectiveAt().catch(() => 0n);
               results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
             }
-          } catch (e) { /* ignore non-rent contracts */ }
+          } catch (e) { void e; /* ignore non-rent contracts */ }
         }
         setDisputes(results);
-      } catch (e) {
+      } catch (e) { void e;
         console.error('Error loading arbitration disputes:', e);
         setDisputes([]);
       } finally {
@@ -114,10 +114,10 @@ function Arbitration() {
             const effectiveAt = await inst.cancelEffectiveAt().catch(() => 0n);
             results.push({ id: addr, contractAddress: addr, status: 'Pending', reason: 'CancellationRequested', initiator, effectiveAt: Number(effectiveAt || 0n) });
           }
-        } catch (e) { }
+        } catch (e) { void e; }
       }
       setDisputes(results);
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Error refreshing arbitration disputes:', e);
       setDisputes([]);
     } finally {
@@ -129,13 +129,13 @@ function Arbitration() {
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalReadOnly, setModalReadOnly] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
+  const [_actionLoading, _setActionLoading] = useState(false);
 
   // modal for prompting ArbitrationService address when contract doesn't have one
-  const [isArbPromptOpen, setIsArbPromptOpen] = useState(false);
-  const [arbPromptContract, setArbPromptContract] = useState(null);
-  const [arbPromptInput, setArbPromptInput] = useState('');
-  const [showArbDeployHint, setShowArbDeployHint] = useState(false);
+  const [_isArbPromptOpen, _setIsArbPromptOpen] = useState(false);
+  const [_arbPromptContract, _setArbPromptContract] = useState(null);
+  const [_arbPromptInput, _setArbPromptInput] = useState('');
+  const [_showArbDeployHint, _setShowArbDeployHint] = useState(false);
   const [resolveModalOpen, setResolveModalOpen] = useState(false);
   const [resolveTargetContract, setResolveTargetContract] = useState(null);
 
@@ -234,14 +234,14 @@ function Arbitration() {
                         const p = Date.parse(String(v));
                         if (!isNaN(p)) return new Date(p).toLocaleString();
                         return String(v) || new Date().toLocaleString();
-                      } catch (e) { return new Date().toLocaleString(); }
+                      } catch (e) { void e; return new Date().toLocaleString(); }
                     })()}</span></p>
                   </div>
                   <div className="dispute-actions" data-testid={`arbitration-dispute-actions-${dispute.id}`}> 
                     <button className="btn-sm primary" data-testid={`arbitration-view-btn-${dispute.id}`} onClick={() => handleView(dispute.contractAddress)}>
                       <i className="fas fa-eye"></i> View Details
                     </button>
-                    <button className="btn-sm secondary" data-testid={`arbitration-resolve-btn-${dispute.id}`} disabled={actionLoading} onClick={() => handleResolve(dispute.contractAddress)}>
+                    <button className="btn-sm secondary" data-testid={`arbitration-resolve-btn-${dispute.id}`} disabled={_actionLoading} onClick={() => handleResolve(dispute.contractAddress)}>
                       <i className="fas fa-gavel"></i> Resolve
                     </button>
                   </div>

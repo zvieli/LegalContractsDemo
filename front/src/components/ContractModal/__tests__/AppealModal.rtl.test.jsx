@@ -89,7 +89,7 @@ describe('Appeal modal UI', () => {
   render(<AppealEvidenceList entries={entries} />);
 
   // Wait for a persisted ref to appear in the list
-  const refEl = await screen.findByText((content, node) => content.includes('helia://bafybeiexamplecid'));
+  const refEl = await screen.findByText((content) => content.includes('helia://bafybeiexamplecid'));
   expect(refEl).toBeTruthy();
   // Other persisted ref
   expect(await screen.findByText((content) => content.includes('bafybeiexamplelegacycid0000000000000000000000000'))).toBeTruthy();

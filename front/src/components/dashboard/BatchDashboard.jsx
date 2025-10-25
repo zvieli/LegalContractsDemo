@@ -6,7 +6,7 @@ import axios from 'axios';
 export default function BatchDashboard({ caseId }) {
   const [batchHistory, setBatchHistory] = useState([]);
   const [arbitrationStats, setArbitrationStats] = useState({});
-  const [polling, setPolling] = useState(true);
+  const [polling, _setPolling] = useState(true);
   const [notification, setNotification] = useState(null);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export default function BatchDashboard({ caseId }) {
             setTimeout(()=>setNotification(null), 6000);
           }
         }
-      } catch {}
+      } catch (_){ void _;}
     };
     fetchHistory();
     if (polling) {
@@ -51,6 +51,7 @@ export default function BatchDashboard({ caseId }) {
       borderWidth: 2
     }]
   };
+  void pieData;
 
   return (
     <div style={{margin:'24px 0',padding:20,border:'1px solid #eee',borderRadius:10,background:'#fafcff'}}>

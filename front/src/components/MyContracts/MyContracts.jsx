@@ -2,17 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import * as Contracts from '../../utils/contracts';
 import { ContractService } from '../../services/contractService';
-import * as ethers from 'ethers';
-import { createContractInstanceAsync } from '../../utils/contracts';
 import './MyContracts.css';
 import ContractModal from '../ContractModal/ContractModal';
 import { IN_E2E } from '../../utils/env';
 
 export default function MyContracts() {
   const { signer, chainId, account, isConnected, contracts: globalContracts } = useEthers();
-  const [contracts, setContracts] = useState([]); // raw addresses
-  const [details, setDetails] = useState({}); // address -> detail object
-  const [loading, setLoading] = useState(false);
+  const [contracts, _setContracts] = useState([]); // raw addresses
+  const [details, _setDetails] = useState({}); // address -> detail object
+  const [loading, _setLoading] = useState(false);
   const [v7Loading, setV7Loading] = useState(false);
   const [selectedContract, setSelectedContract] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -66,10 +64,10 @@ export default function MyContracts() {
         const contractService = new Contracts.ContractService(signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
-        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
         if (owner && account.toLowerCase() === owner.toLowerCase()) setIsAdmin(true);
         else setIsAdmin(false);
-      } catch (e) { setIsAdmin(false); }
+      } catch (e) { void e; setIsAdmin(false); }
     }
     checkAdmin();
   }, [account, signer, chainId]);
@@ -123,17 +121,17 @@ export default function MyContracts() {
               if (!a || !/^0x[0-9a-fA-F]{40}$/.test(String(a))) {
                 console.error('Attempted to open modal with invalid contract address', { a });
                 // Provide an obvious UI-visible alert in dev/E2E so failures surface early
-                try { alert(`Invalid contract address: ${String(a)}`); } catch (e) {}
+                try { alert(`Invalid contract address: ${String(a)}`); } catch (e) { void e;}
                 return;
               }
               setSelectedContract(a);
               // Expose last selected contract for E2E helpers to wait for DOM rendering
-              try { if (typeof window !== 'undefined') window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT = String(a); } catch (_) {}
+              try { if (typeof window !== 'undefined') window.__PLAYWRIGHT_LAST_SELECTED_CONTRACT = String(a); } catch (_) { void _;}
               setModalReadOnly(!!readOnly);
               // schedule opening the modal slightly later so React applies the
               // selectedContract state first (avoids batching race in tests)
               setTimeout(() => setIsModalOpen(true), 20);
-            } catch (e) {
+            } catch (e) { void e;
               console.error('openContractModal failed', e, { a, readOnly });
             }
           };

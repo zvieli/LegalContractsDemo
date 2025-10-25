@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
 import './Platform.css';
 import { ContractService } from '../../services/contractService';
 
 function Platform() {
-  const { signer, account, chainId, contracts: globalContracts } = useEthers();
-  const [loading, setLoading] = useState(false);
+  const { account, contracts: globalContracts } = useEthers();
+  const [loading, _setLoading] = useState(false);
 
   // No need to fetch contracts here; use globalContracts from context
 

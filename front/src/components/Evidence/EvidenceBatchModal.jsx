@@ -73,10 +73,10 @@ export default function EvidenceBatchModal({ onClose, onSubmit, uploaderAddress,
           uploader: uploaderAddress || '0x0000000000000000000000000000000000000000',
           timestamp: fileObj.timestamp
         });
-      } catch(e) {/* keep null if failure */}
+      } catch (e) { void e;/* keep null if failure */}
       // Remove raw bytes after hashing to save memory
       return { ...fileObj, cid, cidHash, leaf, bytes: undefined, status: 'stored' };
-    } catch (e) {
+    } catch (e) { void e;
       return { ...fileObj, status: 'error', error: e?.message || String(e) };
     }
   }
@@ -186,7 +186,7 @@ export default function EvidenceBatchModal({ onClose, onSubmit, uploaderAddress,
                           a.remove();
                           setTimeout(()=> URL.revokeObjectURL(url), 1500);
                           addNotification({ type:'success', title:'Proof Generated', message:`Proof for item #${idx}` });
-                        } catch(e) { addNotification({ type:'error', title:'Proof Error', message:(e?.message||String(e)) }); }
+                        } catch (e) { void e; addNotification({ type:'error', title:'Proof Error', message:(e?.message||String(e)) }); }
                       }}>Generate Proof</button>
                     )}
                   </td>

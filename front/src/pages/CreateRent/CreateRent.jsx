@@ -22,9 +22,9 @@ function CreateRent() {
   const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
-        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
         setIsAdmin(owner && account.toLowerCase() === owner.toLowerCase());
-      } catch { setIsAdmin(false); }
+      } catch (_){ void _; setIsAdmin(false); }
     }
     checkAdmin();
   }, [provider, signer, chainId, account]);
@@ -132,7 +132,7 @@ function CreateRent() {
       } else if (formData.network === 'mainnet') {
         setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
       }
-    } catch (e) {
+    } catch (e) { void e;
       console.warn('manualDetectFeed failed', e);
     }
   }
@@ -144,7 +144,7 @@ function CreateRent() {
       try {
         const net = await (readProvider && readProvider.getNetwork ? readProvider.getNetwork() : null);
         if (net && Number(net.chainId) === Number(expectedChainId)) return true;
-      } catch (e) {
+      } catch (e) { void e;
         const msg = String(e?.message || '');
         if (/network changed/i.test(msg)) {
           // brief backoff then retry
@@ -244,7 +244,7 @@ function CreateRent() {
         try {
           const providerNetwork = await (readProvider && readProvider.getNetwork ? readProvider.getNetwork() : null);
             alert(`Provider network still unstable or mismatched (expected ${expectedChainId}, got ${providerNetwork?.chainId}). Please retry after your wallet finishes switching.`);
-        } catch (_) {
+        } catch (_) { void _;
           alert('Provider network not ready. Please retry in a moment.');
         }
         setLoading(false);
@@ -264,6 +264,7 @@ function CreateRent() {
         try {
           priceFeedAddress = ethers.getAddress(priceFeedAddress);
         } catch (err) {
+          void err;
           alert('Invalid price feed address: ' + priceFeedAddress);
           setLoading(false);
           return;
@@ -340,7 +341,7 @@ function CreateRent() {
         <div style={{fontSize:16,marginBottom:12}}>Wallet not connected</div>
         <div style={{marginBottom:12}}><small>Please connect your Ethereum wallet to create a contract.</small></div>
         <div>
-          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch(e){ console.error('connectWallet failed', e); } }}>Connect Wallet</button>
+          <button className="btn-primary" onClick={() => { try { connectWallet && connectWallet(); } catch (e) { void e; console.error('connectWallet failed', e); } }}>Connect Wallet</button>
         </div>
       </div>
     );

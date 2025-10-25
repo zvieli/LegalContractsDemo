@@ -14,7 +14,7 @@ export async function uploadCustomClausesToHelia(clauses) {
   const cidStr = cid.toString(); // להחזיר רק את ה-hash הנקי
     console.log('📦 Uploaded custom clauses CID:', cidStr)
     return cidStr
-  } catch (e) {
+  } catch (e) { void e;
   console.error('❌ Failed to upload custom clauses to Helia:', e)
     return null
   }
@@ -58,7 +58,7 @@ export async function catJson(cid) {
       if (data.length > 5_000_000) break // 5MB cap
     }
     return JSON.parse(data)
-  } catch (e) {
+  } catch (e) { void e;
   console.error('⚠️ Failed to read JSON from Helia:', e)
     return null
   }

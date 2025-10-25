@@ -7,7 +7,7 @@ import NDATemplateJson from '../utils/contracts/NDATemplate.json';
 // Global runtime flag used by some debug/E2E traces. Provide safe fallback.
 // Prefer globalThis.process to avoid ESLint no-undef in browser contexts
 let _proc = null;
-try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _proc = null; }
+try { _proc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (_){ void _; _proc = null; }
 const IN_E2E = (typeof window !== 'undefined' && !!window.__IN_E2E__) || (_proc && !!_proc.env && String(_proc.env.IN_E2E) === 'true') || false;
 
 function extractCidFromUri(uri) {
@@ -17,33 +17,33 @@ function extractCidFromUri(uri) {
     const s = String(uri);
     if (s.startsWith('helia://') || s.startsWith('ipfs://')) return s.split('://')[1];
     return s;
-  } catch (e) { return null; }
+  } catch (_){ void _; return null; }
 }
 
 function getAdminPub() {
   try {
     if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_ADMIN_PUBLIC_KEY) return window.__ENV__.VITE_ADMIN_PUBLIC_KEY;
-  } catch (e) {}
+  } catch (err) { void err; }
   return null;
 }
 
 function getEvidenceEndpoint() {
   try {
     if (import.meta && import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) return import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT;
-  } catch (e) {}
+  } catch (err) { void err; }
   try {
     if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_EVIDENCE_SUBMIT_ENDPOINT) return window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT;
-  } catch (e) {}
+  } catch (err) { void err; }
   return null;
 }
 
 function getRequireEvidenceUpload() {
   try {
     if (import.meta && import.meta.env && import.meta.env.VITE_REQUIRE_EVIDENCE_UPLOAD) return String(import.meta.env.VITE_REQUIRE_EVIDENCE_UPLOAD) === 'true';
-  } catch (e) {}
+  } catch (err) { void err; }
   try {
     if (typeof window !== 'undefined' && window.__ENV__ && window.__ENV.VITE_REQUIRE_EVIDENCE_UPLOAD) return String(window.__ENV__.VITE_REQUIRE_EVIDENCE_UPLOAD) === 'true';
-  } catch (e) {}
+  } catch (err) { void err; }
   return false;
 }
 
@@ -61,27 +61,23 @@ function getRequireEvidenceUpload() {
 // admin-side decryption) must be implemented outside the frontend in a trusted
 // admin/service environment (see `tools/admin`).
 export async function reportRentDispute(id, evidencePayloadString = '', overrides = {}) {
-  try {
-    const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
-    // If the evidence endpoint + admin pub are configured in the frontend, submit ciphertext to endpoint first.
-    const runtimeEndpoint = getEvidenceEndpoint();
-    const runtimeAdmin = getAdminPub();
-    if (runtimeEndpoint && runtimeAdmin) {
-      const digest = await submitEvidenceAndReport(id, payloadStr, overrides);
-      return digest;
-    }
-
-    const digest = computePayloadDigest(payloadStr);
-    // Guard: never send a zero/empty digest on-chain. This prevents accidental
-    // reporting of an empty payload when evidence preparation failed.
-    const isZeroDigest = d => !d || /^0x0{64}$/.test(String(d));
-    if (isZeroDigest(digest)) {
-      throw new Error('Computed evidence digest is zero or empty; aborting on-chain report');
-    }
-    // await contract.reportDispute(id, digest, overrides); // FIXME: contract not defined
-  } catch (e) {
-    throw e;
+  const payloadStr = evidencePayloadString ? String(evidencePayloadString) : '';
+  // If the evidence endpoint + admin pub are configured in the frontend, submit ciphertext to endpoint first.
+  const runtimeEndpoint = getEvidenceEndpoint();
+  const runtimeAdmin = getAdminPub();
+  if (runtimeEndpoint && runtimeAdmin) {
+    const digest = await submitEvidenceAndReport(id, payloadStr, overrides);
+    return digest;
   }
+
+  const digest = computePayloadDigest(payloadStr);
+  // Guard: never send a zero/empty digest on-chain. This prevents accidental
+  // reporting of an empty payload when evidence preparation failed.
+  const isZeroDigest = d => !d || /^0x0{64}$/.test(String(d));
+  if (isZeroDigest(digest)) {
+    throw new Error('Computed evidence digest is zero or empty; aborting on-chain report');
+  }
+  // await contract.reportDispute(id, digest, overrides); // FIXME: contract not defined
 }
 
 /**
@@ -97,7 +93,7 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   // Safe runtime flags used in debug/E2E traces. Provide fallbacks to avoid no-undef.
   // Prefer globalThis.process to avoid ESLint no-undef in browser contexts
   let _localProc = null;
-  try { _localProc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (e) { _localProc = null; }
+  try { _localProc = (typeof globalThis !== 'undefined' && globalThis.process) ? globalThis.process : null; } catch (_){ void _; _localProc = null; }
   const IN_E2E = (typeof window !== 'undefined' && !!window.__IN_E2E__) || (_localProc && !!_localProc.env && String(_localProc.env.IN_E2E) === 'true') || false;
   const e2eFlag = IN_E2E;
   if (!runtimeEndpoint || !runtimeAdmin) throw new Error('Evidence endpoint or admin public key not configured');
@@ -122,73 +118,58 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   if (endpointUrl.endsWith('/')) endpointUrl = endpointUrl.slice(0, -1);
   if (!endpointUrl.toLowerCase().endsWith('/submit-evidence')) endpointUrl = endpointUrl + '/submit-evidence';
   // E2E debug: surface the endpoint and payload in the browser console so Playwright traces capture it
-  try { if (IN_E2E) console.log && console.log('E2EDBG: submitEvidenceAndReport POST', endpointUrl, 'admin=', String(runtimeAdmin).slice(0, 20), 'digest=', digest); } catch (e) {}
+  if (IN_E2E && typeof console !== 'undefined' && typeof console.log === 'function') console.log('E2EDBG: submitEvidenceAndReport POST', endpointUrl, 'admin=', String(runtimeAdmin).slice(0, 20), 'digest=', digest);
   // E2E debug: print final fetch URL so traces show exactly where the POST goes
-  try { if (IN_E2E) console.log && console.log('E2EDBG: final evidence POST URL', endpointUrl); } catch (e) {}
+  if (IN_E2E && typeof console !== 'undefined' && typeof console.log === 'function') console.log('E2EDBG: final evidence POST URL', endpointUrl);
   // E2E debug: print request body length so we can spot empty/zero-length uploads
-  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence POST body length', (ciphertext && ciphertext.length) || 0); } catch (e) {}
+  if (IN_E2E && typeof console !== 'undefined' && typeof console.log === 'function') console.log('E2EDBG: evidence POST body length', (ciphertext && ciphertext.length) || 0);
   let res;
-  try {
-    res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
-  } catch (fetchErr) {
-  try { if (IN_E2E) console.error && console.error('E2EDBG: evidence POST fetch failed', String(fetchErr)); } catch (e) {}
-    throw fetchErr;
-  }
+  res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: ciphertext });
   // E2E debug: log response status and a short body preview (clone() so we don't consume the stream)
-    try {
-      if (IN_E2E && res) {
+    if (IN_E2E && res) {
       let text = '';
-      try { text = await res.clone().text().catch(() => ''); } catch (cloneErr) { text = '<clone failed>'; }
-      console.log && console.log('E2EDBG: evidence POST response', 'status=', res.status, 'bodyPreview=', String(text).slice(0, 1000));
-      }
-    } catch (e) { try { console.error && console.error('E2EDBG: response logging failed', String(e)); } catch (_) {} }
+      try { text = await res.clone().text().catch(() => ''); } catch (cloneErr) { void cloneErr; text = '<clone failed>'; }
+      if (typeof console !== 'undefined' && typeof console.log === 'function') console.log('E2EDBG: evidence POST response', 'status=', res.status, 'bodyPreview=', String(text).slice(0, 1000));
+    }
   // If the server rejects a submitted wrapper and returns adminPublicKey, re-encrypt locally and retry once
   if (!res.ok) {
     // Try to parse JSON body for adminPublicKey and log the failure for E2E traces
     let errBody = null;
     try {
       errBody = await res.json();
-    } catch (e) {
+    } catch (_){ void _;
       try {
         const txt = await res.text().catch(() => '');
         if (e2eFlag) console.debug && console.debug('E2E: evidence POST non-json response body', txt.slice(0, 1000));
-      } catch (__) {}
+      } catch (__){ void __; }
       errBody = null;
     }
-  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence POST initial response status', res.status, 'json=', errBody); } catch (e) {}
+  if (IN_E2E && typeof console !== 'undefined' && typeof console.log === 'function') console.log('E2EDBG: evidence POST initial response status', res.status, 'json=', errBody);
     if (res.status === 400 && errBody && errBody.adminPublicKey) {
       // Re-encrypt locally using returned adminPublicKey and resend
-      try {
         const adminPub = errBody.adminPublicKey;
         const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(payloadStr, { encryptToAdminPubKey: adminPub });
-        try { if (IN_E2E) console.log && console.log('E2EDBG: submitEvidenceAndReport RETRY POST', endpointUrl, 'digest=', newDigest); } catch (e) {}
+  if (IN_E2E && typeof console !== 'undefined' && typeof console.log === 'function') console.log('E2EDBG: submitEvidenceAndReport RETRY POST', endpointUrl, 'digest=', newDigest);
         res = await fetch(endpointUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: newCiphertext });
         if (!res.ok) {
           const tb = await res.text().catch(() => '');
-          try { console.error && console.error('E2EDBG: evidence endpoint retry non-ok', res.status, tb); } catch (_) {}
+          if (typeof console !== 'undefined' && typeof console.error === 'function') console.error('E2EDBG: evidence endpoint retry non-ok', res.status, tb);
           throw new Error('evidence endpoint retry failed: ' + res.status + ' ' + tb);
         }
         const parsed = await res.json();
         const returnedDigest = parsed && parsed.digest ? parsed.digest : newDigest;
         // Report on-chain: obtain a contract instance and call reportDispute
-        try {
-          const targetAddr = (overrides && overrides.contractAddress) ? overrides.contractAddress : null;
-          const inst = await (async () => {
-            try { return await createContractInstanceAsync('EnhancedRentContract', targetAddr, (typeof window !== 'undefined' ? (window.ethereum || null) : null)); } catch (_) { return null; }
-          })();
-          if (inst && typeof inst.reportDispute === 'function') {
-            await inst.reportDispute(id, returnedDigest, overrides);
-            return returnedDigest;
-          }
-          throw new Error('Could not obtain contract instance to call reportDispute');
-        } catch (innerErr) {
-          throw innerErr;
+        const targetAddr = (overrides && overrides.contractAddress) ? overrides.contractAddress : null;
+        const inst = await (async () => {
+          try { return await createContractInstanceAsync('EnhancedRentContract', targetAddr, (typeof window !== 'undefined' ? (window.ethereum || null) : null)); } catch (_){ void _; return null; }
+        })();
+        if (inst && typeof inst.reportDispute === 'function') {
+          await inst.reportDispute(id, returnedDigest, overrides);
+          return returnedDigest;
         }
-      } catch (reErr) {
-        throw reErr;
+        throw new Error('Could not obtain contract instance to call reportDispute');
       }
-    }
-    const text = await (async() => { try { return await res.text(); } catch(e){ return ''; }})();
+  const text = await (async () => { try { return await res.text(); } catch (e) { void e; return ''; } })();
     throw new Error('evidence endpoint returned ' + res.status + ' ' + text);
   }
   const body = await res.json();
@@ -197,27 +178,26 @@ export async function submitEvidenceAndReport(id, payloadStr, overrides = {}) {
   const heliaUri = body && body.heliaUri ? body.heliaUri : null;
   const rawCid = heliaCid || (heliaUri ? extractCidFromUri(heliaUri) : null) || (body && body.cid ? body.cid : null);
   const returnedDigest = body && body.digest ? body.digest : digest;
-  const cidHash = body && body.cidHash ? body.cidHash : (rawCid ? ethers.keccak256(ethers.toUtf8Bytes(rawCid)) : null);
-  const heliaConfirmed = (body && typeof body.heliaConfirmed !== 'undefined') ? body.heliaConfirmed : null;
-  const size = (body && body.size) ? body.size : null;
-  try { if (IN_E2E) console.log && console.log('E2EDBG: evidence endpoint returned', rawCid || returnedDigest, body && body.path); } catch (e) {}
+  const _cidHash = body && body.cidHash ? body.cidHash : (rawCid ? ethers.keccak256(ethers.toUtf8Bytes(rawCid)) : null);
+void _cidHash;
+  const _heliaConfirmed = (body && typeof body.heliaConfirmed !== 'undefined') ? body.heliaConfirmed : null;
+void _heliaConfirmed;
+  const _size = (body && body.size) ? body.size : null;
+void _size;
+  if (IN_E2E && typeof console !== 'undefined' && typeof console.log === 'function') console.log('E2EDBG: evidence endpoint returned', rawCid || returnedDigest, body && body.path);
 
   // Compose the on-chain reference: prefer heliaUri (full scheme) then rawCid then digest
   const toSend = heliaUri ? heliaUri : (rawCid ? rawCid : returnedDigest);
   // Report on-chain: ensure we have a contract instance before calling reportDispute
-  try {
-    const targetAddr = (overrides && overrides.contractAddress) ? overrides.contractAddress : null;
-    const inst = await (async () => {
-      try { return await createContractInstanceAsync('EnhancedRentContract', targetAddr, (typeof window !== 'undefined' ? (window.ethereum || null) : null)); } catch (_) { return null; }
-    })();
-    if (inst && typeof inst.reportDispute === 'function') {
-      await inst.reportDispute(id, toSend, overrides);
-      return toSend;
-    }
-    throw new Error('Could not obtain contract instance to call reportDispute');
-  } catch (innerErr) {
-    throw innerErr;
+  const targetAddr = (overrides && overrides.contractAddress) ? overrides.contractAddress : null;
+  const inst = await (async () => {
+    try { return await createContractInstanceAsync('EnhancedRentContract', targetAddr, (typeof window !== 'undefined' ? (window.ethereum || null) : null)); } catch (_){ void _; return null; }
+  })();
+  if (inst && typeof inst.reportDispute === 'function') {
+    await inst.reportDispute(id, toSend, overrides);
+    return toSend;
   }
+  throw new Error('Could not obtain contract instance to call reportDispute');
 }
 
 export class ContractService {
@@ -271,8 +251,8 @@ export class ContractService {
         chainId = window.__APP_ETHERS__.chainId;
         console.debug('[ContractService] chainId derived from window.__APP_ETHERS__');
       }
-    } catch (e) {
-      // noop
+    } catch (_){ void _;
+      void 0;
     }
 
     // Final assignment
@@ -302,7 +282,7 @@ export class ContractService {
       if (isLocal) {
         try {
           return new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-        } catch (e) {
+        } catch (_){ void _;
           return null;
         }
       }
@@ -317,7 +297,7 @@ export class ContractService {
           const { safeGetAddress } = await import('../utils/signer.js');
           const p = this._providerForRead();
           return await safeGetAddress(this.signer, p);
-        } catch (e) {
+        } catch (_){ void _;
           // Fallback: attempt the older style checks
           if (typeof this.signer.getAddress === 'function') {
             return await this.signer.getAddress().catch(() => null);
@@ -327,11 +307,11 @@ export class ContractService {
             try {
               const s = await p.getSigner();
               if (s && typeof s.getAddress === 'function') return await s.getAddress().catch(() => null);
-            } catch (_) {}
+            } catch (_){ void _; }
           }
           return null;
         }
-      } catch (e) {
+      } catch (_){ void _;
         return null;
       }
     };
@@ -348,8 +328,9 @@ export class ContractService {
               const sig = await window.ethereum.request({ method: 'eth_signTypedData_v4', params: [addr, payload] }).catch(() => null);
               if (sig) return sig;
             }
-          } catch (e) {
+          } catch (_){ void _;
             // ignore and fallback
+            void 0;
           }
         }
 
@@ -357,8 +338,9 @@ export class ContractService {
         if (this.signer && typeof this.signer.signTypedData === 'function') {
           try {
             return await this.signer.signTypedData(domain, types, value);
-          } catch (e) {
+          } catch (_){ void _;
             // continue to other options
+            void 0;
           }
         }
 
@@ -366,8 +348,9 @@ export class ContractService {
         if (this.signer && typeof this.signer._signTypedData === 'function') {
           try {
             return await this.signer._signTypedData(domain, types, value);
-          } catch (e) {
+          } catch (_){ void _;
             // continue
+            void 0;
           }
         }
 
@@ -381,10 +364,11 @@ export class ContractService {
               if (sig) return sig;
             }
           }
-        } catch (e) {}
+        } catch (err) { void err; }
 
         throw new Error('No supported EIP-712 signing method available');
-      } catch (e) {
+      } catch (e) { void e;
+        console.error('[ContractService._doSignTypedData] failed', e);
         throw e;
       }
     };
@@ -403,7 +387,7 @@ export class ContractService {
         } catch (inner) {
           console.log('[ContractService] signer address: <unavailable>', inner);
         }
-      } catch (e) {
+      } catch (e) { void e;
         console.warn('[ContractService] signer debug error', e);
       }
     })();
@@ -421,27 +405,27 @@ export class ContractService {
 
     const { fromBlock = null, toBlock = 'latest', maxEntries = 200 } = options || {};
     const abiMerged = [];
-    try { if (EnhancedRentContractJson && EnhancedRentContractJson.abi) abiMerged.push(...EnhancedRentContractJson.abi); } catch(_) {}
-    try { if (NDATemplateJson && NDATemplateJson.abi) abiMerged.push(...NDATemplateJson.abi); } catch(_) {}
+    try { if (EnhancedRentContractJson && EnhancedRentContractJson.abi) abiMerged.push(...EnhancedRentContractJson.abi); } catch (_) { void _;}
+    try { if (NDATemplateJson && NDATemplateJson.abi) abiMerged.push(...NDATemplateJson.abi); } catch (_) { void _;}
 
     const iface = abiMerged.length ? new ethers.Interface(abiMerged) : null;
 
     let to = toBlock;
-    try { if (to === 'latest') to = await provider.getBlockNumber(); } catch (e) { to = 'latest'; }
+  try { if (to === 'latest') to = await provider.getBlockNumber(); } catch (_){ void _; to = 'latest'; }
     let from = fromBlock;
     if (from === null || typeof from === 'undefined') {
       // default to a recent window to avoid huge queries
       try {
         const cur = typeof to === 'number' ? to : await provider.getBlockNumber();
         from = Math.max(0, cur - 1000);
-      } catch (e) { from = 0; }
+  } catch (_){ void _; from = 0; }
     }
 
     // Query logs
     let logs = [];
     try {
       logs = await provider.getLogs({ address: contractAddress, fromBlock: Number(from), toBlock: to === 'latest' ? 'latest' : Number(to) });
-    } catch (e) {
+    } catch (e) { void e;
       console.warn('[ContractService.collectTransactionHistory] getLogs failed:', e && e.message);
       logs = [];
     }
@@ -452,7 +436,7 @@ export class ContractService {
       try {
         let parsed = null;
         if (iface) {
-          try { parsed = iface.parseLog(log); } catch (e) { parsed = null; }
+          try { parsed = iface.parseLog(log); } catch (_){ void _; parsed = null; }
         }
         let ts = null;
         try {
@@ -462,7 +446,7 @@ export class ContractService {
             ts = block ? block.timestamp : null;
             blockCache.set(log.blockNumber, ts);
           }
-        } catch (e) { ts = null; }
+  } catch (_){ void _; ts = null; }
 
         const evName = parsed ? parsed.name : null;
         const args = parsed ? parsed.args : null;
@@ -483,7 +467,7 @@ export class ContractService {
           raw: log,
           note: evName || null
         });
-      } catch (e) {
+      } catch (e) { void e;
         console.warn('[ContractService.collectTransactionHistory] decode failed for log', e && e.message);
       }
     }
@@ -538,13 +522,13 @@ export class ContractService {
       let res = null;
       let attempt = 0;
       const maxImmediateAttempts = 2;
-      let lastErr = null;
+  let _lastErr = null;
       while (attempt < maxImmediateAttempts) {
         try {
           res = await fetch(endpointUrl, { method: 'POST', headers: requestHeaders, body: ciphertext });
           break;
         } catch (fetchErr) {
-          lastErr = fetchErr;
+          _lastErr = fetchErr;
           attempt++;
           // small backoff
           await new Promise(r => setTimeout(r, 200 * attempt));
@@ -557,7 +541,7 @@ export class ContractService {
           // Try to parse server hint if available
           let errBody = null;
           if (res && res.clone) {
-            try { errBody = await res.clone().json().catch(() => null); } catch (_) { errBody = null; }
+            try { errBody = await res.clone().json().catch(() => null); } catch (_) { void _; errBody = null; }
           }
           if (res && res.status === 400 && errBody && errBody.adminPublicKey) {
             // server expects a different admin key; re-encrypt & enqueue that variant
@@ -569,7 +553,7 @@ export class ContractService {
             this.scheduleBackgroundUploader();
             return newDigest;
           }
-        } catch (_) {}
+  } catch (_){ void _; }
 
         // Generic enqueue for retry: store original ciphertext and digest
   this.enqueuePendingEvidence({ payload, digest, endpoint: endpointUrl, headers: requestHeaders, ciphertext, createdAt: Date.now() });
@@ -583,8 +567,9 @@ export class ContractService {
       const returnedCid = body && (body.heliaCid || body.heliaUri) ? (body.heliaCid || body.heliaUri) : null;
       const returnedDigest = body && body.digest ? body.digest : digest;
       return returnedCid ? returnedCid : returnedDigest;
-    } catch (e) {
-      // bubble up
+    } catch (e) { void e;
+      // bubble up with logging to avoid useless-catch warning
+      console.error('uploadEvidence error', e);
       throw e;
     }
   }
@@ -601,14 +586,14 @@ export class ContractService {
       const arr = JSON.parse(raw || '[]');
       if (!Array.isArray(arr)) return [];
       return arr;
-    } catch (e) { return []; }
+  } catch (_){ void _; return []; }
   }
 
   _savePendingQueue(arr) {
     try {
       if (typeof window === 'undefined') return;
       window.sessionStorage.setItem(this._pendingKey(), JSON.stringify(arr || []));
-    } catch (e) {}
+    } catch (err) { void err; }
   }
 
   async _flushOnePending(item) {
@@ -624,13 +609,13 @@ export class ContractService {
       if (!res.ok) {
         // Try to capture response body for debugging
         let tb = '';
-        try { tb = await res.text().catch(() => ''); } catch (_) { tb = ''; }
+        try { tb = await res.text().catch(() => ''); } catch (_) { void _; tb = ''; }
         return { success: false, error: `server ${res.status} ${tb}` };
       }
       const body = await res.json().catch(() => null);
       // On success, we could notify local consumers or attempt to replace any placeholder mapping.
       return { success: true, body };
-    } catch (e) {
+    } catch (e) { void e;
       return { success: false, error: String(e) };
     }
   }
@@ -661,16 +646,16 @@ export class ContractService {
           queue.splice(i, 1);
           i--; // adjust index after removal
           this._savePendingQueue(queue);
-          try { console.info('Pending evidence uploaded successfully', item.digest, ret.body); } catch (_) {}
+          try { console.info('Pending evidence uploaded successfully', item.digest, ret.body); } catch (_){ void _; }
         } else {
           // Record lastError on the item for UI debugging, leave in queue
           try {
             item.lastError = ret && ret.error ? String(ret.error) : 'unknown error';
-          } catch (_) { item.lastError = 'unknown error'; }
+          } catch (_) { void _; item.lastError = 'unknown error'; }
           this._savePendingQueue(queue);
         }
       }
-    } catch (e) {
+    } catch (e) { void e;
       console.warn('Background uploader error', e);
     } finally {
       this._backgroundUploaderScheduled = false;
@@ -691,7 +676,7 @@ export class ContractService {
         }
         await this._backgroundUploader();
       }, 10_000);
-    } catch (e) {}
+  } catch (_){ void _; void 0; }
   }
 
   enqueuePendingEvidence(item) {
@@ -703,7 +688,7 @@ export class ContractService {
       this._savePendingQueue(queue);
       this.scheduleBackgroundUploader();
       return id;
-    } catch (e) {
+    } catch (e) { void e;
       console.warn('Failed to enqueue pending evidence', e);
       return null;
     }
@@ -713,7 +698,7 @@ export class ContractService {
   getPendingEvidenceQueue() {
     try {
       return this._loadPendingQueue();
-    } catch (e) {
+    } catch (e) { void e;
       console.warn('getPendingEvidenceQueue failed', e);
       return [];
     }
@@ -723,7 +708,7 @@ export class ContractService {
     try {
       const q = this._loadPendingQueue();
       return Array.isArray(q) ? q.length : 0;
-    } catch (e) {
+    } catch (e) { void e;
       return 0;
     }
   }
@@ -748,7 +733,7 @@ export class ContractService {
       this._savePendingQueue(queue);
       this.scheduleBackgroundUploader();
       throw new Error('retry failed');
-    } catch (e) {
+    } catch (e) { void e;
       throw e;
     }
   }
@@ -760,7 +745,7 @@ export class ContractService {
       const filtered = (queue || []).filter(i => i && i.id !== id);
       this._savePendingQueue(filtered);
       return true;
-    } catch (e) {
+    } catch (e) { void e;
       console.warn('removePendingEvidence failed', e);
       return false;
     }
@@ -775,7 +760,7 @@ export class ContractService {
     const chainNum = Number(this.chainId);
     let addr = address;
     if (chainNum === 1) {
-      try { addr = ethers.getAddress(address); } catch (_) { /* let provider surface later */ }
+      try { addr = ethers.getAddress(address); } catch (_){ void _; /* let provider surface later */ }
     } else {
       if (!/^0x[0-9a-fA-F]{40}$/.test(address)) return '0x';
       addr = address; // keep as-is
@@ -798,7 +783,7 @@ export class ContractService {
               // Direct raw RPC with lowercase address
               const raw = await primary.send('eth_getCode', [addr.toLowerCase(), 'latest']);
               code = raw || '0x';
-            } catch (_) {
+            } catch (_) { void _;
               throw primaryErr;
             }
           } else {
@@ -824,7 +809,7 @@ export class ContractService {
           }
         }
         return code;
-      } catch (e) {
+      } catch (e) { void e;
         // MetaMask wraps certain errors and exposes a nested cause for a 'circuit breaker' condition.
         const msg = String(e?.message || '');
         const isBrokenCircuit = Boolean(e?.data?.cause?.isBrokenCircuitError) || /circuit breaker/i.test(msg);
@@ -921,6 +906,7 @@ export class ContractService {
       const val = await rentContract.outstandingJudgement(Number(caseId));
       return BigInt(val || 0);
     } catch (error) {
+      void error;
       try {
         // fallback: attempt low-level call and decode using TemplateRentContract ABI
         const rentAbi = await getContractAddress('TemplateRentContract');
@@ -933,7 +919,7 @@ export class ContractService {
           return BigInt(decoded[0] || 0);
         }
       } catch (err) {
-        console.debug('getOutstandingJudgement not available or failed', error);
+        console.debug('getOutstandingJudgement not available or failed', err);
       }
       return 0n;
     }
@@ -951,7 +937,7 @@ export class ContractService {
             const val = await rent[name](caseId);
             return BigInt(val || 0n);
           }
-        } catch (_) {
+        } catch (_) { void _;
           // ignore and try next
         }
       }
@@ -973,7 +959,7 @@ export class ContractService {
       const res = await rent.getDisputeMeta(Number(caseId));
       // res is [classification, rationale]
       return { classification: res[0] || '', rationale: res[1] || '' };
-    } catch (e) {
+    } catch (e) { void e;
       try {
         // fallback: low-level call decode
   const pFallback = this._providerForRead();
@@ -1041,7 +1027,7 @@ export class ContractService {
           rentContract.isFullySigned?.().catch(() => rentContract.rentSigned?.().catch(() => false))
         ]);
         landlordSigned = !!ls; tenantSigned = !!ts; fullySigned = !!fs;
-      } catch (_) {}
+  } catch (_){ void _; }
       const formattedAmount = ethers.formatEther(rentAmount);
       // Derive a richer status for UI
       let status = 'Active';
@@ -1053,8 +1039,8 @@ export class ContractService {
       // Build signedBy mapping keyed by lowercased addresses to preserve
       // compatibility with UI consumers that index by account.toLowerCase()
       const signedByMap = {};
-      try { signedByMap[(landlord || '').toLowerCase()] = !!landlordSigned; } catch (_) {}
-      try { signedByMap[(tenant || '').toLowerCase()] = !!tenantSigned; } catch (_) {}
+  try { signedByMap[(landlord || '').toLowerCase()] = !!landlordSigned; } catch (_){ void _; }
+  try { signedByMap[(tenant || '').toLowerCase()] = !!tenantSigned; } catch (_){ void _; }
 
       return {
         type: 'Rental',
@@ -1108,7 +1094,7 @@ export class ContractService {
       if (typeof rent.escrowBalance !== 'function') return 0n;
       const val = await rent.escrowBalance();
       return BigInt(val || 0n);
-    } catch (e) {
+    } catch (e) { void e;
       console.debug('getEscrowBalance failed', e);
       return 0n;
     }
@@ -1121,7 +1107,7 @@ export class ContractService {
       if (typeof rent.partyDeposit !== 'function') return 0n;
       const val = await rent.partyDeposit(account);
       return BigInt(val || 0n);
-    } catch (e) {
+    } catch (e) { void e;
       console.debug('getPartyDeposit failed', e);
       return 0n;
     }
@@ -1140,7 +1126,7 @@ export class ContractService {
       // fallback: send raw value to contract address (not recommended but supported)
       const tx = await this.signer.sendTransaction({ to: contractAddress, value: amountWei });
       return tx;
-    } catch (e) {
+    } catch (e) { void e;
       console.error('depositToEscrow failed', e);
       throw e;
     }
@@ -1163,7 +1149,7 @@ export class ContractService {
             if (!p || typeof p.getCode !== 'function') return null;
             const code = await p.getCode(addr);
             return code && code !== '0x' ? addr : null;
-          } catch (_) {
+          } catch (_) { void _;
             return null;
           }
         })
@@ -1176,8 +1162,10 @@ export class ContractService {
   }
 
   // Discover contracts where the user participates (landlord/tenant for rent, partyA/partyB for NDA)
-  async getContractsByParticipant(userAddress, pageSize = 50, maxScan = 300) {
+  async getContractsByParticipant(userAddress, _pageSize = 50, _maxScan = 300) {
     try {
+      // mark intentionally-unused args as used for lint
+      void _pageSize; void _maxScan;
       // Use provider-attached factory for read-only discovery
       const factoryAddress = await getContractAddress(this.chainId, 'factory');
       if (!factoryAddress) throw new Error('Factory not deployed on this network');
@@ -1205,7 +1193,7 @@ export class ContractService {
               discovered.add(addr);
               matched = true;
             }
-          } catch (_) {}
+          } catch (_) { void _;}
           if (matched) continue;
           // Try NDA
           try {
@@ -1217,8 +1205,8 @@ export class ContractService {
             if (partyA?.toLowerCase() === userAddress.toLowerCase() || partyB?.toLowerCase() === userAddress.toLowerCase()) {
               discovered.add(addr);
             }
-          } catch (_) {}
-        } catch (_) { /* ignore */ }
+          } catch (_) { void _;}
+        } catch (_) { void _; /* ignore */ }
       }
       return Array.from(discovered);
     } catch (err) {
@@ -1343,7 +1331,7 @@ export class ContractService {
           let requiredEth = 0n;
           try {
             requiredEth = BigInt(await target.getRentInEth());
-          } catch (err) {
+          } catch (err) { void err;
             // Could not compute rent in eth - surface helpful suggestion
             throw new Error('Target requires an early termination fee but rent-in-ETH could not be determined (price feed may be missing)');
           }
@@ -1369,7 +1357,7 @@ export class ContractService {
     try {
     const p = this._providerForRead();
     svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
-        } catch (e) {
+        } catch (e) { void e;
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
       }
@@ -1410,7 +1398,7 @@ export class ContractService {
       const feeBps = Number(await target.earlyTerminationFeeBps().catch(() => 0));
       if (feeBps > 0) {
         let requiredEth = 0n;
-        try { requiredEth = BigInt(await target.getRentInEth()); } catch (err) {
+        try { requiredEth = BigInt(await target.getRentInEth()); } catch (_) { void _;
           throw new Error('Target requires an early termination fee but rent-in-ETH could not be determined (price feed may be missing)');
         }
         const requiredFee = (requiredEth * BigInt(feeBps)) / 10000n;
@@ -1432,7 +1420,7 @@ export class ContractService {
       try {
   const p = this._providerForRead();
   svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
-      } catch (e) {
+      } catch (e) { void e;
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
       }
@@ -1473,7 +1461,7 @@ export class ContractService {
       try {
   const p = this._providerForRead();
   svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
-      } catch (e) {
+      } catch (e) { void e;
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
       }
@@ -1553,9 +1541,7 @@ export class ContractService {
           // Ethers error may contain `error` or `data` with revert payload
           const msg = callErr?.error?.message || callErr?.message || String(callErr);
           throw new Error(`ArbitrationService call failed: ${msg}`);
-        } catch (decodeErr) {
-          throw callErr;
-        }
+        } catch (decodeErr) { void decodeErr; throw callErr; }
       }
     } catch (error) {
       console.error('Error applying resolution via ArbitrationService:', error);
@@ -1592,7 +1578,7 @@ export class ContractService {
         if (typeof latestBlock === 'number' && latestBlock > 5000) {
           fromBlock = latestBlock - 5000;
         }
-      } catch (_) {}
+      } catch (_) { void _;}
       const events = await contract.queryFilter(filter, fromBlock, toBlock);
       if (filterFn) {
         return events.filter(filterFn);
@@ -1625,7 +1611,8 @@ export class ContractService {
         (event) => {
           // Filter events where user is involved (as beneficiary or target party)
           const beneficiary = event.args?.beneficiary;
-          const targetContract = event.args?.targetContract;
+          const _targetContract = event.args?.targetContract;
+void _targetContract;
           return beneficiary && beneficiary.toLowerCase() === userAddress.toLowerCase();
         }
       );
@@ -1655,7 +1642,7 @@ export class ContractService {
       let bond = (amt * 5n) / 1000n; // 0.5% = 5/1000
       if (bond === 0n) bond = 1n; // ensure non-zero bond for small amounts
       return bond;
-    } catch (e) {
+    } catch (e) { void e;
       return 0n;
     }
   }
@@ -1690,23 +1677,19 @@ export class ContractService {
         throw instErr;
       }
       // Ensure caller is one of the parties recorded on-chain
-      try {
-        const me = await this._getSignerAddressSafe();
-        const [landlordAddr, tenantAddr] = await Promise.all([
-          rent.landlord().catch(() => null),
-          rent.tenant().catch(() => null)
-        ]);
-        submitterAddress = me;
-        const lc = (landlordAddr || '').toLowerCase();
-        const tc = (tenantAddr || '').toLowerCase();
-        const mc = (me || '').toLowerCase();
-        if (mc !== lc && mc !== tc) {
-          const err = new Error(`Connected wallet (${mc}) is not a party to contract ${contractAddress}`);
-          err.code = 'NOT_A_PARTY';
-          throw err;
-        }
-      } catch (pfErr) {
-        throw pfErr;
+      const me = await this._getSignerAddressSafe();
+      const [landlordAddr, tenantAddr] = await Promise.all([
+        rent.landlord().catch(() => null),
+        rent.tenant().catch(() => null)
+      ]);
+      submitterAddress = me;
+      const lc = (landlordAddr || '').toLowerCase();
+      const tc = (tenantAddr || '').toLowerCase();
+      const mc = (me || '').toLowerCase();
+      if (mc !== lc && mc !== tc) {
+        const err = new Error(`Connected wallet (${mc}) is not a party to contract ${contractAddress}`);
+        err.code = 'NOT_A_PARTY';
+        throw err;
       }
       // Pass plain evidence string to the contract. Templates now accept `string evidence`.
         const amount = typeof requestedAmount === 'bigint' ? requestedAmount : BigInt(requestedAmount || 0);
@@ -1741,35 +1724,35 @@ export class ContractService {
                 // E2E debug: surface endpoint and body preview so Playwright traces capture it
                 try {
                   if (IN_E2E) console.debug && console.debug('E2E: evidence POST to', submitEndpoint, 'payload length:', String(body).length);
-                } catch (e) {}
+                } catch (_){ void _; void 0; }
                 const evidenceHeaders = { 'content-type': 'application/json' };
                 if (submitterAddress) evidenceHeaders.Authorization = `Bearer ${submitterAddress}`;
                 let resp = await fetch(submitEndpoint, { method: 'POST', headers: evidenceHeaders, body });
                 // If server rejects wrapper with adminPublicKey, re-encrypt locally using that adminPublicKey and retry once
                 if (resp && !resp.ok) {
                   let errBody = null;
-                  try { errBody = await resp.json(); } catch (e) { errBody = null; }
+                  try { errBody = await resp.json(); } catch (_){ void _; errBody = null; }
                   if (resp.status === 400 && errBody && errBody.adminPublicKey) {
                     // notify UI via callback if provided
-                    try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'retrying', reason: 'server_requested_reencrypt' }); } catch (_) {}
+                    try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'retrying', reason: 'server_requested_reencrypt' }); } catch (_) { void _;}
                     const adminPubFromServer = errBody.adminPublicKey;
                     try {
                       const { ciphertext: newCiphertext, digest: newDigest } = await prepareEvidencePayload(evidence, { encryptToAdminPubKey: adminPubFromServer });
                       resp = await fetch(submitEndpoint, { method: 'POST', headers: evidenceHeaders, body: newCiphertext });
                       if (resp && resp.ok) {
-                        try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'ok' }); } catch (_) {}
+                        try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'ok' }); } catch (_) { void _;}
                         const json = await resp.json();
                         if (json && json.heliaCid) evidenceArg = String(json.heliaCid);
                         else if (json && json.digest) evidenceArg = String(json.digest);
                         else if (json && json.digestNo0x) evidenceArg = '0x' + String(json.digestNo0x);
                         else evidenceArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                       } else {
-                        try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) {}
+                        try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) { void _;}
                         evidenceArg = newDigest || digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                       }
                       } catch (retryErr) {
                       console.warn('Retry encryption/post failed:', retryErr);
-                      try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) {}
+                      try { if (options && typeof options.onRetry === 'function') options.onRetry({ status: 'failed' }); } catch (_) { void _;}
                       evidenceArg = digest || ethers.keccak256(ethers.toUtf8Bytes(evidence));
                     }
                   } else {
@@ -1817,7 +1800,7 @@ export class ContractService {
           const rentForWrite = await this.getEnhancedRentContractForWrite(contractAddress);
           const tx = await rentForWrite.reportDispute(disputeType, amount, evidenceArg, overrides);
           const receipt = await tx.wait();
-          return { receipt, caseId: (function(){ try{ for(const l of receipt.logs){ try{ const p = rent.interface.parseLog(l); if(p && p.name==='DisputeReported') return p.args[0]?.toString?.() ?? null; }catch(_){} } }catch(_){ } return null; })() };
+          return { receipt, caseId: (function(){ try{ for(const l of receipt.logs){ try{ const p = rent.interface.parseLog(l); if(p && p.name==='DisputeReported') return p.args[0]?.toString?.() ?? null; }catch (_) { void _;} } }catch (_) { void _; } return null; })() };
         } catch (sendErr) {
           console.error('reportRentDispute: send failed', sendErr);
           // Attempt a low-level eth_call to capture revert reason / data (may be available even when send fails)
@@ -1886,7 +1869,7 @@ export class ContractService {
         const factory = await this.getFactoryContract();
         const creator = await factory.getCreatorOf(contractAddress).catch(() => ethers.ZeroAddress);
         if (creator && creator !== ethers.ZeroAddress && creator.toLowerCase() === me) return true;
-      } catch (_) {
+      } catch (_) { void _;
         // ignore factory lookup errors
       }
 
@@ -1902,7 +1885,7 @@ export class ContractService {
             const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
             if (owner && owner.toLowerCase() === me) return true;
           }
-        } catch (_) {}
+        } catch (_) { void _;}
 
         // Try as NDA
         try {
@@ -1914,8 +1897,8 @@ export class ContractService {
             const owner = await svcInst.owner().catch(() => ethers.ZeroAddress);
             if (owner && owner.toLowerCase() === me) return true;
           }
-        } catch (_) {}
-      } catch (_) {}
+        } catch (_) { void _;}
+      } catch (_) { void _;}
 
       return false;
     } catch (error) {
@@ -2024,7 +2007,7 @@ export class ContractService {
           for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
               injectedAccounts = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
-            } catch (_) {
+            } catch (_) { void _;
               injectedAccounts = [];
             }
             if (injectedAccounts && injectedAccounts[0]) break;
@@ -2047,23 +2030,23 @@ export class ContractService {
                       try {
                         const { safeGetAddress } = await import('../utils/signer.js');
                         refreshedAddr = (await safeGetAddress(refreshed, provider)) || '';
-                      } catch (_) {
+                      } catch (_) { void _;
                         refreshedAddr = '';
                       }
                     }
-                  } catch (_) { refreshedAddr = '' }
+                  } catch (_) { void _; refreshedAddr = '' }
                   refreshedAddr = (refreshedAddr || '').toLowerCase();
                   if (refreshedAddr && refreshedAddr === injected) {
                     activeSigner = refreshed;
                   }
                 }
-              } catch (_) {
+              } catch (_) { void _;
                 // fall back to existing signer
               }
             }
-          } catch (_) {}
+          } catch (_) { void _;}
         }
-      } catch (_) {}
+      } catch (_) { void _;}
 
       // Use the (possibly refreshed) signer when sending the transaction
       let tx;
@@ -2091,7 +2074,7 @@ export class ContractService {
             };
             if (map[selector]) throw new Error(map[selector]);
           }
-        } catch (_) {}
+        } catch (_) { void _;}
         // Re-throw original error if no friendly mapping found
         throw err;
       }
@@ -2135,9 +2118,11 @@ export class ContractService {
    * - If appealEvidence is provided, upload it first (uploadEvidence) and include returned URI/digest in localStorage/emit event for off-chain arbitration UI to read.
    * Returns the tx receipt from the contract call. Throws on error.
    */
-  async startCancellationWithAppeal(contractAddress, { appealEvidence, feeValueEth } = {}) {
+  async startCancellationWithAppeal(contractAddress, { appealEvidence, feeValueEth: _feeValueEth } = {}) {
     // Accept optional progress callback: { progress: (msg) => void }
     const progressCb = (arguments[1] && arguments[1].progress) ? arguments[1].progress : null;
+    // Mark intentionally-unused param as used for lint
+    void _feeValueEth;
     try {
       if (!contractAddress) throw new Error('contractAddress required');
 
@@ -2156,7 +2141,7 @@ export class ContractService {
           // Attempt server POST first. If server responds OK, persist mapping. If server fails, fall back to client-side upload but DO NOT persist mapping.
           let serverOk = false;
           try {
-            if (progressCb) try { progressCb('Submitting appeal to server...'); } catch (_) {}
+            if (progressCb) try { progressCb('Submitting appeal to server...'); } catch (_) { void _;}
             const resp = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
             if (resp && resp.ok) {
               const j = await resp.json();
@@ -2165,20 +2150,20 @@ export class ContractService {
             } else {
               // attempt to read error body for friendlier user message
               let errText = null;
-              try { errText = await (resp && resp.text ? resp.text() : ''); } catch(_) { errText = null; }
+              try { errText = await (resp && resp.text ? resp.text() : ''); } catch (_) { void _; errText = null; }
               const userMsg = errText || (resp && `Server returned ${resp.status}`) || 'Server submission failed';
               const err = new Error(userMsg);
               err.userMessage = 'Server submission failed. Please try again or submit evidence manually.';
               err.detail = { status: resp && resp.status, body: errText };
               throw err;
             }
-          } catch (e) {
+          } catch (e) { void e;
             // ignore here; we'll fall back to client upload below but surface better errors later
             console.warn('Server submit error (will fallback to client upload):', e);
           }
           if (!serverOk) {
             try {
-              if (progressCb) try { progressCb('Uploading appeal evidence from client...'); } catch (_) {}
+              if (progressCb) try { progressCb('Uploading appeal evidence from client...'); } catch (_) { void _;}
               evidenceRef = await this.uploadEvidence(appealEvidence);
             } catch (ue) {
               // swallow upload error and continue
@@ -2193,7 +2178,7 @@ export class ContractService {
               const existing = JSON.parse(localStorage.getItem(key) || '[]');
               existing.push({ ref: evidenceRef, createdAt: Date.now() });
               localStorage.setItem(key, JSON.stringify(existing));
-            } catch (_) {}
+            } catch (_) { void _;}
           }
         } catch (ue) {
           // If upload failed, continue but surface warning
@@ -2231,7 +2216,8 @@ export class ContractService {
   // Templates no longer accept a direct `arbitrator` address. Pass only
   // the minimum deposit to the factory; arbitration is configured via
   // an on-chain ArbitrationService after deployment.
-  const arbitratorAddress = params.arbitrator || ethers.ZeroAddress; // kept for backward compat in UI
+  const _arbitratorAddress = params.arbitrator || ethers.ZeroAddress; // kept for backward compat in UI
+void _arbitratorAddress;
     
     // Hash the custom clauses if provided
     const clausesHash = params.customClauses 
@@ -2258,9 +2244,7 @@ export class ContractService {
           contractAddress = parsedLog.args[0];
           break;
         }
-      } catch (error) {
-        continue;
-      }
+      } catch (error) { void error; continue; }
     }
     
     return { 
@@ -2297,7 +2281,7 @@ export class ContractService {
         const existing = JSON.parse(localStorage.getItem(key) || '[]');
         existing.push({ historyRef, createdAt: Date.now() });
         localStorage.setItem(key, JSON.stringify(existing));
-      } catch (e) {}
+  } catch (_){ void _; void 0; }
     }
     return { historyRef, upload: body && body.upload ? body.upload : null };
   }
@@ -2332,9 +2316,9 @@ export class ContractService {
           // Thus, always parse strings as ETH decimals.
           try {
             rentAmountWei = ethers.parseEther(s);
-          } catch (e) {
+          } catch (e) { void e;
             // Fallback: if parseEther fails, attempt to coerce to BigInt directly
-            try { rentAmountWei = BigInt(s); } catch (_) { rentAmountWei = 0n; }
+            try { rentAmountWei = BigInt(s); } catch (_) { void _; rentAmountWei = 0n; }
           }
         }
       } else {
@@ -2382,9 +2366,7 @@ export class ContractService {
             contractAddress = parsedLog.args && (parsedLog.args.contractAddress || parsedLog.args[0]) ? (parsedLog.args.contractAddress || parsedLog.args[0]) : null;
             break;
           }
-        } catch (error) {
-          continue;
-        }
+        } catch (error) { void error; continue; }
       }
 
       return {
@@ -2460,15 +2442,15 @@ async getNDAContractDetails(contractAddress, options = {}) {
       fullySigned = !!st[1];
       // Guard against null/undefined totalDeposits
       const totalDepositsRaw = (st && typeof st[2] !== 'undefined' && st[2] !== null) ? st[2] : 0n;
-      try { totalDeposits = ethers.formatEther(totalDepositsRaw); } catch (e) { totalDeposits = '0'; }
+      try { totalDeposits = ethers.formatEther(totalDepositsRaw); } catch (e) { void e; totalDeposits = '0'; }
       activeCases = Number(st[3] || 0);
-    } catch (_) {}
+    } catch (_) { void _;}
     
     // Parties, signatures & deposits
     let parties = [];
     try {
       parties = await ndaContract.getParties();
-    } catch (_) {
+    } catch (_) { void _;
       parties = [partyA, partyB].filter(Boolean);
     }
     const signatures = {};
@@ -2476,11 +2458,11 @@ async getNDAContractDetails(contractAddress, options = {}) {
     for (const p of parties) {
       try {
         signatures[p] = await ndaContract.signedBy(p);
-      } catch (_) { signatures[p] = false; }
+      } catch (_) { void _; signatures[p] = false; }
       try {
         const dep = await ndaContract.deposits(p);
         depositsByParty[p] = ethers.formatEther(dep);
-      } catch (_) { depositsByParty[p] = '0'; }
+      } catch (_) { void _; depositsByParty[p] = '0'; }
     }
 
     // Cases
@@ -2503,10 +2485,10 @@ async getNDAContractDetails(contractAddress, options = {}) {
             approveVotes: Number(c[6] || 0),
             rejectVotes: Number(c[7] || 0),
           });
-        } catch (_) {}
+        } catch (_) { void _;}
       }
       cases = arr;
-    } catch (_) {}
+    } catch (_) { void _;}
 
     const formattedMin = ethers.formatEther(minDeposit);
     return {
@@ -2530,7 +2512,6 @@ async getNDAContractDetails(contractAddress, options = {}) {
       type: 'NDA',
       // UI-friendly fields expected by Dashboard
       amount: formattedMin,
-      parties: [partyA, partyB],
       status: isActive ? 'Active' : 'Inactive',
       created: new Date(Number(expiryDate) * 1000).toLocaleDateString()
     };
@@ -2562,7 +2543,7 @@ async signNDA(contractAddress) {
       if (alreadySigned) {
         throw new Error('Already signed with this wallet');
       }
-    } catch (_) {
+    } catch (_) { void _;
       // If ABI doesn't expose mapping getters, ignore and proceed; on-chain will still validate
     }
     const [expiryDate, penaltyBps, customClausesHash] = await Promise.all([
@@ -2633,7 +2614,7 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
   const evidence = evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw) ? evidenceRaw : (evidenceRaw ? ethers.keccak256(ethers.toUtf8Bytes(evidenceRaw)) : ethers.ZeroHash);
     // include on-chain dispute fee if present
     let disputeFee = 0n;
-    try { disputeFee = await nda.disputeFee(); } catch (e) { disputeFee = 0n; }
+    try { disputeFee = await nda.disputeFee(); } catch (e) { void e; disputeFee = 0n; }
       try {
         const tx = await nda.reportBreach(offender, requested, evidence, { value: disputeFee });
         return await tx.wait();
@@ -2653,7 +2634,7 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
               // provider.call may throw with revert data Γאפ surface it
               console.error('Low-level provider.call error while probing revert:', callErr);
               // attach probe info to the original error for visibility
-              try { error.probe = { callError: callErr && (callErr.message || callErr.reason || callErr.data) } } catch (_) {}
+              try { error.probe = { callError: callErr && (callErr.message || callErr.reason || callErr.data) } } catch (_) { void _;}
             }
           }
         } catch (probeErr) {
@@ -2668,16 +2649,19 @@ async ndaReportBreach(contractAddress, offender, requestedPenaltyEth, evidenceTe
   }
 }
 
-async ndaVoteOnBreach(contractAddress, caseId, approve) {
+async ndaVoteOnBreach(_contractAddress, _caseId, _approve) {
   // Voting removed: NDAs only support arbitrator/oracle resolution. Fail fast to avoid UI confusion.
+  // mark unused params as intentionally unused
+  void _contractAddress; void _caseId; void _approve;
   throw new Error('Voting disabled: use arbitrator or oracle resolution');
 }
 
-async ndaResolveByArbitrator(contractAddress, caseId, approve, beneficiary) {
+async ndaResolveByArbitrator(_contractAddress, _caseId, _approve, _beneficiary) {
   // Compatibility shim removed: front-end should trigger an off-chain arbitrator
   // workflow which ultimately causes the platform Arbitrator to call the
   // on-chain ArbitrationService. There is no public entrypoint on templates
   // callable by arbitrary wallets. Surface a helpful error here.
+  void _contractAddress; void _caseId; void _approve; void _beneficiary;
   throw new Error('resolveByArbitrator removed: use platform arbitrator + ArbitrationService flow');
 }
 
@@ -2720,7 +2704,7 @@ async signRent(contractAddress) {
         if (await rent.signedBy(myAddr)) {
           throw new Error('Already signed with this wallet');
         }
-      } catch (_) {}
+      } catch (_) { void _;}
       // Fetch dueDate (0 allowed pre-set). If not set, require landlord sets first for determinism.
       const dueDate = await rent.dueDate();
       const rentAmount = await rent.rentAmount();

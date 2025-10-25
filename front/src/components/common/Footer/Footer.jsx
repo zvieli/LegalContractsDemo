@@ -14,13 +14,13 @@ function Footer() {
         const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
-        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
         if (owner && account.toLowerCase() === owner.toLowerCase()) setIsAdmin(true);
         else setIsAdmin(false);
-      } catch (e) { setIsAdmin(false); }
+      } catch (e) { void e; setIsAdmin(false); }
     }
     checkAdmin();
-  }, [account, signer, chainId]);
+  }, [account, signer, chainId, provider]);
 
   return (
     <footer className="footer">

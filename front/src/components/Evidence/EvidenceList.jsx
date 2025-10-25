@@ -5,11 +5,9 @@ import EvidenceCard from './EvidenceCard.jsx';
 import { getHelia } from '../../utils/heliaClient.js';
 import EvidenceBadgeLegend from './EvidenceBadgeLegend.jsx';
 import { ethers } from 'ethers';
-import BatchDashboardAdvanced from '../Dashboard/BatchDashboardAdvanced.jsx';
-import { subscribeToEvents } from '../../services/contractService.js';
 import { useEthers } from '../../contexts/EthersContext';
 import rentAbi from '../../utils/contracts/EnhancedRentContract.json';
-import arbAbi from '../../utils/contracts/ArbitrationService.json';
+// Removed unused imports: BatchDashboardAdvanced, subscribeToEvents, arbAbi
 // ...existing code...
 
 function LiveEvents({ chainEvents }) {
@@ -49,6 +47,7 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
   const [filterStatus, setFilterStatus] = useState('all');
   const [chainEvents, setChainEvents] = useState([]);
   const eventSubRef = useRef([]);
+void eventSubRef;
 
   // Listen for live events only (no historical fetching)
   useEffect(() => {
@@ -57,7 +56,7 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
       return;
     }
   let contractInstance = null;
-  let arbitrationInstance = null;
+  let _arbitrationInstance = null;
   let listeners = [];
     // EnhancedRentContract events
     try {
@@ -73,7 +72,7 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
       };
       contractInstance.on('EvidenceSubmitted', evidenceHandler);
       listeners.push(() => contractInstance.off('EvidenceSubmitted', evidenceHandler));
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Error setting up EnhancedRentContract listeners:', e);
     }
     // ArbitrationService events - commented out as address resolution needed
@@ -92,7 +91,7 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
         arbitrationInstance.on('ResolutionApplied', resolutionHandler);
         listeners.push(() => arbitrationInstance.off('ResolutionApplied', resolutionHandler));
       }
-    } catch (e) {
+    } catch (e) { void e;
       console.error('Error setting up ArbitrationService listeners:', e);
     }
     */
@@ -239,7 +238,7 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
               </tr>
             </thead>
             <tbody>
-              {filteredSortedHistory.map((b, idx) => (
+              {filteredSortedHistory.map((b) => (
                 <tr key={b.batchId || b.createdAt} style={{background:b.status==='pending'?'#fffbe6':b.status==='onchain_submitted'?'#e6f7ff':'#e6ffe6'}}>
                   <td>{new Date(b.createdAt).toLocaleString()}</td>
                   <td>{b.status==='pending'?'⏳ Pending':b.status==='onchain_submitted'?'✅ On-chain':'⚖️ Arbitrated'}</td>
@@ -254,7 +253,8 @@ export default function EvidenceList({ evidence, caseId, contractAddress, extraH
       )}
 
       <EvidenceBadgeLegend isOpen={showLegend} onClose={()=>setShowLegend(false)} />
-      {caseId && <BatchDashboardAdvanced caseId={caseId} />}
+      {/* BatchDashboardAdvanced may be optionally provided by the app; guard usage to avoid undefined reference */}
+      {caseId && typeof BatchDashboardAdvanced !== 'undefined' && <BatchDashboardAdvanced caseId={caseId} />}
     </div>
   );
 }

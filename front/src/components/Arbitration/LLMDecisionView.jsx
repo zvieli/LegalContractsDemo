@@ -18,7 +18,7 @@ export default function LLMDecisionView({ evidenceText, contractText, disputeId 
       const json = await resp.json();
       if (!resp.ok) throw new Error(json.error || `HTTP ${resp.status}`);
       setResult(json.result || json);
-    } catch (e) {
+    } catch (e) { void e;
       setError(e.message || String(e));
     } finally {
       setLoading(false);

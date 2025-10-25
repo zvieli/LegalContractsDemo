@@ -20,7 +20,7 @@ export class ArbitrationService {
         if (!this.provider && typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) {
           this.provider = window.__APP_ETHERS__.provider;
         }
-      } catch (e) {
+      } catch (e) { void e;
         // ignore
       }
     }
@@ -35,7 +35,7 @@ export class ArbitrationService {
       if (localChains.includes(Number(this.chainId))) {
         return new ethers.JsonRpcProvider('http://127.0.0.1:8545');
       }
-    } catch (_) {}
+    } catch (_) { void _;}
     return null;
   }
 
@@ -59,13 +59,13 @@ export class ArbitrationService {
 
   async getArbitratorOwner(ndaAddress) {
     const arbitrator = await this.getArbitratorForNDA(ndaAddress);
-    try { return await arbitrator.owner(); } catch { return ethers.ZeroAddress; }
+    try { return await arbitrator.owner(); } catch (_){ void _; return ethers.ZeroAddress; }
   }
 
   // Convenience: return the owner of the configured ArbitrationService for a NDA
   async getArbitrationServiceOwnerByNDA(ndaAddress) {
     const svc = await this.getArbitratorForNDA(ndaAddress);
-    try { return await svc.owner(); } catch { return ethers.ZeroAddress; }
+    try { return await svc.owner(); } catch (_){ void _; return ethers.ZeroAddress; }
   }
 
   async createDisputeForCase(ndaAddress, caseId, evidenceText = '') {
@@ -103,7 +103,7 @@ export class ArbitrationService {
             disputeId = Number(parsed.args[0]);
             break;
           }
-        } catch (_) {}
+        } catch (_) { void _;}
       }
       return { receipt, disputeId };
     } catch (error) {

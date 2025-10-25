@@ -30,7 +30,7 @@ export const getLocalDeploymentAddresses = async () => {
           _localDeployCache = local?.contracts || null;
           return _localDeployCache;
         }
-      } catch (e) {
+      } catch (e) { void e;
         // fall through to dynamic import attempt
       }
     }
@@ -41,11 +41,11 @@ export const getLocalDeploymentAddresses = async () => {
       const local = mod?.default ?? mod;
       _localDeployCache = local?.contracts || null;
       return _localDeployCache;
-    } catch (e) {
+    } catch (e) { void e;
       _localDeployCache = null;
       return null;
     }
-  } catch (e) {
+  } catch (e) { void e;
     _localDeployCache = null;
     return null;
   }
@@ -64,7 +64,7 @@ export const getContractABI = (contractName) => {
       if (!ArbitrationServiceABI && abis.ArbitrationService) ArbitrationServiceABI = abis.ArbitrationService;
       if (!ArbitrationContractV2ABI && abis.ArbitrationContractV2) ArbitrationContractV2ABI = abis.ArbitrationContractV2;
     }
-  } catch (_) {}
+  } catch (_) { void _;}
 
   switch (contractName) {
     case 'EnhancedRentContract':
@@ -93,15 +93,18 @@ export const getContractABI = (contractName) => {
   }
 };
 
-function awaitTryImportABI(filename) {
+function _awaitTryImportABI(_filename) {
   try {
-    const dynImport = new Function('p', 'return import(p)');
+    void _filename;
+    const _dynImport = new Function('p', 'return import(p)');
+void _dynImport;
     // Note: return a promise-like value; callers expect a sync-like return but
     // they only use the presence check, so returning null on failure is fine.
     // Here we attempt to synchronously trigger dynamic import resolution in
     // environments that support it. If it fails, return null.
     return null;
-  } catch (e) {
+  } catch (_e) {
+    void _e;
     return null;
   }
 }
@@ -117,8 +120,9 @@ export const getContractAddress = async (chainId, contractName) => {
     );
     const isLocalChain = Number(chainId) === 31337 || Number(chainId) === 1337 || Number(chainId) === 5777;
 
-    // Normalize contract name for lookup
-    const contractKey = (contractName && contractName.toLowerCase() === 'factory') ? 'ContractFactory' : contractName;
+  // Normalize contract name for lookup
+  const _contractKey = (contractName && contractName.toLowerCase() === 'factory') ? 'ContractFactory' : contractName;
+void _contractKey;
 
     // 1) Prefer localhost address when running locally AND targeting a local chain
     if (isLocalHostEnv && isLocalChain) {
@@ -167,7 +171,7 @@ export const getContractAddress = async (chainId, contractName) => {
             console.log('[getContractAddress] dynamic import error:', impErr);
           }
         }
-      } catch (e) {
+      } catch (e) { void e;
   console.debug('[getContractAddress] fetch/import error:', e);
   console.log('[getContractAddress] fetch/import error:', e);
       }
@@ -218,23 +222,23 @@ export const createContractInstance = (contractName, address, signerOrProvider) 
       let fallbackProvider = null;
       try {
         if (typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) fallbackProvider = window.__APP_ETHERS__.provider;
-      } catch (e) {}
+      } catch (e) { void e;}
       try {
         if (!fallbackProvider && typeof window !== 'undefined' && window.ethereum) {
           // Use BrowserProvider around injected provider so we get a provider instance
           fallbackProvider = new ethers.BrowserProvider(window.ethereum);
         }
-      } catch (e) {}
+      } catch (e) { void e;}
       // As last resort, prefer a localhost JSON-RPC provider if present
       try {
         if (!fallbackProvider) fallbackProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-      } catch (e) {}
+      } catch (e) { void e;}
 
       if (fallbackProvider) return new ethers.Contract(address, abi, fallbackProvider);
       // If we couldn't obtain a fallback provider, still create contract with the original runner
       console.warn('[contracts.js] createContractInstance: no fallback provider available; returning contract bound to signer-only runner');
     }
-  } catch (e) {
+  } catch (e) { void e;
     // swallow and proceed to normal creation
   }
   return new ethers.Contract(address, abi, signerOrProvider);
@@ -249,12 +253,12 @@ export const createContractInstanceAsync = async (contractName, address, signerO
       if (!has) {
         try {
           await loadAbis();
-        } catch (e) {
+        } catch (e) { void e;
           // ignore; getContractABI will throw a clearer error if ABI still missing
         }
       }
     }
-  } catch (e) {
+  } catch (e) { void e;
     // ignore
   }
 
@@ -276,15 +280,15 @@ export const createContractInstanceAsync = async (contractName, address, signerO
         let fallbackProvider = null;
         try {
           if (typeof window !== 'undefined' && window.__APP_ETHERS__ && window.__APP_ETHERS__.provider) fallbackProvider = window.__APP_ETHERS__.provider;
-        } catch (e) {}
+        } catch (e) { void e;}
         try {
           if (!fallbackProvider && typeof window !== 'undefined' && window.ethereum) {
             fallbackProvider = new ethers.BrowserProvider(window.ethereum);
           }
-        } catch (e) {}
+        } catch (e) { void e;}
         try {
           if (!fallbackProvider) fallbackProvider = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-        } catch (e) {}
+        } catch (e) { void e;}
 
         // If we were able to pick a fallback provider, try to derive the signer's address
         // and create a signer attached to the fallback provider so contract can send txs.
@@ -292,7 +296,7 @@ export const createContractInstanceAsync = async (contractName, address, signerO
           try {
             let addr = null;
             if (typeof signerOrProvider.getAddress === 'function') {
-              try { addr = await signerOrProvider.getAddress(); } catch (_) { addr = null; }
+              try { addr = await signerOrProvider.getAddress(); } catch (_) { void _; addr = null; }
             }
             // Fallback: some signer objects expose `_address` or `address`
             if (!addr && signerOrProvider && typeof signerOrProvider === 'object') {
@@ -302,19 +306,19 @@ export const createContractInstanceAsync = async (contractName, address, signerO
               try {
                 const realSigner = await fallbackProvider.getSigner(addr);
                 return new ethers.Contract(address, abi, realSigner);
-              } catch (e) {
+              } catch (e) { void e;
                 // if we couldn't getSigner for the address, fall back to error
                 throw new Error('[contracts.js] createContractInstanceAsync: could not resolve provider-backed signer for write action.');
               }
             }
-          } catch (e) {
+          } catch (e) { void e;
             throw new Error('[contracts.js] createContractInstanceAsync: could not resolve signer address for write action.');
           }
         }
         throw new Error('[contracts.js] createContractInstanceAsync: no fallback provider available for write action; cannot create contract instance.');
       }
     }
-  } catch (e) { throw e; }
+  } catch (e) { void e; throw e; }
   // For read actions, allow provider or signer
   return new ethers.Contract(address, abi, signerOrProvider);
 };

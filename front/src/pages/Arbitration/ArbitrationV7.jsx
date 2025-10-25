@@ -1,7 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
-import * as ethers from 'ethers';
-import { createContractInstanceAsync, getLocalDeploymentAddresses, getContractAddress } from '../../utils/contracts';
 import './Arbitration.css';
 import ContractModal from '../../components/ContractModal/ContractModal';
 import ArbitrationExplain from '../../components/Arbitration/ArbitrationExplain';
@@ -9,12 +7,12 @@ import ArbitrationHealth from '../../components/Arbitration/ArbitrationHealth';
 import { ContractService } from '../../services/contractService';
 
 function ArbitrationV7() {
-  const { isConnected, account, signer, chainId } = useEthers();
-  const [arbitrationRequests, setArbitrationRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { account, chainId } = useEthers();
+  const [arbitrationRequests, _setArbitrationRequests] = useState([]);
+  const [loading, _setLoading] = useState(true);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalReadOnly, setModalReadOnly] = useState(true);
+  const [modalReadOnly, _setModalReadOnly] = useState(true);
   const [ollamaHealth, setOllamaHealth] = useState(null);
   const [simulateExplain, setSimulateExplain] = useState(null);
 
@@ -70,7 +68,7 @@ function ArbitrationV7() {
                           const jr = await r.json();
                           setSimulateExplain(jr);
                         }
-                      } catch (e) {
+                      } catch (e) { void e;
                         // ignore – ArbitrationExplain will show error
                       }
                     }

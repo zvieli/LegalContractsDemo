@@ -9,8 +9,8 @@ export function parseEtherSafe(val) {
     if (typeof val === 'bigint') return val;
     if (typeof val === 'number') return ethers.parseEther(String(val));
     return 0n;
-  } catch {
-    try { return BigInt(val); } catch { return 0n; }
+  } catch (_){ void _;
+    try { return BigInt(val); } catch (_){ void _; return 0n; }
   }
 }
 
@@ -19,8 +19,8 @@ export function formatEtherSafe(val) {
     if (val === null || val === undefined) return '0';
     if (typeof val === 'string' && /^\d+$/.test(val)) return ethers.formatEther(BigInt(val));
     return ethers.formatEther(val);
-  } catch {
-    try { return String(val); } catch { return '0'; }
+  } catch (_){ void _;
+    try { return String(val); } catch (_){ void _; return '0'; }
   }
 }
 

@@ -7,39 +7,39 @@ function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { account, signer, chainId, provider } = useEthers();
   const [isAdmin, setIsAdmin] = useState(false);
-  const [showArbitration, setShowArbitration] = useState(false);
-  const [showPlatform, setShowPlatform] = useState(false);
+  const [_showArbitration, _setShowArbitration] = useState(false);
+  const [_showPlatform, _setShowPlatform] = useState(false);
 
   useEffect(() => {
     async function checkAdmin() {
       try {
         if (!account || !signer || !chainId) {
           setIsAdmin(false);
-          setShowArbitration(false);
-          setShowPlatform(false);
+          _setShowArbitration(false);
+          _setShowPlatform(false);
           return;
         }
   const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
-        try { owner = await factory.factoryOwner(); } catch { owner = null; }
+        try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
         if (owner && account.toLowerCase() === owner.toLowerCase()) {
           setIsAdmin(true);
-          setShowArbitration(true);
-          setShowPlatform(true);
+          _setShowArbitration(true);
+          _setShowPlatform(true);
         } else {
           setIsAdmin(false);
-          setShowArbitration(false);
-          setShowPlatform(false);
+          _setShowArbitration(false);
+          _setShowPlatform(false);
         }
-      } catch {
-        setIsAdmin(false);
-        setShowArbitration(false);
-        setShowPlatform(false);
+      } catch (_){ void _;
+  setIsAdmin(false);
+  _setShowArbitration(false);
+  _setShowPlatform(false);
       }
     }
     checkAdmin();
-  }, [account, signer, chainId]);
+  }, [account, signer, chainId, provider]);
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);

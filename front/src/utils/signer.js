@@ -5,7 +5,7 @@ export async function safeGetAddress(signer, providerOrService) {
     if (signer && typeof signer.getAddress === 'function') {
       try {
         return await signer.getAddress();
-      } catch (_) {
+      } catch (_) { void _;
         // fallthrough to provider-derived signer
       }
     }
@@ -14,7 +14,7 @@ export async function safeGetAddress(signer, providerOrService) {
     let p = null;
     if (providerOrService) {
       if (typeof providerOrService._providerForRead === 'function') {
-        try { p = providerOrService._providerForRead(); } catch (_) { p = null; }
+        try { p = providerOrService._providerForRead(); } catch (_) { void _; p = null; }
       } else {
         p = providerOrService;
       }
@@ -25,10 +25,10 @@ export async function safeGetAddress(signer, providerOrService) {
       try {
         const s = await p.getSigner();
         if (s && typeof s.getAddress === 'function') return await s.getAddress();
-      } catch (_) {}
+      } catch (_) { void _;}
     }
     return null;
-  } catch (e) {
+  } catch (e) { void e;
     return null;
   }
 }

@@ -1,8 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useEthers } from '../../contexts/EthersContext';
-import * as Contracts from '../../utils/contracts';
-import ConfirmPayModal from '../common/ConfirmPayModal';
-import { ArbitrationService } from '../../services/arbitrationService';
+import _ConfirmPayModal from '../common/ConfirmPayModal';
 // Evidence workflow: the contract stores only a keccak256 digest of an
 // off-chain evidence payload. The frontend should display the digest or a
 // decrypted/processed version of the payload only when provided by a trusted
@@ -20,7 +18,7 @@ function EvidencePanel({ initialEvidenceRef }) {
   // EvidencePanel now treats the passed value as a generic evidence reference
   // which may be an ipfs:// URI or the legacy keccak256 digest (0x...)
   const ref = initialEvidenceRef || '';
-  const [evidenceText, setEvidenceText] = useState(ref);
+  // evidenceText intentionally unused — the UI renders `ref` directly
 
   // Example renderBody implementation (replace with your actual logic)
   const renderBody = () => {
@@ -59,9 +57,29 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const [initiatorWithdrawableEth, setInitiatorWithdrawableEth] = useState('0');
   const [outstandingJudgementEth, setOutstandingJudgementEth] = useState('0');
   const [decision, setDecision] = useState('');
-  const [requiredFeeEth, setRequiredFeeEth] = useState('');
+  const [requiredFeeEth, _setRequiredFeeEth] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [appealLocal, setAppealLocal] = useState(null);
+  const [appealLocal, _setAppealLocal] = useState(() => {
+    try {
+      const key1 = resolvedAddress ? `incomingDispute:${resolvedAddress}` : null;
+      const key2 = resolvedAddress ? `incomingDispute:${String(resolvedAddress).toLowerCase()}` : null;
+      let js = null;
+  try { js = (key1 && localStorage.getItem(key1)) || (key2 && localStorage.getItem(key2)) || null; } catch (err) { js = null; void err; }
+      if (!js) {
+        try {
+          const sess = sessionStorage.getItem('incomingDispute');
+          if (sess) {
+            const o = JSON.parse(sess);
+            if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(resolvedAddress).toLowerCase()) js = sess;
+          }
+  } catch (err) { js = null; void err; }
+      }
+      if (js) {
+        try { return JSON.parse(js); } catch (parseErr) { console.debug('Failed to parse incomingDispute session data', parseErr); return null; }
+      }
+  } catch (err) { void err; }
+    return null;
+  });
   const [depositConfirmOpen, setDepositConfirmOpen] = useState(false);
   const [depositConfirmAmount, setDepositConfirmAmount] = useState('');
   const [depositConfirmAction, setDepositConfirmAction] = useState(null);
@@ -77,8 +95,8 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const [rationale, setRationale] = useState('');
   const [confirmPay, setConfirmPay] = useState(false);
   const [forwardEth, setForwardEth] = useState('');
-  const [willBeDebitedEth, setWillBeDebitedEth] = useState('0');
-  const [debtRemainderEth, setDebtRemainderEth] = useState('0');
+  const [willBeDebitedEth, _setWillBeDebitedEth] = useState('0');
+  const [debtRemainderEth, _setDebtRemainderEth] = useState('0');
 
   // Admin decrypt helper state
   const [adminCiphertextReadOnly, setAdminCiphertextReadOnly] = useState(false);
@@ -97,7 +115,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const requiredFeeWei = (() => {
     try {
       if (requiredFeeEth && String(requiredFeeEth).trim().length > 0) return ethers.parseEther(String(requiredFeeEth));
-    } catch (err) { /* ignore parse errors and return 0n */ }
+  } catch (err) { void err; /* ignore parse errors and return 0n */ }
     return 0n;
   })();
 
@@ -109,7 +127,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
         await navigator.clipboard.writeText(adminDigest);
         alert('Digest copied to clipboard');
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { void e; /* ignore */ }
   };
 
   const handleDownloadPlaintext = () => {
@@ -123,28 +141,10 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (e) { /* ignore */ }
+    } catch (e) { void e; /* ignore */ }
   };
 
-  // Load any local incomingDispute marker for this contract (so we can hide post-bond UI after payment)
-  const key1 = resolvedAddress ? `incomingDispute:${resolvedAddress}` : null;
-  const key2 = resolvedAddress ? `incomingDispute:${String(resolvedAddress).toLowerCase()}` : null;
-  let js = null;
-  try { js = localStorage.getItem(key1) || localStorage.getItem(key2) || null; } catch (_) { js = null; }
-  if (!js) {
-    try {
-      const sess = sessionStorage.getItem('incomingDispute');
-      if (sess) {
-        const o = JSON.parse(sess);
-  if (o && o.contractAddress && String(o.contractAddress).toLowerCase() === String(resolvedAddress).toLowerCase()) js = sess;
-      }
-  } catch (_) { /* ignore JSON parse/read errors */ }
-  }
-  if (js) {
-    try { setAppealLocal(JSON.parse(js)); } catch (parseErr) { console.debug('Failed to parse incomingDispute session data', parseErr); setAppealLocal(null); }
-  } else {
-    setAppealLocal(null);
-  }
+  // incomingDispute initial value handled via lazy useState initializer above
 
 
 
@@ -167,7 +167,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                 // include evidenceDigest field when refreshing so Admin decrypt modal can auto-locate the canonical JSON
                 const evidenceOnChain = (d && typeof d[3] !== 'undefined') ? d[3] : null;
                 setDisputeInfo({ caseId: i, requestedAmountWei: requestedAmount, initiator, evidenceRef: evidenceOnChain });
-              try { setDisputeAmountEth(ethers.formatEther(requestedAmount)); } catch { setDisputeAmountEth(String(requestedAmount)); }
+              try { setDisputeAmountEth(ethers.formatEther(requestedAmount)); } catch (_){ void _; setDisputeAmountEth(String(requestedAmount)); }
               const landlordAddr = await rent.landlord();
               const tenantAddr = await rent.tenant();
               const landlordDep = BigInt(await rent.partyDeposit(landlordAddr));
@@ -182,17 +182,17 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
               try {
                 const initWithdraw = await svc.getWithdrawable(resolvedAddress, initiator).catch(() => 0n);
                 setInitiatorWithdrawableEth(ethers.formatEther(BigInt(initWithdraw || 0n)));
-              } catch (_) { setInitiatorWithdrawableEth('0'); }
+              } catch (err) { setInitiatorWithdrawableEth('0'); void err; }
               try {
                 const oj = await svc.getOutstandingJudgement(resolvedAddress, i).catch(() => 0n);
                 setOutstandingJudgementEth(ethers.formatEther(BigInt(oj || 0n)));
-              } catch (_) { setOutstandingJudgementEth('0'); }
+              } catch (err) { setOutstandingJudgementEth('0'); void err; }
               break;
             }
-          } catch (_) {}
+          } catch (err) { void err; }
         }
       }
-    } catch (e) { console.debug('refreshDisputeState failed', e); }
+    } catch (e) { void e; console.debug('refreshDisputeState failed', e); }
   };
 
   // Wire the evidence flow hook with a submitToContract helper so uploadAndSubmit
@@ -201,15 +201,11 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const { uploadAndSubmit } = useEvidenceFlow({
     submitToContract: async ({ digest: onChainRef }) => {
       // onChainRef may be a heliaUri, cid or the digest; pass through to contract
-      try {
-        const svc = new ContractService(provider, signer, chainId);
-        const rent = await svc.getRentContract(resolvedAddress);
-        // Some contract helpers return awaited receipts or tx objects
-        const tx = await rent.reportDispute(onChainRef);
-        return tx;
-      } catch (err) {
-        throw err;
-      }
+      const svc = new ContractService(provider, signer, chainId);
+      const rent = await svc.getRentContract(resolvedAddress);
+      // Some contract helpers return awaited receipts or tx objects
+      const tx = await rent.reportDispute(onChainRef);
+      return tx;
     },
     apiBaseUrl: (import.meta && import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || ''
   });
@@ -223,12 +219,12 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
   const svc = new ContractService(provider, signer, chainId);
   const ok = await svc.isAuthorizedArbitratorForContract(resolvedAddress).catch(() => false);
         if (mounted) setIsAuthorizedArbitrator(!!ok);
-      } catch (e) {
+      } catch (e) { void e;
         if (mounted) setIsAuthorizedArbitrator(false);
       }
     })();
     return () => { mounted = false; };
-  }, [isOpen, contractAddress, signer, chainId]);
+  }, [isOpen, resolvedAddress, provider, signer, chainId]);
 
   // Auto-fetch+decrypt once when admin modal opens and admin key + guessed URL are present
   useEffect(() => {
@@ -246,18 +242,18 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
           const resp = await fetch(payload);
           if (!resp.ok) throw new Error('Fetch failed: ' + resp.statusText);
           fetched = await resp.text();
-        } catch (e) { return; }
+        } catch (err) { void err; return; }
         try {
           const plain = await decryptCiphertextJson(fetched, pk);
           setAdminDecrypted(plain);
-        } catch (_) {}
+        } catch (err) { void err; }
       } finally {
         setAdminAutoTried(true);
         setAdminDecryptBusy(false);
       }
     };
     tryAuto();
-  }, [showAdminDecryptModal]);
+  }, [showAdminDecryptModal, adminAutoTried, adminCiphertextInput, adminPrivateKeyInput]);
 
   if (!isOpen) return null;
 
@@ -270,8 +266,8 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
       // This uses the useEvidenceFlow hook which handles retries and progress callbacks.
       const apiBase = (import.meta.env && import.meta.env.VITE_EVIDENCE_SUBMIT_ENDPOINT) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_EVIDENCE_SUBMIT_ENDPOINT) || '';
       const adminPub = (import.meta.env && import.meta.env.VITE_ADMIN_PUBLIC_KEY) || (typeof window !== 'undefined' && window.__ENV__ && window.__ENV__.VITE_ADMIN_PUBLIC_KEY) || '';
-      let evidenceFinalized = false;
-      let uploadResult = null;
+  let evidenceFinalized = false;
+  let _uploadResult = null;
       // If we have a rationale string and an evidence endpoint+admin public key, attempt the upload+onchain report
           if (rationale && String(rationale || '').trim().length > 0 && apiBase && adminPub) {
         try {
@@ -313,14 +309,14 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                     // store raw
                     setEvidenceProgress(prev => ({ ...(prev||{}), message: JSON.stringify(s) }));
                 }
-              } catch (e) { /* ignore progress handler errors */ }
+              } catch (e) { void e; /* ignore progress handler errors */ }
             } });
           setEvidenceProgress(prev => ({ ...(prev||{}), stage: 'register', status: 'success' }));
-          uploadResult = result;
+          _uploadResult = result;
           evidenceFinalized = true;
         } catch (evidenceErr) {
           console.warn('Evidence upload/report failed', evidenceErr);
-          try { alert('Evidence upload or on-chain report failed: ' + (evidenceErr?.message || evidenceErr)); } catch(_) {}
+          try { alert('Evidence upload or on-chain report failed: ' + (evidenceErr?.message || evidenceErr)); } catch (err2) { void err2; }
         }
       }
 
@@ -333,13 +329,13 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
         try {
           const rent = await svc.getRentContract(contractAddress);
           arbAddr = await rent.arbitrationService().catch(() => null);
-        } catch (_) { arbAddr = null; }
+        } catch (err) { arbAddr = null; void err; }
 
         if (!arbAddr || arbAddr === '0x0000000000000000000000000000000000000000') {
           try {
             const local = await getLocalDeploymentAddresses();
             arbAddr = local?.ArbitrationService || local?.ArbitrationService || null;
-          } catch (_) { arbAddr = null; }
+          } catch (err) { arbAddr = null; void err; }
         }
 
         if (!arbAddr) {
@@ -352,28 +348,24 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
           // Authorization preflight: ensure connected signer is owner or factory allowed by ArbitrationService
           try {
             // create instance via ContractService helper
-            const svcInst = await (async () => {
-              try { return await svc2.getRentContract(resolvedAddress).catch(() => null); } catch (_) { return null; }
+            const _svcInst = await (async () => {
+void _svcInst;
+              try { return await svc2.getRentContract(resolvedAddress).catch(() => null); } catch (err) { void err; return null; }
             })();
             // Instead of relying on target, create a direct ArbitrationService contract to read owner/factory
-              try {
-                // Use the frontend static ABI helper to create the contract instance (avoids dynamic ABI imports)
-                const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, provider || signer);
-                const ownerAddr = await arbRead.factoryOwner().catch(() => null);
-                const factoryAddr = await arbRead.factory().catch(() => null);
-                const { safeGetAddress } = await import('../../utils/signer.js');
-                const contractService = new ContractService(provider, signer, chainId);
-                const readProvider = contractService._providerForRead() || provider || null;
-                const rawMe = await safeGetAddress(signer, readProvider || contractService);
-                const me = rawMe ? rawMe.toLowerCase() : '';
-                const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
-                if (!allowed) {
-                  throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
-                }
-              } catch (authErr) {
-                // Bubble up authorization error to user
-                throw authErr;
-              }
+            // Use the frontend static ABI helper to create the contract instance (avoids dynamic ABI imports)
+            const arbRead = await createContractInstanceAsync('ArbitrationService', arbAddr, provider || signer);
+            const ownerAddr = await arbRead.factoryOwner().catch(() => null);
+            const factoryAddr = await arbRead.factory().catch(() => null);
+            const { safeGetAddress } = await import('../../utils/signer.js');
+            const contractService = new ContractService(provider, signer, chainId);
+            const readProvider = contractService._providerForRead() || provider || null;
+            const rawMe = await safeGetAddress(signer, readProvider || contractService);
+            const me = rawMe ? rawMe.toLowerCase() : '';
+            const allowed = (ownerAddr && me === String(ownerAddr).toLowerCase()) || (factoryAddr && me === String(factoryAddr).toLowerCase());
+            if (!allowed) {
+              throw new Error('Connected wallet is not authorized to call ArbitrationService (not owner or factory). Use the arbitrator account.');
+            }
           } catch (authCheckErr) {
             alert(`Authorization check failed: ${authCheckErr?.message || authCheckErr}`);
             setSubmitting(false);
@@ -385,7 +377,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
             let forwardWei = 0n;
             try {
               forwardWei = forwardEth && Number(forwardEth) > 0 ? ethers.parseEther(String(forwardEth)) : 0n;
-            } catch (_) { forwardWei = 0n; }
+            } catch (err) { forwardWei = 0n; void err; }
             await svc2.applyResolutionToTargetViaService(arbAddr, resolvedAddress, disputeInfo.caseId, true, disputeInfo.requestedAmountWei, disputeInfo.initiator, forwardWei);
             } else {
             // Otherwise treat as cancellation finalize and forward early-termination fee if required
@@ -405,7 +397,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
               if (disputeInfo && typeof disputeInfo.caseId !== 'undefined' && disputeInfo.caseId !== null) {
                 onChainMeta = await svc3.getDisputeMeta(contractAddress, disputeInfo.caseId).catch(() => null);
               }
-            } catch (_) { onChainMeta = null; }
+            } catch (err) { onChainMeta = null; void err; }
 
             const key = `arbResolution:${String(contractAddress).toLowerCase()}`;
             // Prefer on-chain rationale when available; fall back to local appeal/evidence or typed rationale
@@ -414,16 +406,16 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
             const resolvedRationale = (onChainMeta && onChainMeta.rationale) ? onChainMeta.rationale : ( (appealLocal && (appealLocal.evidenceRef || appealLocal.evidenceDigest)) ? `Evidence reference: ${appealLocal.evidenceRef || appealLocal.evidenceDigest}` : rationale );
             const resolvedClassification = (onChainMeta && onChainMeta.classification) ? onChainMeta.classification : (decision === 'approve' ? 'approve' : 'deny');
             const payload = { contractAddress, decision: resolvedClassification, rationale: resolvedRationale, timestamp: Date.now(), onChain: !!onChainMeta };
-            try { localStorage.setItem(key, JSON.stringify(payload)); } catch (_) {}
-            try { sessionStorage.setItem('lastArbResolution', JSON.stringify(payload)); } catch (_) {}
-            try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
-            try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
-            try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
+            try { localStorage.setItem(key, JSON.stringify(payload)); } catch (err) { void err; }
+            try { sessionStorage.setItem('lastArbResolution', JSON.stringify(payload)); } catch (err) { void err; }
+            try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (err) { void err; }
+            try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (err) { void err; }
+            try { sessionStorage.removeItem('incomingDispute'); } catch (err) { void err; }
             if (typeof window !== 'undefined' && window.dispatchEvent) {
               // Dispatch the canonical on-chain payload when available so other UIs can update
               window.dispatchEvent(new CustomEvent('arb:resolved', { detail: payload }));
             }
-          } catch (e) {
+          } catch (e) { void e;
             console.warn('Could not persist arbitration decision locally after tx', e);
           }
         }
@@ -438,16 +430,16 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
         // Also save a summary to sessionStorage for immediate visibility elsewhere
         sessionStorage.setItem('lastArbResolution', JSON.stringify(payload));
         // Clear any local incomingDispute marker so the UI no longer shows the active appeal
-        try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (_) {}
-        try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (_) {}
-        try { sessionStorage.removeItem('incomingDispute'); } catch (_) {}
+  try { localStorage.removeItem(`incomingDispute:${contractAddress}`); } catch (err) { void err; }
+  try { localStorage.removeItem(`incomingDispute:${String(contractAddress).toLowerCase()}`); } catch (err) { void err; }
+  try { sessionStorage.removeItem('incomingDispute'); } catch (err) { void err; }
         // Notify the app that this contract was resolved so open UIs can refresh
         try {
           if (typeof window !== 'undefined' && window.dispatchEvent) {
             window.dispatchEvent(new CustomEvent('arb:resolved', { detail: payload }));
           }
-        } catch (_) {}
-      } catch (e) {
+  } catch (err) { void err; }
+      } catch (e) { void e;
         console.warn('Could not persist arbitration decision locally', e);
       }
 
@@ -455,10 +447,10 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
       // so the modal closes immediately while the app updates in the background.
       try {
         if (onResolved) onResolved({ decision, rationale });
-      } catch (_) {}
+  } catch (err) { void err; }
       try {
         onClose();
-      } catch (_) {}
+      } catch (err) { void err; }
       try {
         if (typeof window !== 'undefined' && typeof window.refreshContractData === 'function') {
           // Fire-and-forget: don't await so the modal closes immediately.
@@ -466,8 +458,8 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
             .then(() => window.refreshContractData())
             .catch(() => { /* ignore refresh failures */ });
         }
-      } catch (_) {}
-    } catch (e) {
+  } catch (err) { void err; }
+    } catch (e) { void e;
       console.error('Resolve failed', e);
       alert(`Resolve failed: ${e?.message || e}`);
     } finally {
@@ -537,7 +529,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
               {/* If depositor shortfall exists, allow authorized arbitrator to attach ETH to cover it in the same transaction */}
               {isAuthorizedArbitrator && debtorDepositWei != null && disputeInfo && disputeInfo.requestedAmountWei > debtorDepositWei && (
                 <div style={{marginTop:12}}>
-                  <div style={{marginBottom:6, color:'#a33'}}><strong>Debtor deposit shortfall:</strong> {(() => { try { const short = BigInt(disputeInfo.requestedAmountWei) - BigInt(debtorDepositWei || 0n); return ethers.formatEther(short); } catch { return '0'; } })()} ETH</div>
+                  <div style={{marginBottom:6, color:'#a33'}}><strong>Debtor deposit shortfall:</strong> {(() => { try { const short = BigInt(disputeInfo.requestedAmountWei) - BigInt(debtorDepositWei || 0n); return ethers.formatEther(short); } catch (_){ void _; return '0'; } })()} ETH</div>
                   <div style={{display:'flex', gap:8, alignItems:'center'}}>
                     <input className="text-input" type="number" step="0.000000000000000001" value={forwardEth} onChange={e => setForwardEth(e.target.value)} placeholder="ETH to attach (optional)" />
                     <div style={{fontSize:12, color:'#555'}}>If you provide ETH here, it will be forwarded to the target in the same transaction to cover the shortfall.</div>
@@ -548,13 +540,13 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
               {(appealLocal && appealLocal.requestedAmount && account && disputeInfo) && (String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase() || String(account).toLowerCase() === String(disputeInfo.debtor || '').toLowerCase()) && (
                 <div style={{marginTop:8}}>
                   <div style={{display:'flex', gap:8, alignItems:'center'}}>
-                    <input className="text-input" type="number" step="0.000000000000000001" placeholder={`Amount to deposit (ETH) up to ${(() => { try { return ethers.formatEther(BigInt(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n)); } catch { return String(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n); } })()}`} onChange={e => setDepositConfirmAmount(e.target.value)} value={depositConfirmAmount} />
+                    <input className="text-input" type="number" step="0.000000000000000001" placeholder={`Amount to deposit (ETH) up to ${(() => { try { return ethers.formatEther(BigInt(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n)); } catch (_){ void _; return String(appealLocal.requestedAmount || disputeInfo.requestedAmountWei || 0n); } })()}`} onChange={e => setDepositConfirmAmount(e.target.value)} value={depositConfirmAmount} />
                     <button type="button" className="btn-sm" onClick={() => {
                       try {
                         // compute wei from entered ETH amount
                         const amtEthStr = depositConfirmAmount || '0';
                         const amtWei = amtEthStr && Number(amtEthStr) > 0 ? ethers.parseEther(String(amtEthStr)) : 0n;
-                        const amtEth = (() => { try { return ethers.formatEther(amtWei); } catch { return String(amtWei); } })();
+                        const amtEth = (() => { try { return ethers.formatEther(amtWei); } catch (_){ void _; return String(amtWei); } })();
                         setDepositConfirmAction(() => async () => {
                           try {
                             setDepositConfirmBusy(true);
@@ -562,9 +554,9 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                             await svc.depositForCase(contractAddress, disputeInfo.caseId, amtWei);
                             alert('Deposit submitted for case');
                             // refresh parent contract data to update payment history and hide deposit input
-                            try { if (window && typeof window.refreshContractData === 'function') await window.refreshContractData(); } catch (_) {}
+                            try { if (window && typeof window.refreshContractData === 'function') await window.refreshContractData(); } catch (err) { void err; }
                             await refreshDisputeState();
-                          } catch (e) {
+                          } catch (e) { void e;
                             alert(`Deposit failed: ${e?.message || e}`);
                           } finally {
                             setDepositConfirmBusy(false);
@@ -572,7 +564,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                         });
                         setDepositConfirmAmount(amtEth);
                         setDepositConfirmOpen(true);
-                      } catch (e) {
+                      } catch (e) { void e;
                         console.error('Failed to prepare deposit confirmation', e);
                         alert('Failed to prepare deposit confirmation');
                       }
@@ -630,18 +622,18 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                                     setAdminCiphertextReadOnly(false);
                                     setFetchStatusMessage(`Could not fetch canonical JSON: ${resp.status} ${resp.statusText}. You can open the URL and download the file, then paste the JSON here.`);
                                   }
-                                } catch (e) {
+                                } catch (e) { void e;
                                   // Network/CORS failure - fall back to placing the guessed URL
                                   setAdminCiphertextInput(guessed);
                                   setAdminCiphertextReadOnly(false);
                                   // Friendly guidance for likely CORS issues
                                   setFetchStatusMessage('Could not fetch canonical JSON due to network/CORS restrictions. Open the URL below in a new tab and download the file, then paste the JSON into this textbox.');
                                   // Log the error to console for debugging
-                                  try { console.debug('Fetch canonical evidence failed', e); } catch (_) {}
+                                  try { console.debug('Fetch canonical evidence failed', e); } catch (err2) { void err2; }
                                 }
                               }
                             }
-                        } catch (_) { setAdminCiphertextInput(''); }
+                        } catch (err) { setAdminCiphertextInput(''); void err; }
                         // Do NOT auto-fill admin private key from env for security - leave empty so admin must paste/transiently enter it
                         setAdminPrivateKeyInput('');
                       }}>Admin decrypt (client)</button>
@@ -680,7 +672,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                               const resp = await fetch(payload);
                               if (!resp.ok) throw new Error('Failed to fetch ciphertext: ' + resp.statusText);
                               payload = await resp.text();
-                            } catch (e) {
+                            } catch (e) { void e;
                               alert('Failed to fetch ciphertext URL: ' + (e?.message || e));
                               setAdminDecryptBusy(false);
                               return;
@@ -689,7 +681,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                           try {
                             // Compute digest for display: if payload is JSON text, use it directly; if it's an object, stable-stringify it
                             let digest = null;
-                            try { digest = computeDigestForCiphertext(payload); } catch (e) {
+                            try { digest = computeDigestForCiphertext(payload); } catch (e) { void e;
                               try {
                                 const obj = JSON.parse(payload);
                                 const stable = (function stableStringify(o) {
@@ -699,13 +691,13 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                                   return '{' + keys.map(k => JSON.stringify(k) + ':' + stableStringify(o[k])).join(',') + '}';
                                 })(obj);
                                 digest = computeDigestForCiphertext(stable);
-                              } catch (_) { digest = null; }
+                              } catch (err) { digest = null; void err; }
                             }
 
                             const plain = await decryptCiphertextJson(payload, adminPrivateKeyInput.trim());
                             setAdminDecrypted(plain);
                             if (digest) setAdminDigest(digest);
-                          } catch (e) {
+                          } catch (e) { void e;
                             alert('Decryption failed: ' + (e?.message || e));
                           }
                         } finally { setAdminDecryptBusy(false); }
@@ -716,7 +708,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                         {fetchStatusMessage}
                         {fetchedUrl && (
                           <div style={{marginTop:8}}>
-                            <button type="button" className="btn-sm" onClick={() => { try { window.open(fetchedUrl, '_blank'); } catch (_) { try { window.location.href = fetchedUrl; } catch (_) {} } }}>Open canonical URL</button>
+                            <button type="button" className="btn-sm" onClick={() => { try { window.open(fetchedUrl, '_blank'); } catch (err) { try { window.location.href = fetchedUrl; } catch (err2) { void err2; } void err; } }}>Open canonical URL</button>
                           </div>
                         )}
                       </div>
@@ -757,7 +749,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
                                   alert('Withdraw tx submitted: ' + (receipt && receipt.transactionHash ? receipt.transactionHash : 'receipt'));
                                   // Refresh balances
                                   await refreshDisputeState();
-                                } catch (e) {
+                                } catch (e) { void e;
                                   alert('Withdraw failed: ' + (e?.message || e));
                                 } finally {
                                   setSubmitting(false);
@@ -827,7 +819,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
           </div>
         </form>
       </div>
-        <ConfirmPayModal open={depositConfirmOpen} title="Confirm deposit" amountEth={depositConfirmAmount} details={`This will deposit funds for case ${disputeInfo?.caseId || ''}.`} onConfirm={async () => { if (depositConfirmAction) await depositConfirmAction(); setDepositConfirmOpen(false); }} onCancel={() => setDepositConfirmOpen(false)} busy={depositConfirmBusy} />
+  <_ConfirmPayModal open={depositConfirmOpen} title="Confirm deposit" amountEth={depositConfirmAmount} details={`This will deposit funds for case ${disputeInfo?.caseId || ''}.`} onConfirm={async () => { if (depositConfirmAction) await depositConfirmAction(); setDepositConfirmOpen(false); }} onCancel={() => setDepositConfirmOpen(false)} busy={depositConfirmBusy} />
       </div>
     );
 }

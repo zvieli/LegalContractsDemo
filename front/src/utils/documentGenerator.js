@@ -163,7 +163,7 @@ export class DocumentGenerator {
       printWin.document.close();
       // Try set the filename via title; user selects Save as PDF.
       printWin.document.title = filename;
-    } catch (e) {
+    } catch (e) { void e;
       // Graceful fallback: download an HTML file, users can print to PDF manually.
       const blob = new Blob([html], { type: 'text/html' });
       const url = URL.createObjectURL(blob);

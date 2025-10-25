@@ -60,7 +60,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
         try {
           const seeded = listRecipients();
           targetRecipients = seeded.map(r => r.pubkey).filter(Boolean);
-        } catch (_) { /* ignore */ }
+        } catch (_) { void _; /* ignore */ }
       }
       if (encrypt && targetRecipients.length) {
         const { envelope: env } = await buildEncryptedEnvelope(base, targetRecipients);
@@ -80,7 +80,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
         timestamp: BigInt(Math.floor(Date.now()/1000))
       });
       setPreview({ base, contentDigest, envelope, targetRecipients: targetRecipients || [], leaf });
-    } catch (e) {
+    } catch (e) { void e;
       setError(e.message || String(e));
     }
   }
@@ -89,7 +89,8 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
     if (!signer) return;
     if (!preview) return;
     try {
-      const contractService = new ContractService(provider, signer, _chainId || chain);
+      // Use known chainId from context as fallback; `chain` wasn't defined here previously
+      const contractService = new ContractService(provider, signer, _chainId || chainId);
       const readProvider = contractService._providerForRead() || provider || null;
       const chain = readProvider && typeof readProvider.getNetwork === 'function' ? await readProvider.getNetwork() : { chainId: 0 };
       const evidenceData = {
@@ -104,7 +105,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       };
       const sig = await signEvidenceEIP712(evidenceData, contractInfo, signer);
       setSignature(sig);
-    } catch (e) {
+    } catch (e) { void e;
       setError(e.message || String(e));
     }
   }
@@ -150,7 +151,9 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       try {
         const resp = await axios.post('/api/batch', {
           caseId,
-          evidenceItems: leaves.map(l => ({
+          // note: the leaves are used to build the payload but the mapping does not need the
+          // iterand variable. Use an empty-arg arrow to avoid unused-var warnings.
+          evidenceItems: leaves.map(() => ({
             caseId,
             contentDigest: preview.contentDigest,
             cidHash,
@@ -198,7 +201,7 @@ export default function EvidenceUploadModal({ contract, caseId = 0, onClose, onS
       // Pass batch data to backend/UI as needed
   onSubmitted && onSubmitted({ cid, cidDigest, caseId, txHash: tx.hash, leaf, batch: batchResult, heliaConfirmed: true, heliaUri, cidHash });
       onClose && onClose();
-    } catch (e) {
+    } catch (e) { void e;
       setError(e.message || String(e));
     } finally { setBusy(false); }
   }

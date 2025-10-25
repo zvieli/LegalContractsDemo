@@ -31,7 +31,7 @@ describe('ContractService.startCancellationWithAppeal', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
-    try { localStorage.removeItem('appealEvidence:0xabc'); } catch (e) {}
+    try { localStorage.removeItem('appealEvidence:0xabc'); } catch (e) { void e;}
   });
 
   it('uploads evidence and initiates cancellation when none requested', async () => {
@@ -41,7 +41,7 @@ describe('ContractService.startCancellationWithAppeal', () => {
     vi.spyOn(svc, 'getEnhancedRentContractForWrite').mockResolvedValue({ cancelRequested: async () => false });
     const initSpy = vi.spyOn(svc, 'initiateCancellation').mockResolvedValue({ hash: '0x1' });
 
-    const res = await svc.startCancellationWithAppeal('0xabc', { appealEvidence: 'some evidence', feeValueEth: '0.01' });
+  await svc.startCancellationWithAppeal('0xabc', { appealEvidence: 'some evidence', feeValueEth: '0.01' });
     expect(initSpy).toHaveBeenCalledWith('0xabc');
     // persisted mapping should exist
   const raw = localStorage.getItem('appealEvidence:0xabc');
@@ -59,7 +59,7 @@ describe('ContractService.startCancellationWithAppeal', () => {
     vi.spyOn(svc, 'getEnhancedRentContractForWrite').mockResolvedValue({ cancelRequested: async () => false });
     const initSpy = vi.spyOn(svc, 'initiateCancellation').mockResolvedValue({ hash: '0x2' });
 
-    const res = await svc.startCancellationWithAppeal('0xabc', { appealEvidence: 'fail evidence' });
+  await svc.startCancellationWithAppeal('0xabc', { appealEvidence: 'fail evidence' });
     expect(initSpy).toHaveBeenCalledWith('0xabc');
     // no mapping should be stored when upload fails
     const raw = localStorage.getItem('appealEvidence:0xabc');
@@ -71,7 +71,7 @@ describe('ContractService.startCancellationWithAppeal', () => {
     vi.spyOn(svc, 'getEnhancedRentContractForWrite').mockResolvedValue({ cancelRequested: async () => true });
     const approveSpy = vi.spyOn(svc, 'approveCancellation').mockResolvedValue({ hash: '0x3' });
 
-    const res = await svc.startCancellationWithAppeal('0xabc', { appealEvidence: 'any' });
+  await svc.startCancellationWithAppeal('0xabc', { appealEvidence: 'any' });
     expect(approveSpy).toHaveBeenCalledWith('0xabc');
     const raw = localStorage.getItem('appealEvidence:0xabc');
     expect(raw).toBeTruthy();

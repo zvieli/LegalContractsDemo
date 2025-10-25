@@ -23,7 +23,7 @@ export default function BatchDashboardAdvanced({ caseId }) {
         });
         setArbitrationStats(stats);
         setCategoryStats(catStats);
-      } catch {}
+      } catch (_){ void _;}
     };
     fetchHistory();
   }, [caseId]);
@@ -47,6 +47,7 @@ export default function BatchDashboardAdvanced({ caseId }) {
       borderWidth: 2
     }]
   };
+  void pieData; void barData;
 
   const filtered = batchHistory.filter(b =>
     (filter.status==='all'||b.status===filter.status) &&
