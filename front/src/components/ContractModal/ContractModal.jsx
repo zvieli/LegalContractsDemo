@@ -1825,10 +1825,12 @@ void _handleCopyComplaint;
                         {/* If cancellation was requested, allow other party to approve */}
                         {(isLandlord || isTenant) && contractDetails?.cancellation?.cancelRequested && (
                           (() => {
-                            const isInitiator = (account && contractDetails?.cancelInitiator && account.toLowerCase() === contractDetails.cancelInitiator.toLowerCase());
-                            const isApprover = (account && contractDetails?.cancelInitiator && account.toLowerCase() !== contractDetails.cancelInitiator.toLowerCase());
+                            const isInitiator = (account && contractDetails?.cancellation?.cancelInitiator && account.toLowerCase() === contractDetails.cancellation.cancelInitiator.toLowerCase());
+                            const isApprover = (account && contractDetails?.cancellation?.cancelInitiator && account.toLowerCase() !== contractDetails.cancellation.cancelInitiator.toLowerCase());
                             const approvals = contractDetails?.cancellation?.approvals || {};
                             const bothApproved = approvals.landlord && approvals.tenant;
+                            // Debug: log cancellation control state to help diagnose rendering
+                            try { console.debug('[ContractModal] cancellation controls', { account, cancelInitiator: contractDetails?.cancellation?.cancelInitiator, isInitiator, isApprover, approvals, bothApproved }); } catch (e) { void e; }
                             // If both parties approved, show preview/finalize controls; otherwise show approve/preview
                             if (bothApproved) {
                               return (
@@ -1860,14 +1862,16 @@ void _handleCopyComplaint;
                             // default: not bothApproved yet — show approve + preview
                             return (
                               <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
-                                <button className="btn-action" onClick={async () => {
-                                  try {
-                                    if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
-                                    await handleApproveCancel();
-                                  } catch (e) { void e; console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
-                                }} disabled={readOnly || actionLoading || isInitiator} title={isInitiator ? 'Cancel initiator cannot approve their own cancellation' : undefined}>
-                                  Approve Cancellation
-                                </button>
+                                {!isInitiator && (
+                                  <button className="btn-action" onClick={async () => {
+                                    try {
+                                      if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
+                                      await handleApproveCancel();
+                                    } catch (e) { void e; console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
+                                  }} disabled={readOnly || actionLoading}>
+                                    Approve Cancellation
+                                  </button>
+                                )}
                                 <button className="btn-action" onClick={async () => {
                                   try {
                                     console.debug('[ContractModal] Show Cancellation Preview clicked');
@@ -1968,6 +1972,8 @@ void _handleCopyComplaint;
                       // Determine which party receives the fee (approver / non-initiator)
                       const landlordAddr = contractDetails?.landlord ? String(contractDetails.landlord).toLowerCase() : null;
                       const tenantAddr = contractDetails?.tenant ? String(contractDetails.tenant).toLowerCase() : null;
+                      const isInitiatorModal = account && contractDetails?.cancellation?.cancelInitiator && account.toLowerCase() === contractDetails.cancellation.cancelInitiator.toLowerCase();
+                      const isApproverModal = account && contractDetails?.cancellation?.cancelInitiator && account.toLowerCase() !== contractDetails.cancellation.cancelInitiator.toLowerCase();
 
                       let tenantDisplay = BigInt(tenantRefundRaw || 0n);
                       let landlordDisplay = BigInt(landlordShareRaw || 0n);
@@ -2005,7 +2011,9 @@ void _handleCopyComplaint;
                               </details>
                           <div style={{display:'flex', gap:8, marginTop:12}}>
                             <button className="btn-action" onClick={() => { setShowCancelPreviewModal(false); setCancelPreviewObj(null); }}>Close</button>
-                            <button className="btn-action primary" onClick={async () => { try { if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return; await _handleFinalizeCancellation(); setShowCancelPreviewModal(false); } catch (e) { void e; alert('Failed to finalize: ' + (e?.message || e)); } }} disabled={actionLoading}>Finalize Cancellation</button>
+                            {isApproverModal && (
+                              <button className="btn-action primary" onClick={async () => { try { if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return; await _handleFinalizeCancellation(); setShowCancelPreviewModal(false); } catch (e) { void e; alert('Failed to finalize: ' + (e?.message || e)); } }} disabled={actionLoading}>Finalize Cancellation</button>
+                            )}
                           </div>
                         </div>
                       );
