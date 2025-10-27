@@ -855,6 +855,33 @@ void _handleFinalizeCancellation;
     }
   };
 
+  // Direct mutual finalize: call the template's finalizeMutualCancellation() entrypoint.
+  // This path requires both parties to have approved and does NOT use the ArbitrationService.
+  const _handleFinalizeMutual = async () => {
+    try {
+      if (!confirm('Finalize mutual cancellation on-contract? This will deactivate the contract.')) return;
+      setActionLoading(true);
+      const service = new ContractService(provider, signer, chainId);
+      const rentForWrite = await service.getEnhancedRentContractForWrite(contractAddress);
+      if (!rentForWrite || typeof rentForWrite.finalizeMutualCancellation !== 'function') {
+        alert('This contract does not support direct mutual finalize. Use ArbitrationService or ensure both parties are on a compatible template.');
+        setActionLoading(false);
+        return;
+      }
+
+      // Call finalizeMutualCancellation directly
+      const tx = await rentForWrite.finalizeMutualCancellation();
+      const receipt = await tx.wait();
+      alert(`✅ Mutual cancellation finalized\nTransaction: ${receipt.transactionHash || receipt.hash}`);
+      await loadContractData();
+    } catch (e) { void e;
+      console.error('Direct mutual finalize failed:', e);
+      alert('Direct mutual finalize failed: ' + (e?.reason || e?.message || e));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // NDA actions
   const _handleNdaSign = async () => {
 void _handleNdaSign;
@@ -939,48 +966,95 @@ void _handleNdaResolveByArbitrator;
   };
 
   const _submitDisputeForm = async (payloadOverride) => {
-void _submitDisputeForm;
-    const overrideStr = typeof payloadOverride === 'string' ? payloadOverride : null;
-    if (overrideStr !== null) {
-      setDisputeForm(s => ({ ...s, evidence: overrideStr }));
-    }
-
-  let evidenceRaw = overrideStr !== null ? overrideStr : (disputeForm.evidence || '');
-    setActionLoading(true);
-
-    try {
-      let targetAddress = contractAddress;
-      
-      const svc = new ContractService(provider, signer, chainId);
-      let amountEthForCalc = disputeForm.amountEth;
-      const amountWei = amountEthForCalc ? ethers.parseEther(String(amountEthForCalc || '0')) : 0n;
-
-      // Block submission if requested amount exceeds contract ETH balance
+      // If both parties already approved (mutual) prefer calling the template's
+      // `finalizeMutualCancellation()` directly — it's the expected path for mutual
+      // cancellations and avoids needing the ArbitrationService.
       try {
-        const cb = BigInt(contractBalanceWei || 0n);
-        if (amountWei > 0n && BigInt(amountWei) > cb) {
-          alert('Requested amount exceeds the contract\'s ETH balance. Please reduce the requested amount or top up the contract before submitting.');
-          setActionLoading(false);
-          return null;
+        const approvals = contractDetails?.cancellation?.approvals || {};
+        const bothApproved = !!(approvals.landlord && approvals.tenant);
+        const requireMutual = !!(contractDetails?.cancellation?.requireMutualCancel || contractDetails?.cancellation?.requireMutual);
+
+        const fee = feeToSend ? feeToSend : '0';
+        const feeWei = fee ? ethers.parseEther(String(fee)) : 0n;
+
+        if (bothApproved || requireMutual) {
+          try {
+            const rentForWrite = await service.getEnhancedRentContractForWrite(contractAddress);
+            if (rentForWrite && typeof rentForWrite.finalizeMutualCancellation === 'function') {
+              // Call direct mutual finalize on the template (preferred).
+              const tx = await rentForWrite.finalizeMutualCancellation();
+              const receipt = await tx.wait();
+              alert(`✅ Cancellation finalized (mutual)\nTransaction: ${receipt.transactionHash || receipt.hash}`);
+              await loadContractData();
+              setActionLoading(false);
+              return;
+            }
+          } catch (inner) {
+            console.debug('Direct finalizeMutualCancellation attempt failed, falling back to ArbitrationService path', inner);
+            // fallthrough to ArbitrationService
+          }
         }
-      } catch (e) { void e;
-        // ignore and continue
-      }
 
-      let evidenceDigest = '';
-      try {
-        if (evidenceRaw && /^0x[0-9a-fA-F]{64}$/.test(evidenceRaw)) evidenceDigest = evidenceRaw;
-        else if (evidenceRaw) evidenceDigest = ethers.keccak256(ethers.toUtf8Bytes(String(evidenceRaw)));
-        else evidenceDigest = '';
-      } catch (e) { void e;
-        evidenceDigest = '';
-      }
+        // Fallback: finalize via ArbitrationService (existing behavior)
+        const arbAddress = contractDetails?.arbitrationService || null;
+        let arbAddr = arbAddress;
+        if (!arbAddr) {
+          try {
+            const resp = await fetch('/utils/contracts/ContractFactory.json');
+            if (resp && resp.ok) {
+              const cf = await resp.json();
+              arbAddr = cf?.contracts?.ArbitrationService || null;
+            }
+          } catch (_) { void _; arbAddr = null; }
+        }
+        if (!arbAddr) {
+          try {
+            const maybe = await getContractAddress(chainId, 'ArbitrationService');
+            if (maybe) arbAddr = maybe;
+          } catch (_) { void _; }
+        }
 
-      if (!targetAddress || !/^0x[0-9a-fA-F]{40}$/.test(String(targetAddress))) {
-        throw new Error(`Invalid or missing contractAddress when submitting dispute: ${String(targetAddress)}`);
-      }
+        if (!arbAddr || arbAddr === 'MISSING_ARBITRATION_SERVICE' || arbAddr === ethers.ZeroAddress) {
+          alert('No ArbitrationService configured for this contract or frontend. Run the deploy script with DEPLOY_ARBITRATION=true to add one.');
+          setActionLoading(false);
+          return;
+        }
 
-      // Check available funds and warn if requested amount exceeds available (partyDeposit + escrow)
+        const accountAddr = account ? account.toLowerCase() : null;
+        const isCallerLandlord = accountAddr && contractDetails?.landlord && accountAddr === contractDetails.landlord.toLowerCase();
+
+        // Authorization check: calling the ArbitrationService finalize entrypoints requires
+        // the connected signer to be the service owner or the configured factory. Avoid
+        // attempting the call if the current account is not authorized to prevent an
+        // unnecessary revert (we'll inform the user instead).
+        try {
+          const respAb = await fetch('/utils/contracts/ArbitrationService.json');
+          if (respAb && respAb.ok) {
+            const abj = await respAb.json();
+            const arbAbi = abj.abi || abj;
+            const arbRead = new ethers.Contract(arbAddr, arbAbi, provider || (service && service._providerForRead && service._providerForRead()));
+            const ownerAddr = (await arbRead.owner().catch(() => null)) || null;
+            const factoryAddr = (await arbRead.factory().catch(() => null)) || null;
+            const acct = account ? account.toLowerCase() : null;
+            const isOwner = ownerAddr && acct === String(ownerAddr).toLowerCase();
+            const isFactory = factoryAddr && acct === String(factoryAddr).toLowerCase();
+            if (!isOwner && !isFactory) {
+              alert('ArbitrationService finalization must be performed by the service owner or factory account. Switch to the arbitrator account or use the mutual finalize path.');
+              setActionLoading(false);
+              return;
+            }
+          }
+        } catch (authErr) { void authErr; /* ignore and continue to attempt - service may still revert */ }
+
+        let receipt;
+        if (isCallerLandlord) {
+          receipt = await service.finalizeByLandlordViaService(arbAddr, contractAddress, feeWei);
+        } else {
+          receipt = await service.finalizeCancellationViaService(arbAddr, contractAddress, feeWei);
+        }
+
+        alert(`✅ Cancellation finalized\nTransaction: ${receipt.transactionHash || receipt.hash}`);
+        await loadContractData();
       try {
         const svc = new ContractService(provider, signer, chainId);
         const escrow = await svc.getEscrowBalance(targetAddress).catch(() => 0n);
@@ -1794,20 +1868,21 @@ void _handleCopyComplaint;
                       <div style={{display:'flex', flexDirection:'column', gap:'12px'}}>
                         <div style={{display:'flex', gap:'8px', flexWrap:'wrap'}}>
                         {contractDetails?.isActive && (
-                          <button 
+                         <button 
                             onClick={handleRentSign}
                             disabled={
-                              readOnly ||
-                              rentSigning ||
-                              contractDetails?.signatures?.fullySigned ||
-                              !rentCanSign ||
-                              !contractDetails?.landlord ||
-                              !contractDetails?.tenant ||
-                              typeof contractDetails?.isActive === 'undefined' ||
-                              !contractDetails?.signatures
+                                readOnly ||
+                                rentSigning ||
+                                rentAlreadySigned || 
+                                contractDetails?.signatures?.fullySigned ||
+                                !rentCanSign ||
+                                !contractDetails?.landlord ||
+                                !contractDetails?.tenant ||
+                                typeof contractDetails?.isActive === 'undefined' ||
+                                !contractDetails?.signatures
                             }
                             className="btn-action primary"
-                          >
+                        >
                             {rentSigning ? <><span className="spinner" /> Signing...</> : rentAlreadySigned ? 'Signed' : 'Sign Contract'}
                           </button>
                         )}
@@ -1849,8 +1924,8 @@ void _handleCopyComplaint;
                                   {isApprover && (
                                     <button className="btn-action primary" onClick={async () => {
                                       try {
-                                        if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return;
-                                        await _handleFinalizeCancellation();
+                                        if (!confirm('Finalize mutual cancellation on-contract? This will deactivate the contract.')) return;
+                                        await _handleFinalizeMutual();
                                       } catch (e) { void e; console.error('Finalize cancelled failed', e); alert('Failed to finalize: ' + (e?.message || e)); }
                                     }} disabled={readOnly || actionLoading}>
                                       Finalize Cancellation
@@ -2012,7 +2087,7 @@ void _handleCopyComplaint;
                           <div style={{display:'flex', gap:8, marginTop:12}}>
                             <button className="btn-action" onClick={() => { setShowCancelPreviewModal(false); setCancelPreviewObj(null); }}>Close</button>
                             {isApproverModal && (
-                              <button className="btn-action primary" onClick={async () => { try { if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return; await _handleFinalizeCancellation(); setShowCancelPreviewModal(false); } catch (e) { void e; alert('Failed to finalize: ' + (e?.message || e)); } }} disabled={actionLoading}>Finalize Cancellation</button>
+                              <button className="btn-action primary" onClick={async () => { try { await _handleFinalizeMutual(); setShowCancelPreviewModal(false); } catch (e) { void e; alert('Failed to finalize: ' + (e?.message || e)); } }} disabled={actionLoading}>Finalize Cancellation</button>
                             )}
                           </div>
                         </div>

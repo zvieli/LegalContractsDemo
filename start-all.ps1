@@ -68,6 +68,77 @@ Write-Host ""
 Write-Host ""
 Write-Host "Starting services..." -ForegroundColor Cyan
 
+# Cleanup old ABIs and generated contract artifacts to avoid ABI mismatch
+function Clean-CompiledAbis {
+    param(
+        [string]$ProjectRoot
+    )
+    if (-not $ProjectRoot) { $ProjectRoot = Get-Location }
+    Write-Host "Cleaning compiled ABIs to avoid ABI/deployment mismatches..." -ForegroundColor Yellow
+
+    $frontContracts = Join-Path $ProjectRoot 'front\src\utils\contracts'
+    $serverConfig = Join-Path $ProjectRoot 'server\config'
+    $serverConfigContracts = Join-Path $serverConfig 'contracts'
+
+    # Remove files inside front/src/utils/contracts (keep directory)
+    if (Test-Path $frontContracts) {
+        try {
+            $fList = Get-ChildItem -Path $frontContracts -File -Force -ErrorAction Stop
+            if ($fList.Count -gt 0) {
+                foreach ($f in $fList) {
+                    Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+                    Write-Host "  Removed front ABI: $($f.Name)" -ForegroundColor DarkGray
+                }
+            } else { Write-Host "  No files to remove in $frontContracts" -ForegroundColor DarkGray }
+        } catch {
+            Write-Host ("  Failed cleaning " + $frontContracts + ": " + $_) -ForegroundColor Red
+        }
+    } else { Write-Host "  Path not found: $frontContracts" -ForegroundColor DarkGray }
+
+    # Remove files directly under server/config but preserve server/config/contracts directory itself
+    if (Test-Path $serverConfig) {
+        try {
+            $items = Get-ChildItem -Path $serverConfig -Force -ErrorAction Stop
+            foreach ($it in $items) {
+                if ($it.PSIsContainer) {
+                    # Preserve the 'contracts' directory name, remove contents if it exists
+                    if ($it.Name -ieq 'contracts') {
+                        if (Test-Path $serverConfigContracts) {
+                            try {
+                                $inner = Get-ChildItem -Path $serverConfigContracts -File -Force
+                                foreach ($f in $inner) {
+                                    Remove-Item -LiteralPath $f.FullName -Force -ErrorAction SilentlyContinue
+                                    Write-Host "  Removed server config contract file: $($f.Name)" -ForegroundColor DarkGray
+                                }
+                            } catch {
+                                Write-Host ("  Failed cleaning " + $serverConfigContracts + ": " + $_) -ForegroundColor Red
+                            }
+                        }
+                    } else {
+                        # leave other directories untouched
+                        Write-Host "  Preserving directory: $($it.Name)" -ForegroundColor DarkGray
+                    }
+                } else {
+                    # it's a file directly under server/config -> remove it
+                    try {
+                        Remove-Item -LiteralPath $it.FullName -Force -ErrorAction SilentlyContinue
+                        Write-Host "  Removed server config file: $($it.Name)" -ForegroundColor DarkGray
+                    } catch {
+                        Write-Host ("  Failed removing " + $($it.FullName) + ": " + $_) -ForegroundColor Red
+                    }
+                }
+            }
+        } catch {
+            Write-Host ("  Failed enumerating " + $serverConfig + ": " + $_) -ForegroundColor Red
+        }
+    } else { Write-Host "  Path not found: $serverConfig" -ForegroundColor DarkGray }
+
+    Write-Host "Cleanup complete." -ForegroundColor Green
+}
+
+# Run cleanup before starting services to ensure ABI consistency
+Clean-CompiledAbis -ProjectRoot $PSScriptRoot
+
 # Check for mainnet fork URL
     Write-Host "Starting Hardhat node with mainnet fork..." -ForegroundColor Yellow
         Start-NewWindow "Hardhat Node" "npx hardhat node "

@@ -2137,3 +2137,249 @@ heliaLocal: getEvidence -> using unixfsModule.cat
     at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
     at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 CCIP Event Listener started automatically
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)

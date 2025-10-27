@@ -111,6 +111,40 @@ void _dynImport;
 
 export const getContractAddress = async (chainId, contractName) => {
   try {
+    // If caller didn't provide chainId, try to infer it from injected provider (no prompt)
+    if ((typeof chainId === 'undefined' || chainId === null) && typeof window !== 'undefined' && window.ethereum) {
+      try {
+        const cid = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
+        if (cid) {
+          // cid may be hex string like '0x7a69'
+          const maybe = Number(cid);
+          if (!isNaN(maybe) && maybe > 0) chainId = maybe;
+              if ((typeof chainId === 'undefined' || chainId === null) && typeof window !== 'undefined') {
+                if (window.ethereum) {
+                  try {
+                    const cid = await window.ethereum.request({ method: 'eth_chainId' }).catch(() => null);
+                    if (cid) {
+                      // cid may be hex string like '0x7a69'
+                      const maybe = Number(cid);
+                      if (!isNaN(maybe) && maybe > 0) chainId = maybe;
+                      else {
+                        // try parse hex
+                        try { chainId = parseInt(String(cid), 16); } catch (_){ void _; }
+                      }
+                    }
+                  } catch (_e) { void _e; }
+                }
+                // If still missing and we're running on localhost, default to common local chain id
+                if ((typeof chainId === 'undefined' || chainId === null) && (window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '::1'))) {
+                  chainId = 31337;
+                }
+            // try parse hex
+            try { chainId = parseInt(String(cid), 16); } catch (_){ void _; }
+          }
+        }
+      } catch (_e) { void _e; }
+    }
+
     console.debug('[getContractAddress] chainId:', chainId, 'contractName:', contractName);
     console.log('[getContractAddress] chainId:', chainId, 'contractName:', contractName);
     const isLocalHostEnv = typeof window !== 'undefined' && (
