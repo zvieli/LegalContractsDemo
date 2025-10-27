@@ -37,11 +37,15 @@ describe('Arbitration behavior: reporter bond, idempotency, reentrancy', functio
       dueDate = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
       propertyId = 1001;
 
-      const tx = await factory.connect(landlord).createEnhancedRentContract(
+      const startDate = Math.floor(Date.now() / 1000);
+      const durationDays = 30;
+      const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
         tenant.address,
         rentAmount,
         mockPriceFeed.target ?? mockPriceFeed.address,
         dueDate,
+        startDate,
+        durationDays,
         propertyId
       );
       const receipt = await tx.wait();

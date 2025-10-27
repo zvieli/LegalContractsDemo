@@ -66,11 +66,38 @@ export function EthersProvider({ children }) {
           // `provider` variable so this effect does not depend on external state
           // (avoids exhaustive-deps warnings while preserving behavior).
           window.ethereum.on('chainChanged', async () => {
-            if (web3Provider && typeof web3Provider.getNetwork === 'function') {
-              const newNet = await web3Provider.getNetwork();
-              setChainId(Number(newNet.chainId));
-            } else {
+            try {
+              // Recreate a fresh provider and attempt to re-sync signer/account state.
+              const freshProvider = new BrowserProvider(window.ethereum);
+              if (freshProvider && typeof freshProvider.getNetwork === 'function') {
+                const newNet = await freshProvider.getNetwork().catch(() => ({ chainId: null }));
+                setChainId(Number(newNet.chainId));
+              } else {
+                setChainId(null);
+              }
+
+              // Re-sync accounts and signer to avoid transient undefined signer/provider
+              const accs = await window.ethereum.request({ method: 'eth_accounts' }).catch(() => []);
+              if (accs && accs[0]) {
+                setAccount(accs[0]);
+                setIsConnected(true);
+                try {
+                  const signerObj = await freshProvider.getSigner(accs[0]).catch(() => null);
+                  setSigner(signerObj);
+                } catch (_){ void _; setSigner(null); }
+              } else {
+                setAccount(null);
+                setIsConnected(false);
+                setSigner(null);
+              }
+
+              // Replace provider in state to ensure callers use the fresh provider instance.
+              setProvider(freshProvider);
+            } catch (err) {
+              // Swallow network-change race errors to avoid uncaught exceptions in the app.
+              console.warn('[EthersContext] chainChanged handler failed:', err && err.message ? err.message : err);
               setChainId(null);
+              setSigner(null);
             }
           });
         }

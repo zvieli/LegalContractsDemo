@@ -32,7 +32,9 @@ describe('Arbitration medium-priority tests: reporter-bond edge cases & CCIP ide
   it('reporter bond: partial refund when appliedAmount < bond should leave bond cleared and not send extra', async function () {
     const rentAmount = ethers.parseEther('1.0');
     const dueDate = Math.floor(Date.now() / 1000) + 86400;
-    const tx = await factory.connect(landlord).createEnhancedRentContract(tenant.address, rentAmount, mockPriceFeed.target ?? mockPriceFeed.address, dueDate, 101);
+  const startDate = Math.floor(Date.now() / 1000);
+  const durationDays = 30;
+  const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(tenant.address, rentAmount, mockPriceFeed.target ?? mockPriceFeed.address, dueDate, startDate, durationDays, 101);
     const receipt = await tx.wait();
     const parsed = receipt.logs.map(l => { try { return factory.interface.parseLog(l); } catch { return null; } });
     const evt = parsed.find(e => e && e.name === 'EnhancedRentContractCreated');
@@ -60,7 +62,9 @@ describe('Arbitration medium-priority tests: reporter-bond edge cases & CCIP ide
   it('reporting by non-party is rejected', async function () {
     const rentAmount = ethers.parseEther('0.6');
     const dueDate = Math.floor(Date.now() / 1000) + 86400;
-    const tx = await factory.connect(landlord).createEnhancedRentContract(tenant.address, rentAmount, mockPriceFeed.target ?? mockPriceFeed.address, dueDate, 102);
+  const startDate2 = Math.floor(Date.now() / 1000);
+  const durationDays2 = 30;
+  const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(tenant.address, rentAmount, mockPriceFeed.target ?? mockPriceFeed.address, dueDate, startDate2, durationDays2, 102);
     const receipt = await tx.wait();
     const parsed = receipt.logs.map(l => { try { return factory.interface.parseLog(l); } catch { return null; } });
     const evt = parsed.find(e => e && e.name === 'EnhancedRentContractCreated');
@@ -74,7 +78,9 @@ describe('Arbitration medium-priority tests: reporter-bond edge cases & CCIP ide
   it('CCIP idempotency hardened: same params but different msg.value are considered distinct when forwarded ETH differs', async function () {
     const rentAmount = ethers.parseEther('0.7');
     const dueDate = Math.floor(Date.now() / 1000) + 86400;
-    const tx = await factory.connect(landlord).createEnhancedRentContract(tenant.address, rentAmount, mockPriceFeed.target ?? mockPriceFeed.address, dueDate, 103);
+  const startDate3 = Math.floor(Date.now() / 1000);
+  const durationDays3 = 30;
+  const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(tenant.address, rentAmount, mockPriceFeed.target ?? mockPriceFeed.address, dueDate, startDate3, durationDays3, 103);
     const receipt = await tx.wait();
     const parsed = receipt.logs.map(l => { try { return factory.interface.parseLog(l); } catch { return null; } });
     const evt = parsed.find(e => e && e.name === 'EnhancedRentContractCreated');

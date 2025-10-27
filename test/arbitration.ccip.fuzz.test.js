@@ -33,11 +33,15 @@ describe('Arbitration CCIP fuzz/edge tests (low-priority)', function () {
     const dueDate = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
     const propertyId = 1234;
 
-    const tx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate = Math.floor(Date.now() / 1000);
+    const durationDays = 30;
+    const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       mockPriceFeed.target ?? mockPriceFeed.address,
       dueDate,
+      startDate,
+      durationDays,
       propertyId
     );
     const receipt = await tx.wait();
@@ -62,11 +66,15 @@ describe('Arbitration CCIP fuzz/edge tests (low-priority)', function () {
     const dueDate = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
     const propertyId = 4321;
 
-    const tx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate2 = Math.floor(Date.now() / 1000);
+    const durationDays2 = 30;
+    const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       mockPriceFeed.target ?? mockPriceFeed.address,
       dueDate,
+      startDate2,
+      durationDays2,
       propertyId
     );
     const receipt = await tx.wait();
@@ -100,11 +108,15 @@ describe('Arbitration CCIP fuzz/edge tests (low-priority)', function () {
     const dueDate = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
     const propertyId = 5555;
 
-    const tx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate3 = Math.floor(Date.now() / 1000);
+    const durationDays3 = 30;
+    const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       mockPriceFeed.target ?? mockPriceFeed.address,
       dueDate,
+      startDate3,
+      durationDays3,
       propertyId
     );
     const receipt = await tx.wait();

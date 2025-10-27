@@ -12,6 +12,8 @@ contract _EnhancedRentDeployer {
         uint256 _rentAmount, 
         address _priceFeed, 
         uint256 _dueDate, 
+        uint256 _startDate,
+        uint256 _durationDays,
         uint256 _propertyId, 
         address _arbitrationService,
         address _merkleEvidenceManager
@@ -22,6 +24,34 @@ contract _EnhancedRentDeployer {
             _rentAmount,
             _priceFeed,
             _dueDate,
+            _startDate,
+            _durationDays,
+            _propertyId,
+            _arbitrationService,
+            _merkleEvidenceManager
+        );
+        return address(c);
+    }
+
+    // Backwards-compatible deploy that does not include start/duration (sets them to zero)
+    function deploySimple(
+        address _landlord,
+        address _tenant,
+        uint256 _rentAmount,
+        address _priceFeed,
+        uint256 _dueDate,
+        uint256 _propertyId,
+        address _arbitrationService,
+        address _merkleEvidenceManager
+    ) external returns (address) {
+        EnhancedRentContract c = new EnhancedRentContract(
+            _landlord,
+            _tenant,
+            _rentAmount,
+            _priceFeed,
+            _dueDate,
+            0,
+            0,
             _propertyId,
             _arbitrationService,
             _merkleEvidenceManager
@@ -126,7 +156,7 @@ contract ContractFactory {
         if (_priceFeed == address(0)) revert ZeroPriceFeed();
         if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
         
-        address newAddr = enhancedRentDeployer.deploy(
+        address newAddr = enhancedRentDeployer.deploySimple(
             creator, 
             _tenant, 
             _rentAmount, 
@@ -137,6 +167,44 @@ contract ContractFactory {
             merkleEvidenceManager
         );
         
+        allContracts.push(newAddr);
+        contractsByCreator[creator].push(newAddr);
+        contractCreator[newAddr] = creator;
+        emit EnhancedRentContractCreated(newAddr, creator, _tenant);
+        return newAddr;
+    }
+
+    /// @notice New factory entrypoint that accepts startDate and duration and deploys contract with policy set
+    function createEnhancedRentContractWithPolicy(
+        address _tenant,
+        uint256 _rentAmount,
+        address _priceFeed,
+        uint256 _dueDate,
+        uint256 _startDate,
+        uint256 _durationDays,
+        uint256 _propertyId
+    ) external returns (address) {
+        require(merkleEvidenceManager != address(0), "Merkle evidence manager not set");
+        address creator = msg.sender;
+        if (_tenant == address(0)) revert ZeroTenant();
+        if (_tenant == creator) revert SameAddresses();
+        if (_rentAmount == 0) revert ZeroRentAmount();
+        if (_priceFeed == address(0)) revert ZeroPriceFeed();
+        if (_priceFeed.code.length == 0) revert PriceFeedNotContract();
+
+        address newAddr = enhancedRentDeployer.deploy(
+            creator,
+            _tenant,
+            _rentAmount,
+            _priceFeed,
+            _dueDate,
+            _startDate,
+            _durationDays,
+            _propertyId,
+            defaultArbitrationService,
+            merkleEvidenceManager
+        );
+
         allContracts.push(newAddr);
         contractsByCreator[creator].push(newAddr);
         contractCreator[newAddr] = creator;

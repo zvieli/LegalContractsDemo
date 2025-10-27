@@ -94,7 +94,7 @@ describe('runEvidenceFlow register-dispute payload', () => {
     let registerBody = null;
   globalThis.fetch.mockImplementationOnce(async (url, _opts) => {
       void _opts;
-      if (String(url).endsWith('/submit-evidence')) {
+      if (String(url).endsWith('/register-dispute')) {
         registerBody = JSON.parse(_opts && _opts.body ? _opts.body : '{}');
         return { ok: true, json: async () => ({ ok: true, id: 'reg2' }) };
       }

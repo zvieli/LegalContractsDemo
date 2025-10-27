@@ -35,6 +35,8 @@ contract EnhancedRentContract is TemplateRentContract {
         uint256 _rentAmount,
         address _priceFeed,
         uint256 _dueDate,
+        uint256 _startDate,
+        uint256 _durationDays,
         uint256 _propertyId,
         address _arbitrationService,
         address _merkleEvidenceManager
@@ -43,6 +45,8 @@ contract EnhancedRentContract is TemplateRentContract {
         _tenant,
         _rentAmount,
         _dueDate,
+        _startDate,
+        _durationDays,
         _priceFeed,
         _propertyId,
         _arbitrationService,

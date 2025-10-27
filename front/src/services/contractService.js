@@ -899,6 +899,76 @@ export class ContractService {
     }
   }
 
+  // Return a preview of cancellation refunds according to on-chain policy if available,
+  // otherwise attempt a best-effort client-side calculation.
+  async getCancellationPreview(contractAddress) {
+    try {
+      const rent = await this.getEnhancedRentContract(contractAddress);
+      if (rent && typeof rent.getCancellationRefunds === 'function') {
+        const res = await rent.getCancellationRefunds();
+        // Determine fee recipient as the counterparty who approved the cancellation (non-initiator)
+        let feeRecipient = null;
+        try {
+          const cancelInitiator = await rent.cancelInitiator().catch(() => ethers.ZeroAddress);
+          const landlord = await rent.landlord().catch(() => ethers.ZeroAddress);
+          const tenant = await rent.tenant().catch(() => ethers.ZeroAddress);
+          if (cancelInitiator && cancelInitiator !== ethers.ZeroAddress) {
+            feeRecipient = (cancelInitiator.toLowerCase() === landlord.toLowerCase()) ? tenant : landlord;
+          }
+        } catch (e) { void e; }
+
+        // res is a tuple [tenantRefund, landlordShare, fee]
+        return {
+          tenantRefund: BigInt(res[0] || 0n),
+          landlordShare: BigInt(res[1] || 0n),
+          fee: BigInt(res[2] || 0n),
+          feeRecipient: feeRecipient
+        };
+      }
+    } catch (err) {
+      console.debug('getCancellationPreview: on-chain view not available', err);
+    }
+
+    // Fallback: compute client-side using available getters
+    try {
+      const rent = await this.getEnhancedRentContract(contractAddress);
+      const total = BigInt(await this.getEscrowBalance(contractAddress).catch(() => 0n));
+      const startDate = Number(await rent.startDate().catch(() => 0));
+      const durationDays = Number(await rent.durationDays().catch(() => 0));
+      const cancellationFeeBps = Number(await rent.cancellationFeeBps().catch(() => 0));
+      const now = Math.floor(Date.now() / 1000);
+
+      if (total === 0n) return { tenantRefund: 0n, landlordShare: 0n, fee: 0n };
+      if (now < startDate) return { tenantRefund: total, landlordShare: 0n, fee: 0n };
+      const periodSeconds = BigInt(durationDays) * 86400n;
+      if (periodSeconds === 0n) return { tenantRefund: total, landlordShare: 0n, fee: 0n };
+      const endTime = BigInt(startDate) + periodSeconds;
+      const timeUsed = BigInt(now) > endTime ? periodSeconds : (BigInt(now) - BigInt(startDate));
+      const landlordShare = (total * timeUsed) / periodSeconds;
+      let tenantRefund = total > landlordShare ? total - landlordShare : 0n;
+      let fee = 0n;
+      if (cancellationFeeBps > 0 && tenantRefund > 0n) {
+        fee = (tenantRefund * BigInt(cancellationFeeBps)) / 10000n;
+        if (tenantRefund > fee) tenantRefund = tenantRefund - fee; else tenantRefund = 0n;
+      }
+      // Fallback: include inferred feeRecipient (counterparty) for UI consistency
+      let feeRecipient = null;
+      try {
+        const cancelInitiator = await rent.cancelInitiator().catch(() => ethers.ZeroAddress);
+        const landlord = await rent.landlord().catch(() => ethers.ZeroAddress);
+        const tenant = await rent.tenant().catch(() => ethers.ZeroAddress);
+        if (cancelInitiator && cancelInitiator !== ethers.ZeroAddress) {
+          feeRecipient = (cancelInitiator.toLowerCase() === landlord.toLowerCase()) ? tenant : landlord;
+        }
+      } catch (e) { void e; }
+
+      return { tenantRefund, landlordShare, fee, feeRecipient };
+    } catch (err) {
+      console.debug('getCancellationPreview fallback failed', err);
+      return { tenantRefund: 0n, landlordShare: 0n, fee: 0n };
+    }
+  }
+
   // Read outstandingJudgement for a specific caseId. Returns BigInt value or 0n.
   async getOutstandingJudgement(contractAddress, caseId) {
     try {
@@ -979,14 +1049,29 @@ export class ContractService {
     const { silent = false } = options || {};
     try {
       // Ensure the address is a contract before calling views
-      const p2 = this._providerForRead();
-      const code = p2 && typeof p2.getCode === 'function' ? await p2.getCode(contractAddress) : '0x';
+      // Use getCodeSafe which may fall back to the local JSON-RPC when injected
+      // providers point at other networks (common in developer flows).
+      let code = '0x';
+      try {
+        code = await this.getCodeSafe(contractAddress).catch(() => '0x');
+      } catch (_){ void _; }
+      try { console.debug('[ContractService.getEnhancedRentContractDetails] getCodeSafe for', contractAddress, '->', code); } catch (_){ void _; }
       if (!code || code === '0x') {
         throw new Error(`Address ${contractAddress} has no contract code`);
       }
       const rentContract = await this.getEnhancedRentContract(contractAddress);
+      // Diagnostic: log available ABI function names and existence of expected methods
+      try {
+        const fnNames = rentContract && rentContract.interface && rentContract.interface.fragments ? rentContract.interface.fragments.map(f => f.name).filter(Boolean) : Object.keys(rentContract.interface?.functions || {});
+        console.debug('[ContractService.getEnhancedRentContractDetails] rentContract.functions:', fnNames.slice(0,50));
+        console.debug('[ContractService.getEnhancedRentContractDetails] landlords/tenant/rentAmount types:', {
+          rentAmount: typeof rentContract?.rentAmount,
+          landlord: typeof rentContract?.landlord,
+          tenant: typeof rentContract?.tenant
+        });
+      } catch (_){ void _; }
       // If key functions are missing, return null so callers can try NDA parsing instead.
-      if (typeof rentContract.rentAmount !== 'function' || typeof rentContract.landlord !== 'function' || typeof rentContract.tenant !== 'function') {
+      if (typeof rentContract?.rentAmount !== 'function' || typeof rentContract?.landlord !== 'function' || typeof rentContract?.tenant !== 'function') {
         if (!silent) console.debug('getEnhancedRentContractDetails: contract ABI mismatch, not an EnhancedRent contract', contractAddress);
         return null;
       }
@@ -997,6 +1082,11 @@ export class ContractService {
         (typeof rentContract.priceFeed === 'function' ? rentContract.priceFeed().catch(() => null) : Promise.resolve(null)),
         (typeof rentContract.active === 'function' ? rentContract.active().catch(() => true) : Promise.resolve(true))
       ]);
+      // read arbitrationService address if exposed by the contract
+      let arbitrationServiceAddr = null;
+      try {
+        arbitrationServiceAddr = await (typeof rentContract.arbitrationService === 'function' ? rentContract.arbitrationService().catch(() => null) : Promise.resolve(null));
+      } catch (_){ void _; arbitrationServiceAddr = null; }
       // If landlord/tenant are not valid addresses, this is likely not a Rent contract
       const isAddress = (a) => typeof a === 'string' && /^0x[0-9a-fA-F]{40}$/.test(a);
       if (!isAddress(landlord) || !isAddress(tenant)) {
@@ -1004,10 +1094,11 @@ export class ContractService {
         return null;
       }
       // Cancellation policy and state (best-effort, older ABIs may not have these)
-      const [requireMutualCancel, noticePeriod, earlyTerminationFeeBps, cancelRequested, cancelInitiator, cancelEffectiveAt] = await Promise.all([
+      const [requireMutualCancel, noticePeriod, cancellationFeeBps, cancelRequested, cancelInitiator, cancelEffectiveAt] = await Promise.all([
         rentContract.requireMutualCancel?.().catch(() => false) ?? false,
         rentContract.noticePeriod?.().catch(() => 0n) ?? 0n,
-        rentContract.earlyTerminationFeeBps?.().catch(() => 0) ?? 0,
+        // read the canonical cancellation fee (bps). earlyTerminationFee is deprecated.
+        rentContract.cancellationFeeBps?.().catch(() => 0) ?? 0,
         rentContract.cancelRequested?.().catch(() => false) ?? false,
         rentContract.cancelInitiator?.().catch(() => '0x0000000000000000000000000000000000000000') ?? '0x0000000000000000000000000000000000000000',
         rentContract.cancelEffectiveAt?.().catch(() => 0n) ?? 0n,
@@ -1029,6 +1120,19 @@ export class ContractService {
         landlordSigned = !!ls; tenantSigned = !!ts; fullySigned = !!fs;
   } catch (_){ void _; }
       const formattedAmount = ethers.formatEther(rentAmount);
+      // Compute escrow and per-party deposits for UI (best-effort)
+      let totalDeposits = '0';
+      const depositsByParty = {};
+      try {
+        const escrow = await this.getEscrowBalance(contractAddress).catch(() => 0n);
+        try { totalDeposits = ethers.formatEther(escrow || 0n); } catch (e) { void e; totalDeposits = '0'; }
+      } catch (e) { void e; totalDeposits = '0'; }
+      try {
+        const lDep = await this.getPartyDeposit(contractAddress, landlord).catch(() => 0n);
+        const tDep = await this.getPartyDeposit(contractAddress, tenant).catch(() => 0n);
+        try { depositsByParty[landlord] = ethers.formatEther(lDep || 0n); } catch (e) { void e; depositsByParty[landlord] = '0'; }
+        try { depositsByParty[tenant] = ethers.formatEther(tDep || 0n); } catch (e) { void e; depositsByParty[tenant] = '0'; }
+      } catch (e) { void e; }
       // Derive a richer status for UI
       let status = 'Active';
       if (!isActive) {
@@ -1049,11 +1153,13 @@ export class ContractService {
         tenant,
         rentAmount: formattedAmount,
         priceFeed,
+        arbitrationService: arbitrationServiceAddr || null,
         isActive: !!isActive,
+        totalDeposits,
         cancellation: {
           requireMutualCancel: !!requireMutualCancel,
           noticePeriod: Number(noticePeriod || 0n),
-          earlyTerminationFeeBps: Number(earlyTerminationFeeBps || 0),
+          cancellationFeeBps: Number(cancellationFeeBps || 0),
           cancelRequested: !!cancelRequested,
           cancelInitiator,
           cancelEffectiveAt: Number(cancelEffectiveAt || 0n),
@@ -1068,6 +1174,7 @@ export class ContractService {
           fullySigned,
           dueDate: Number(dueDate || 0n)
         },
+        depositsByParty,
         // Backwards-compatibility: map of lowercased address => boolean for quick lookup
         signedBy: signedByMap,
         // UI-friendly fields expected by Dashboard
@@ -1141,20 +1248,45 @@ export class ContractService {
       if (!provider) throw new Error('No provider available for read-only factory calls');
       const factoryContract = await createContractInstanceAsync('ContractFactory', factoryAddress, provider);
       const contracts = await factoryContract.getContractsByCreator(userAddress);
+      // Diagnostic: log factory result
+      try { console.debug('[ContractService.getUserContracts] factory.getContractsByCreator ->', contracts); } catch (_){ void _; }
       // Filter out any addresses that aren't contracts (defensive against wrong factory/addressing)
       const p = this._providerForRead();
       const checks = await Promise.all(
         contracts.map(async (addr) => {
           try {
-            if (!p || typeof p.getCode !== 'function') return null;
-            const code = await p.getCode(addr);
+            // Use getCodeSafe which may fallback to local RPC when injected provider
+            // returns empty code on localhost setups.
+            const code = await this.getCodeSafe(addr).catch((e) => {
+              try { console.warn('[ContractService.getUserContracts] getCodeSafe failed for', addr, e && e.message ? e.message : e); } catch (_){ void _; }
+              return '0x';
+            });
+            try { console.debug('[ContractService.getUserContracts] code for', addr, '->', code); } catch (_){ void _; }
             return code && code !== '0x' ? addr : null;
           } catch (_) { void _;
             return null;
           }
         })
       );
-      return checks.filter(Boolean);
+      const addresses = checks.filter(Boolean);
+      // Enrich addresses with lightweight contract details so the UI can render
+      // friendly fields (type, parties, amount, created, status). We prefer
+      // calling the existing detail loaders which already handle ABI detection
+      // and read-provider fallbacks.
+      const enriched = await Promise.all(addresses.map(async (addr) => {
+        try {
+          const rent = await this.getEnhancedRentContractDetails(addr).catch(() => null);
+          if (rent) return { ...rent, address: addr };
+        } catch (e) { void e; }
+        try {
+          const nda = await this.getNDAContractDetails(addr).catch(() => null);
+          if (nda) return { ...nda, address: addr };
+        } catch (e) { void e; }
+        // Fallback: return minimal object so UI can still open modal and
+        // attempt to load details on demand.
+        return { address: addr, type: 'Unknown' };
+      }));
+      return enriched;
     } catch (error) {
       console.error('Error fetching user contracts:', error);
       return [];
@@ -1324,25 +1456,8 @@ export class ContractService {
           throw new Error('Target contract has no pending cancellation (cancelRequested=false)');
         }
 
-        // Check if early termination fee is required and compute amount
-        const feeBps = Number(await target.earlyTerminationFeeBps().catch(() => 0));
-        if (feeBps > 0) {
-          // Try to call getRentInEth() which returns uint256 rent in wei
-          let requiredEth = 0n;
-          try {
-            requiredEth = BigInt(await target.getRentInEth());
-          } catch (err) { void err;
-            // Could not compute rent in eth - surface helpful suggestion
-            throw new Error('Target requires an early termination fee but rent-in-ETH could not be determined (price feed may be missing)');
-          }
-          const requiredFee = (requiredEth * BigInt(feeBps)) / 10000n;
-          if (requiredFee > 0n) {
-            const provided = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
-            if (provided < requiredFee) {
-              throw new Error(`Target requires early termination fee of ${requiredFee} wei; pass this amount as feeWei to finalizeCancellationViaService`);
-            }
-          }
-        }
+        // Note: early-termination fee concept is deprecated. Cancellation fee is taken from escrow on-chain
+        // so callers do not need to forward a separate msg.value when finalizing cancellations.
       } catch (preErr) {
         // Bubble up preflight errors as friendly messages
         console.error('Arbitration preflight failed:', preErr);
@@ -1356,7 +1471,8 @@ export class ContractService {
       let svc;
     try {
     const p = this._providerForRead();
-    svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
+    // For write operations prefer a signer-attached contract. Fall back to provider-only if signer missing.
+    svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer || p);
         } catch (e) { void e;
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
@@ -1394,19 +1510,7 @@ export class ContractService {
       const cancelRequested = await target.cancelRequested().catch(() => false);
       if (!cancelRequested) throw new Error('Target contract has no pending cancellation (cancelRequested=false)');
 
-      // Check fee if required
-      const feeBps = Number(await target.earlyTerminationFeeBps().catch(() => 0));
-      if (feeBps > 0) {
-        let requiredEth = 0n;
-        try { requiredEth = BigInt(await target.getRentInEth()); } catch (_) { void _;
-          throw new Error('Target requires an early termination fee but rent-in-ETH could not be determined (price feed may be missing)');
-        }
-        const requiredFee = (requiredEth * BigInt(feeBps)) / 10000n;
-        if (requiredFee > 0n) {
-          const provided = typeof feeWei === 'bigint' ? feeWei : BigInt(feeWei || 0);
-          if (provided < requiredFee) throw new Error(`Target requires early termination fee of ${requiredFee} wei; pass this amount as feeWei to finalizeByLandlordViaService`);
-        }
-      }
+      // Note: early-termination fee concept deprecated. Finalize via service does not require forwarding a separate fee.
 
   // Determine whether connected signer is landlord
   const signerAddrRaw = await this._getSignerAddressSafe();
@@ -1419,7 +1523,8 @@ export class ContractService {
       let svc;
       try {
   const p = this._providerForRead();
-  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, p || this.signer);
+  // prefer signer for write flows; fallback to provider if signer is not available
+  svc = await createContractInstanceAsync('ArbitrationService', arbitrationServiceAddress, this.signer || p);
       } catch (e) { void e;
         console.error('Could not create ArbitrationService instance via static ABI helper:', e);
         throw new Error('ArbitrationService ABI not available');
@@ -2348,13 +2453,28 @@ void _arbitratorAddress;
 
       const propertyId = typeof params.propertyId !== 'undefined' ? Number(params.propertyId) : 0;
 
-      const tx = await factoryContract.createEnhancedRentContract(
-        params.tenant,
-        rentAmountWei,
-        priceFeedAddr,
-        dueDateTimestamp,
-        propertyId
-      );
+      let tx;
+      // If a startDate or duration was provided, call the new factory entrypoint that initializes policy at deploy
+      if (params.startDate || params.duration) {
+        tx = await factoryContract.createEnhancedRentContractWithPolicy(
+          params.tenant,
+          rentAmountWei,
+          priceFeedAddr,
+          dueDateTimestamp,
+          startTs,
+          durationDays,
+          propertyId
+        );
+      } else {
+        // Legacy path: create with deploySimple (factory will set start/duration = 0)
+        tx = await factoryContract.createEnhancedRentContract(
+          params.tenant,
+          rentAmountWei,
+          priceFeedAddr,
+          dueDateTimestamp,
+          propertyId
+        );
+      }
 
       const receipt = await tx.wait();
 
@@ -2368,6 +2488,25 @@ void _arbitratorAddress;
           }
         } catch (error) { void error; continue; }
       }
+      // If the creator provided startDate/duration in the form, set the cancellation policy
+      // on the newly created contract. This must be called by the landlord (msg.sender of creation),
+      // so we use the same signer that created the factory tx.
+      try {
+        if (contractAddress && (params.startDate || params.duration)) {
+          // reuse startTs and durationDays computed above when calling factory
+          const cancellationFeeBps = typeof params.cancellationFeeBps !== 'undefined' ? Number(params.cancellationFeeBps) : 200;
+          const feeRecipient = params.feeRecipient || ethers.ZeroAddress;
+          const newContract = await createContractInstanceAsync('EnhancedRentContract', contractAddress, this.signer);
+          // call explicit overload: setCancellationPolicy(uint256,uint256,uint16,address)
+          try {
+            const setTx = await newContract['setCancellationPolicy(uint256,uint256,uint16,address)'](startTs, durationDays, cancellationFeeBps, feeRecipient);
+            await setTx.wait();
+            console.debug('setCancellationPolicy succeeded for', contractAddress, { startTs, durationDays, cancellationFeeBps, feeRecipient });
+          } catch (setErr) {
+            console.warn('setCancellationPolicy failed (non-fatal):', setErr);
+          }
+        }
+      } catch (e) { void e; }
 
       return {
         receipt,

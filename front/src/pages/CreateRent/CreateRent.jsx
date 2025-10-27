@@ -251,15 +251,20 @@ function CreateRent() {
         return;
       }
 
-      // Localhost convenience: if user left priceFeed empty, try auto-detection (mainnet fork) else instruct user
+      // Localhost convenience: only set a default priceFeed if the user left it empty.
+      // Prefer the deployment-summary mock feed when available; otherwise fall back to mainnet feed for forks.
+      let priceFeedDefault = formData.priceFeed;
       if (formData.network === 'localhost') {
-        setFormData(prev => ({ ...prev, priceFeed: FEEDS.mainnet }));
+        if (!priceFeedDefault || String(priceFeedDefault).trim() === '') {
+          priceFeedDefault = (deploymentSummary && deploymentSummary.priceFeed) ? deploymentSummary.priceFeed : FEEDS.mainnet;
+        }
       }
 
       const contractService = new ContractService(provider, signer, expectedChainId); // ✅ Use expectedChainId
 
-      // Normalize priceFeed to EIP-55 checksum only for mainnet; skip for localhost/fork
-      let priceFeedAddress = formData.priceFeed;
+  // Normalize priceFeed to EIP-55 checksum only for mainnet; skip for localhost/fork
+  // Use the computed default when form field is empty on localhost
+  let priceFeedAddress = (formData.network === 'localhost' && priceFeedDefault) ? priceFeedDefault : formData.priceFeed;
       if (expectedChainId === 1) {
         try {
           priceFeedAddress = ethers.getAddress(priceFeedAddress);

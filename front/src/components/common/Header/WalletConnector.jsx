@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { ContractService } from '../../../services/contractService';
 import { useEthers } from '../../../contexts/EthersContext';
 
-function useAdminRole(account, signer, chainId) {
+function useAdminRole(account, signer, chainId, provider) {
   const [role, setRole] = useState('guest');
   useEffect(() => {
     async function checkRole() {
-      if (!account) { setRole('guest'); return; }
+      // Require account + a read-capable provider + signer and chainId before attempting on-chain checks
+      if (!account || !provider || !signer || !chainId) { setRole('guest'); return; }
       try {
-        const contractService = new ContractService(signer ? signer.provider : null, signer, chainId);
+        const contractService = new ContractService(provider, signer, chainId);
         const factory = await contractService.getFactoryContract();
         let owner = null;
         try { owner = await factory.factoryOwner(); } catch (_){ void _; owner = null; }
@@ -18,7 +19,7 @@ function useAdminRole(account, signer, chainId) {
       } catch (_){ void _; setRole('user'); }
     }
     checkRole();
-  }, [account, signer, chainId]);
+  }, [account, signer, chainId, provider]);
   return role;
 }
 
@@ -32,7 +33,7 @@ export default function WalletConnector({ onWallet }) {
   const [loading, setLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const { account, signer, chainId, provider: _provider, connectWallet: connectWalletCtx, disconnectWallet: disconnectWalletCtx } = useEthers();
-  const role = useAdminRole(account, signer, chainId);
+  const role = useAdminRole(account, signer, chainId, _provider);
   // mark intentionally-unused provider alias to satisfy lint
   void _provider;
 

@@ -102,8 +102,72 @@ void _contractInstanceRef;
   const [appealData, setAppealData] = useState(null);
   const [appealEvidenceList, setAppealEvidenceList] = useState([]);
   const [escrowBalanceWei, setEscrowBalanceWei] = useState(0n);
+  const [cancelPreviewObj, setCancelPreviewObj] = useState(null);
+  const [cancelPreviewLoading, setCancelPreviewLoading] = useState(false);
+  const [showCancelPreviewModal, setShowCancelPreviewModal] = useState(false);
   const [partyDepositWei, setPartyDepositWei] = useState(0n);
   const [contractBalanceWei, setContractBalanceWei] = useState(0n);
+
+  // Auto-fetch cancellation preview when both parties have approved (helps UI transition)
+  useEffect(() => {
+    try {
+      const approvals = contractDetails?.cancellation?.approvals;
+      const bothApproved = approvals && approvals.landlord && approvals.tenant;
+      if (contractDetails?.cancellation?.cancelRequested && bothApproved && contractAddress && provider) {
+        // If we don't already have a preview, fetch it
+        if (!cancelPreviewObj && !cancelPreviewLoading) {
+          (async () => {
+            try {
+              setCancelPreviewLoading(true);
+              const svc = new ContractService(provider, signer, chainId);
+              const p = await svc.getCancellationPreview(contractAddress).catch(() => null);
+              setCancelPreviewObj(p);
+            } catch (e) { void e; setCancelPreviewObj(null); }
+            finally { setCancelPreviewLoading(false); }
+          })();
+        }
+        // Auto-open the preview modal when both parties have approved so user sees Preview/Finalize immediately
+        // try {
+        //   if (!showCancelPreviewModal) setShowCancelPreviewModal(true);
+        // } catch (e) { void e; }
+      }
+    } catch (e) { void e; }
+  }, [contractDetails?.cancellation?.approvals, contractDetails?.cancellation?.cancelRequested, contractAddress, provider, signer, chainId]);
+
+  // Fetch preview when the cancel preview modal is opened (regardless of approvals)
+  useEffect(() => {
+    if (!showCancelPreviewModal) return;
+    console.debug('[ContractModal] showCancelPreviewModal opened -> fetching preview');
+    let mounted = true;
+    (async () => {
+      try {
+        setCancelPreviewLoading(true);
+        setCancelPreviewObj(null);
+        const svc = new ContractService(provider, signer, chainId);
+        const p = await svc.getCancellationPreview(contractAddress).catch((e) => { console.warn('getCancellationPreview failed', e); return null; });
+        console.debug('[ContractModal] getCancellationPreview result', p);
+        if (!mounted) return;
+        setCancelPreviewObj(p);
+      } catch (e) { void e; console.error('[ContractModal] cancellation preview fetch error', e); setCancelPreviewObj(null); }
+      finally { if (mounted) setCancelPreviewLoading(false); console.debug('[ContractModal] showCancelPreviewModal fetch finished'); }
+    })();
+    return () => { mounted = false; };
+  }, [showCancelPreviewModal, contractAddress, provider, signer, chainId]);
+
+  // Helper to explicitly fetch the preview (used by button and effects)
+  const fetchCancellationPreview = useCallback(async () => {
+    try {
+      console.debug('[ContractModal] fetchCancellationPreview invoked');
+      setCancelPreviewLoading(true);
+      setCancelPreviewObj(null);
+      const svc = new ContractService(provider, signer, chainId);
+      const p = await svc.getCancellationPreview(contractAddress).catch((e) => { console.warn('getCancellationPreview failed', e); return null; });
+      console.debug('[ContractModal] fetchCancellationPreview result', p);
+      setCancelPreviewObj(p);
+      return p;
+    } catch (e) { void e; console.error('[ContractModal] fetchCancellationPreview error', e); setCancelPreviewObj(null); return null; }
+    finally { setCancelPreviewLoading(false); }
+  }, [provider, signer, chainId, contractAddress]);
   const [topUpAmountEth, setTopUpAmountEth] = useState('0');
   const [showAdminDecryptModal, _setShowAdminDecryptModal] = useState(false);
   const [adminCiphertextInput, _setAdminCiphertextInput] = useState('');
@@ -133,6 +197,25 @@ void _formatDuration;
     return parts.length ? parts.join(' ') : `${s}s`;
   };
 
+  // Format wei (BigInt) or numeric values to ETH string for display
+  const fmtEth = (val) => {
+    try {
+      if (val === null || typeof val === 'undefined') return '—';
+      // If BigInt (wei)
+      if (typeof val === 'bigint') return ethers.formatEther(val);
+      // If it looks like a numeric string or number (already in ETH), show as-is
+      if (typeof val === 'number') return String(val);
+      if (typeof val === 'string') {
+        // If it's a hex address, return raw (used for feeRecipient elsewhere)
+        if (/^0x[0-9a-fA-F]{40}$/.test(val)) return val;
+        // If it's a decimal-looking string, return as-is
+        if (!isNaN(Number(val))) return String(val);
+        return val;
+      }
+      return String(val);
+    } catch (e) { void e; return String(val); }
+  };
+
   const isTenant = useMemo(() => {
     if (!account || !contractDetails?.tenant) return false;
     return account.toLowerCase() === contractDetails.tenant.toLowerCase();
@@ -142,54 +225,6 @@ void _formatDuration;
     if (!account || !contractDetails?.landlord) return false;
     return account.toLowerCase() === contractDetails.landlord.toLowerCase();
   }, [account, contractDetails]);
-
-  // Load contract data function
-  const loadContractData = useCallback(async () => {
-    if (!contractAddress || !provider) {
-      console.log('[loadContractData] Missing contractAddress or provider', { contractAddress, provider });
-      return;
-    }
-    try {
-      setDataLoading(true);
-      const contractService = new ContractService(provider, signer, chainId);
-      console.log('[loadContractData] Trying EnhancedRentContract:', contractAddress);
-      let details = await contractService.getEnhancedRentContractDetails(contractAddress)
-        .catch((e) => { console.log('[loadContractData] EnhancedRentContract error', e); return null; });
-      if (!details) {
-        console.log('[loadContractData] Trying NDA contract:', contractAddress);
-        details = await contractService.getNDAContractDetails(contractAddress)
-          .catch((e) => { console.log('[loadContractData] NDAContract error', e); return null; });
-      }
-      console.log('[loadContractData] Loaded details:', details);
-      if (details) {
-        setContractDetails(details);
-        // Set related states based on contract details
-        if (details.type === 'Rental') {
-          setRentAlreadySigned(details.signedBy?.[account?.toLowerCase()] || false);
-          setRentCanSign(account && (account.toLowerCase() === details.landlord.toLowerCase() || account.toLowerCase() === details.tenant.toLowerCase()));
-        } else if (details.type === 'NDA') {
-          setNdaAlreadySigned(details.signatures?.[account?.toLowerCase()] || false);
-          setNdaCanSign(account && details.parties?.includes(account.toLowerCase()));
-        }
-        // Load transaction history
-        await loadTransactionHistory(details);
-        // Determine whether we have a persisted appeal/incoming dispute or appealEvidence entries
-        try {
-          const key1 = `incomingDispute:${contractAddress}`;
-          const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
-          const incoming = localStorage.getItem(key1) || localStorage.getItem(key2) || sessionStorage.getItem('incomingDispute');
-          const appealKey = `appealEvidence:${String(contractAddress).toLowerCase()}`;
-          const appealExists = !!localStorage.getItem(appealKey);
-          if (incoming || appealExists) setHasAppeal(true);
-        } catch (e) { void e; /* preserve error for debugging */ }
-      }
-    } catch (error) {
-      console.error('[loadContractData] Error loading contract data:', error);
-    } finally {
-      setDataLoading(false);
-    }
-  }, [contractAddress, provider, signer, chainId, account, loadTransactionHistory]);
-
   // Load transaction history
   const loadTransactionHistory = useCallback(async (details) => {
     try {
@@ -283,6 +318,55 @@ void _formatDuration;
       setTransactionHistory([]);
     }
   }, [provider, signer, chainId]);
+
+  // Load contract data function
+  const loadContractData = useCallback(async () => {
+    if (!contractAddress || !provider) {
+      console.log('[loadContractData] Missing contractAddress or provider', { contractAddress, provider });
+      return;
+    }
+    try {
+      setDataLoading(true);
+      const contractService = new ContractService(provider, signer, chainId);
+      console.log('[loadContractData] Trying EnhancedRentContract:', contractAddress);
+      let details = await contractService.getEnhancedRentContractDetails(contractAddress)
+        .catch((e) => { console.log('[loadContractData] EnhancedRentContract error', e); return null; });
+      if (!details) {
+        console.log('[loadContractData] Trying NDA contract:', contractAddress);
+        details = await contractService.getNDAContractDetails(contractAddress)
+          .catch((e) => { console.log('[loadContractData] NDAContract error', e); return null; });
+      }
+      console.log('[loadContractData] Loaded details:', details);
+      if (details) {
+        setContractDetails(details);
+        // Set related states based on contract details
+        if (details.type === 'Rental') {
+          setRentAlreadySigned(details.signedBy?.[account?.toLowerCase()] || false);
+          setRentCanSign(account && (account.toLowerCase() === details.landlord.toLowerCase() || account.toLowerCase() === details.tenant.toLowerCase()));
+        } else if (details.type === 'NDA') {
+          setNdaAlreadySigned(details.signatures?.[account?.toLowerCase()] || false);
+          setNdaCanSign(account && details.parties?.includes(account.toLowerCase()));
+        }
+        // Load transaction history
+        await loadTransactionHistory(details);
+        // Determine whether we have a persisted appeal/incoming dispute or appealEvidence entries
+        try {
+          const key1 = `incomingDispute:${contractAddress}`;
+          const key2 = `incomingDispute:${String(contractAddress).toLowerCase()}`;
+          const incoming = localStorage.getItem(key1) || localStorage.getItem(key2) || sessionStorage.getItem('incomingDispute');
+          const appealKey = `appealEvidence:${String(contractAddress).toLowerCase()}`;
+          const appealExists = !!localStorage.getItem(appealKey);
+          if (incoming || appealExists) setHasAppeal(true);
+        } catch (e) { void e; /* preserve error for debugging */ }
+      }
+    } catch (error) {
+      console.error('[loadContractData] Error loading contract data:', error);
+    } finally {
+      setDataLoading(false);
+    }
+  }, [contractAddress, provider, signer, chainId, account, loadTransactionHistory]);
+
+ 
 
   // Load contract data when component mounts or contractAddress changes
   useEffect(() => {
@@ -422,6 +506,37 @@ void _formatDuration;
       };
       contractInstance.on('DisputeReported', disputeHandler);
       listeners.push(() => contractInstance.off('DisputeReported', disputeHandler));
+
+      // Cancellation-related events: refresh state so UI updates when approvals happen off-band
+      const cancelInitiatedHandler = (initiator, effectiveAt, event) => {
+        try {
+          console.log('[ContractModal] CancellationInitiated event', { initiator, effectiveAt });
+        } catch (e) { void e; }
+        try { refreshBalances(); } catch (e) { void e; }
+        try { loadContractData(); } catch (e) { void e; }
+      };
+      contractInstance.on('CancellationInitiated', cancelInitiatedHandler);
+      listeners.push(() => contractInstance.off('CancellationInitiated', cancelInitiatedHandler));
+
+      const cancelApprovedHandler = (approver, event) => {
+        try {
+          console.log('[ContractModal] CancellationApproved event', { approver });
+        } catch (e) { void e; }
+        try { refreshBalances(); } catch (e) { void e; }
+        try { loadContractData(); } catch (e) { void e; }
+      };
+      contractInstance.on('CancellationApproved', cancelApprovedHandler);
+      listeners.push(() => contractInstance.off('CancellationApproved', cancelApprovedHandler));
+
+      const cancelFinalizedHandler = (finalizer, event) => {
+        try {
+          console.log('[ContractModal] CancellationFinalized event', { finalizer });
+        } catch (e) { void e; }
+        try { refreshBalances(); } catch (e) { void e; }
+        try { loadContractData(); } catch (e) { void e; }
+      };
+      contractInstance.on('CancellationFinalized', cancelFinalizedHandler);
+      listeners.push(() => contractInstance.off('CancellationFinalized', cancelFinalizedHandler));
       
       // NDA events
       const ndaAbi = NDATemplateJson.abi;
@@ -1135,13 +1250,7 @@ void _handleCreateDispute;
     } finally { setActionLoading(false); }
   };
 
-  const _isArbitrator = useMemo(() => {
-void _isArbitrator;
-    try {
-      if (!arbOwner || !account) return false;
-      return arbOwner.toLowerCase() === account.toLowerCase();
-    } catch (_){ void _; return false; }
-  }, [arbOwner, account]);
+ 
 
   const handleSetPolicy = async () => {
     try {
@@ -1179,6 +1288,22 @@ void _isArbitrator;
       const service = new ContractService(provider, signer, chainId);
       await service.approveCancellation(contractAddress);
       alert('Cancellation approved');
+      // Optimistically update UI to reflect this approval immediately (helps when read-calls lag or fail)
+      try {
+        setContractDetails(prev => {
+          if (!prev) return prev;
+          const updated = { ...prev };
+          updated.cancellation = { ...updated.cancellation };
+          updated.cancellation.approvals = { ...updated.cancellation.approvals };
+          try {
+            if (isLandlord) updated.cancellation.approvals.landlord = true;
+            if (isTenant) updated.cancellation.approvals.tenant = true;
+          } catch (e) { void e; }
+          return updated;
+        });
+      } catch (e) { void e; }
+      // Refresh balances and reload authoritative state
+      try { await refreshBalances(); } catch (e) { void e; }
       await loadContractData();
     } catch (e) { void e;
       alert(`Failed: ${e?.reason || e?.message}`);
@@ -1701,18 +1826,64 @@ void _handleCopyComplaint;
                         {(isLandlord || isTenant) && contractDetails?.cancellation?.cancelRequested && (
                           (() => {
                             const isInitiator = (account && contractDetails?.cancelInitiator && account.toLowerCase() === contractDetails.cancelInitiator.toLowerCase());
+                            const isApprover = (account && contractDetails?.cancelInitiator && account.toLowerCase() !== contractDetails.cancelInitiator.toLowerCase());
+                            const approvals = contractDetails?.cancellation?.approvals || {};
+                            const bothApproved = approvals.landlord && approvals.tenant;
+                            // If both parties approved, show preview/finalize controls; otherwise show approve/preview
+                            if (bothApproved) {
+                              return (
+                                <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                                  <div style={{padding:'6px 10px', border:'1px solid #d3e8ff', borderRadius:6, background:'#f0f8ff'}}>Both parties approved</div>
+                                  <button className="btn-action" onClick={async () => {
+                                    try {
+                                      console.debug('[ContractModal] Show Cancellation Preview (bothApproved) clicked');
+                                      // Use centralized fetch helper then open modal so behavior matches the other branch
+                                      await fetchCancellationPreview();
+                                      setShowCancelPreviewModal(true);
+                                    } catch (e) { void e; console.error('Failed fetching/opening cancellation preview', e); }
+                                  }} disabled={cancelPreviewLoading} title="View computed cancellation split">
+                                    {cancelPreviewLoading ? 'Loading...' : 'Show Cancellation Preview'}
+                                  </button>
+                                  {isApprover && (
+                                    <button className="btn-action primary" onClick={async () => {
+                                      try {
+                                        if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return;
+                                        await _handleFinalizeCancellation();
+                                      } catch (e) { void e; console.error('Finalize cancelled failed', e); alert('Failed to finalize: ' + (e?.message || e)); }
+                                    }} disabled={readOnly || actionLoading}>
+                                      Finalize Cancellation
+                                    </button>
+                                  )}
+                                </div>
+                              );
+                            }
+                            // default: not bothApproved yet — show approve + preview
                             return (
-                              <button className="btn-action" onClick={async () => {
-                                try {
-                                  if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
-                                  await handleApproveCancel();
-                                } catch (e) { void e; console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
-                              }} disabled={readOnly || actionLoading || isInitiator} title={isInitiator ? 'Cancel initiator cannot approve their own cancellation' : undefined}>
-                                Approve Cancellation
-                              </button>
+                              <div style={{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'}}>
+                                <button className="btn-action" onClick={async () => {
+                                  try {
+                                    if (!confirm('Approve cancellation? This confirms you agree to cancel the contract.')) return;
+                                    await handleApproveCancel();
+                                  } catch (e) { void e; console.error('Approve cancel failed', e); alert('Failed to approve cancellation: ' + (e?.message || e)); }
+                                }} disabled={readOnly || actionLoading || isInitiator} title={isInitiator ? 'Cancel initiator cannot approve their own cancellation' : undefined}>
+                                  Approve Cancellation
+                                </button>
+                                <button className="btn-action" onClick={async () => {
+                                  try {
+                                    console.debug('[ContractModal] Show Cancellation Preview clicked');
+                                    // Always fetch latest preview and open modal
+                                    await fetchCancellationPreview();
+                                    setShowCancelPreviewModal(true);
+                                  } catch (e) { void e; console.error('Failed opening cancellation preview modal', e); }
+                                }} disabled={cancelPreviewLoading} title="View computed cancellation split">
+                                  {cancelPreviewLoading ? 'Loading...' : 'Show Cancellation Preview'}
+                                </button>
+                              </div>
                             );
                           })()
                         )}
+
+                        {/* Inline preview removed in favor of modal preview */}
                         {/* Allow landlord or tenant to submit an appeal/dispute */}
                         {(isLandlord || isTenant) && (
                           <button className="btn-action" onClick={async () => { try { setShowDisputeForm(true); } catch (e) { void e;console.error(e);} }} disabled={readOnly || actionLoading}>
@@ -1776,6 +1947,77 @@ void _handleCopyComplaint;
             <p>Could not load contract details</p>
           </div>
         ) : null}
+
+        {/* Cancellation preview modal (small) */}
+        {showCancelPreviewModal && (
+          <div className="appeal-overlay" onClick={() => { setShowCancelPreviewModal(false); setCancelPreviewObj(null); }}>
+            <div className="appeal-modal" onClick={(e) => e.stopPropagation()} style={{maxWidth:520}}>
+              <h3>Cancellation Preview</h3>
+              <div style={{marginTop:8}}>
+                {cancelPreviewLoading ? (
+                  <div>Loading preview...</div>
+                ) : cancelPreviewObj ? (
+                  (() => {
+                    try {
+                      // Normalize values (BigInt) and safely compute merged share including fee paid to approver
+                      const tenantRefundRaw = cancelPreviewObj.tenantRefund ?? 0n;
+                      const landlordShareRaw = cancelPreviewObj.landlordShare ?? 0n;
+                      const feeRaw = cancelPreviewObj.fee ?? 0n;
+                      const feeRecipient = (cancelPreviewObj.feeRecipient || '')?.toLowerCase() || null;
+
+                      // Determine which party receives the fee (approver / non-initiator)
+                      const landlordAddr = contractDetails?.landlord ? String(contractDetails.landlord).toLowerCase() : null;
+                      const tenantAddr = contractDetails?.tenant ? String(contractDetails.tenant).toLowerCase() : null;
+
+                      let tenantDisplay = BigInt(tenantRefundRaw || 0n);
+                      let landlordDisplay = BigInt(landlordShareRaw || 0n);
+
+                      if (feeRaw && feeRaw > 0n && feeRecipient) {
+                        if (feeRecipient === landlordAddr) {
+                          landlordDisplay = landlordDisplay + BigInt(feeRaw);
+                        } else if (feeRecipient === tenantAddr) {
+                          tenantDisplay = tenantDisplay + BigInt(feeRaw);
+                        }
+                      }
+
+                      return (
+                        <div style={{display:'flex', flexDirection:'column', gap:8}}>
+                          <div><strong>Tenant refund:</strong> {fmtEth(tenantDisplay)} ETH{(feeRaw && feeRecipient === tenantAddr) ? ' (includes fee)' : ''}</div>
+                          <div><strong>Landlord share:</strong> {fmtEth(landlordDisplay)} ETH{(feeRaw && feeRecipient === landlordAddr) ? ' (includes fee)' : ''}</div>
+                          {/* Keep fee row for clarity when present */}
+                          <div><strong>Fee:</strong> {fmtEth(feeRaw)} ETH</div>
+                              <div><strong>Fee recipient:</strong> {cancelPreviewObj.feeRecipient ?? '—'}</div>
+                              {/* Show cancellation policy summary so developer can see why fee may be zero */}
+                              <div style={{marginTop:8, fontSize:13, color:'#444'}}>
+                                <div>Policy fee (bps): <strong>{contractDetails?.cancellation?.cancellationFeeBps ?? 'n/a'}</strong></div>
+                                <div>Cancel requested: <strong>{contractDetails?.cancellation?.cancelRequested ? 'yes' : 'no'}</strong></div>
+                                <div>Escrow (ETH): <strong>{contractDetails?.totalDeposits ?? '0'}</strong></div>
+                              </div>
+                              {/* Debug: raw preview object (stringified BigInt -> string) */}
+                              <details style={{marginTop:8}}>
+                                <summary style={{cursor:'pointer'}}>Raw preview (debug)</summary>
+                                <pre style={{whiteSpace:'pre-wrap', maxHeight:200, overflow:'auto'}}>{JSON.stringify({
+                                  tenantRefund: String(cancelPreviewObj.tenantRefund || 0n),
+                                  landlordShare: String(cancelPreviewObj.landlordShare || 0n),
+                                  fee: String(cancelPreviewObj.fee || 0n),
+                                  feeRecipient: cancelPreviewObj.feeRecipient || null
+                                }, null, 2)}</pre>
+                              </details>
+                          <div style={{display:'flex', gap:8, marginTop:12}}>
+                            <button className="btn-action" onClick={() => { setShowCancelPreviewModal(false); setCancelPreviewObj(null); }}>Close</button>
+                            <button className="btn-action primary" onClick={async () => { try { if (!confirm('Finalize cancellation via Arbitration Service? This will deactivate the contract.')) return; await _handleFinalizeCancellation(); setShowCancelPreviewModal(false); } catch (e) { void e; alert('Failed to finalize: ' + (e?.message || e)); } }} disabled={actionLoading}>Finalize Cancellation</button>
+                          </div>
+                        </div>
+                      );
+                    } catch (e) { void e; return <div style={{color:'#666'}}>Preview unavailable</div>; }
+                  })()
+                ) : (
+                  <div style={{color:'#666'}}>Preview unavailable</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {showDisputeForm && (
           <div className="dispute-form-overlay" onClick={() => setShowDisputeForm(false)}>

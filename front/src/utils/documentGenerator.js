@@ -45,7 +45,8 @@ export class DocumentGenerator {
         <div class="grid">
           <div class="item"><span class="label">Require Mutual</span><div class="value">${cxl.requireMutualCancel ? 'Yes' : 'No'}</div></div>
           <div class="item"><span class="label">Notice Period</span><div class="value">${fmtDuration(cxl.noticePeriod)}</div></div>
-          <div class="item"><span class="label">Early Termination Fee (bps)</span><div class="value">${Number(cxl.earlyTerminationFeeBps || 0)}</div></div>
+          <!-- Early termination fee removed; use Cancellation Fee instead -->
+          <div class="item"><span class="label">Cancellation Fee (bps)</span><div class="value">${Number(cxl.cancellationFeeBps || 0)}</div></div>
           ${cxl.cancelRequested ? `<div class="item"><span class="label">Requested By</span><div class="value">${short(cxl.cancelInitiator)}</div></div>` : ''}
           ${cxl.cancelRequested ? `<div class="item"><span class="label">Effective At</span><div class="value">${cxl.cancelEffectiveAt ? new Date(Number(cxl.cancelEffectiveAt) * 1000).toLocaleString() : '—'}</div></div>` : ''}
         </div>

@@ -24,9 +24,10 @@ function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalReadOnly, setModalReadOnly] = useState(false);
   const [filterType, setFilterType] = useState('All');
+  const [isAdmin, setIsAdmin] = useState(false);
   // AI features removed: simulation/stubs intentionally removed from UI
 
-  // התראות בזמן אמת על תשלומי שכירות
+  // תראות בזמן אמת על תשלומי שכירות
   useRentPaymentEvents(selectedContract, (payer, amount, timestamp) => {
     void timestamp;
     addNotification({
@@ -50,8 +51,30 @@ function Dashboard() {
         } catch (_) { void _; setContracts([]); }
   } else {
         try {
-          const my = await contractService.getContractsForAccount(account).catch(() => []);
-          setContracts(my || []);
+          // Correct method name on ContractService: getUserContracts (contracts created by user)
+          const my = await contractService.getUserContracts(account).catch(() => []);
+          let combined = my || [];
+          try {
+            // Also find any contracts where the user is a participant (tenant/party),
+            // not just the creator. getContractsByParticipant returns addresses, so
+            // enrich them into the same object shape as getUserContracts.
+            const participantAddrs = await contractService.getContractsByParticipant(account).catch(() => []);
+            const existing = new Set((combined || []).map(c => String(c.address || c).toLowerCase()));
+            const toEnrich = (participantAddrs || []).filter(a => !existing.has(String(a).toLowerCase()));
+            const extra = await Promise.all(toEnrich.map(async (addr) => {
+              try {
+                const rent = await contractService.getEnhancedRentContractDetails(addr).catch(() => null);
+                if (rent) return { ...rent, address: addr };
+              } catch (_) { void _; }
+              try {
+                const nda = await contractService.getNDAContractDetails(addr).catch(() => null);
+                if (nda) return { ...nda, address: addr };
+              } catch (_) { void _; }
+              return { address: addr, type: 'Unknown' };
+            }));
+            combined = [...combined, ...extra.filter(Boolean)];
+          } catch (e) { void e; }
+          setContracts(combined || []);
         } catch (_) { void _; setContracts([]); }
   }
     } catch (e) { void e;
@@ -62,12 +85,43 @@ function Dashboard() {
     }
   }, [provider, signer, chainId, account, isAdmin]);
 
+  // track per-contract listener instances for cleanup
+  const contractListenersRef = useRef({});
+
+  const attachListenersToAddresses = useCallback(async (addresses = []) => {
+    try {
+      // Prefer a read-only provider for listeners (direct localhost RPC) when available
+      const _cs_for_listen = new ContractService(provider, signer, chainId);
+      const readProviderForAttach = _cs_for_listen._providerForRead() || provider;
+      // Always use a read-capable provider for event listeners
+      for (const addr of addresses) {
+        const a = String(addr).toLowerCase?.() ?? addr;
+        if (!a) continue;
+        if (contractListenersRef.current[a]) continue; // already listening
+        try {
+          const inst = await createContractInstanceAsync('EnhancedRentContract', a, readProviderForAttach);
+          const refresh = () => loadUserContracts();
+          inst.on('CancellationInitiated', refresh);
+          inst.on('CancellationApproved', refresh);
+          inst.on('CancellationFinalized', refresh);
+          inst.on('ContractCancelled', refresh);
+          contractListenersRef.current[a] = { inst, refresh };
+        } catch (e) { void e;
+          console.warn('attachListenersToAddresses failed for', a, e);
+        }
+      }
+    } catch (e) { void e;
+        console.warn('attachListenersToAddresses general failure', e);
+      }
+    }, [provider, loadUserContracts]);
+
   const setupEventListeners = useCallback(async () => {
     try {
       const contractService = new ContractService(provider, signer, chainId);
       const factoryContractBase = await contractService.getFactoryContract();
-      // Always use provider for event listeners
-      const factoryContract = await createContractInstanceAsync('ContractFactory', factoryContractBase.address || factoryContractBase.target || factoryContractBase, provider);
+      // Prefer a read provider (local JsonRpc) for event listeners so local events are visible
+      const readProvider = contractService._providerForRead() || provider;
+      const factoryContract = await createContractInstanceAsync('ContractFactory', factoryContractBase.address || factoryContractBase.target || factoryContractBase, readProvider);
 
       factoryContract.on('EnhancedRentContractCreated', (contractAddress, landlord, tenant) => {
         addNotification({
@@ -110,8 +164,6 @@ function Dashboard() {
     }
   }, [isConnected, account, signer, chainId, loadUserContracts, setupEventListeners, attachListenersToAddresses]);
 
-  const [isAdmin, setIsAdmin] = useState(false);
-
   // On-chain admin detection: fetch factoryOwner from ContractFactory
   useEffect(() => {
     async function checkAdmin() {
@@ -131,32 +183,7 @@ function Dashboard() {
 
   // setupEventListeners handled via stable useCallback declared earlier
 
-  // track per-contract listener instances for cleanup
-  const contractListenersRef = useRef({});
-
-  const attachListenersToAddresses = useCallback(async (addresses = []) => {
-    try {
-      // Always use provider for event listeners
-      for (const addr of addresses) {
-        const a = String(addr).toLowerCase?.() ?? addr;
-        if (!a) continue;
-        if (contractListenersRef.current[a]) continue; // already listening
-        try {
-          const inst = await createContractInstanceAsync('EnhancedRentContract', a, provider);
-          const refresh = () => loadUserContracts();
-          inst.on('CancellationInitiated', refresh);
-          inst.on('CancellationApproved', refresh);
-          inst.on('CancellationFinalized', refresh);
-          inst.on('ContractCancelled', refresh);
-          contractListenersRef.current[a] = { inst, refresh };
-        } catch (e) { void e;
-          console.warn('attachListenersToAddresses failed for', a, e);
-        }
-      }
-    } catch (e) { void e;
-        console.warn('attachListenersToAddresses general failure', e);
-      }
-    }, [provider, loadUserContracts]);
+  
 
   // cleanup on unmount
   useEffect(() => {
@@ -175,6 +202,36 @@ function Dashboard() {
       } catch (_) { void _;}
     };
   }, []);
+
+  // Recompute dashboard stats when contracts change
+  useEffect(() => {
+    try {
+      const total = Array.isArray(contracts) ? contracts.length : 0;
+      const active = Array.isArray(contracts) ? contracts.filter(c => (c.status === 'Active' || c.isActive)).length : 0;
+      const pending = Array.isArray(contracts) ? contracts.filter(c => (c.status === 'Pending' || (c.cancellation && c.cancellation.cancelRequested))).length : 0;
+
+      let totalVal = 0;
+      if (Array.isArray(contracts)) {
+        for (const c of contracts) {
+          try {
+            if (typeof c.amount === 'number') {
+              totalVal += c.amount;
+            } else if (typeof c.amount === 'string') {
+              const parsed = parseFloat(String(c.amount).replace(/,/g, ''));
+              if (!isNaN(parsed)) totalVal += parsed;
+            } else if (typeof c.amount === 'bigint') {
+              totalVal += Number(ethers.formatEther(c.amount));
+            } else if (c.amount && typeof c.amount === 'object' && c.amount._isBigNumber) {
+              totalVal += Number(ethers.formatEther(c.amount));
+            }
+          } catch (e) { /* ignore per-item parse errors */ }
+        }
+      }
+
+      const totalValueStr = (Math.round((totalVal + Number.EPSILON) * 1e6) / 1e6).toString();
+      _setStats({ totalContracts: total, activeContracts: active, pendingContracts: pending, totalValue: totalValueStr });
+    } catch (e) { void e; }
+  }, [contracts]);
 
   // loadUserContracts handled via stable useCallback declared earlier
 

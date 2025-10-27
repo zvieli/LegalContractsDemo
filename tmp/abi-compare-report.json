@@ -1,0 +1,665 @@
+{
+  "scanned": [
+    {
+      "contract": "AggregatorV3Interface",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\AggregatorV3Interface.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\AggregatorV3Interface.sol\\AggregatorV3Interface.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 4,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 4,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "ArbitrationContractV2",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\ArbitrationContractV2.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ArbitrationContractV2.sol\\ArbitrationContractV2.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 21,
+          "events": 4
+        },
+        "artifactCount": {
+          "funcs": 21,
+          "events": 4
+        }
+      }
+    },
+    {
+      "contract": "ArbitrationService",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\ArbitrationService.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ArbitrationService.sol\\ArbitrationService.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 13,
+          "events": 5
+        },
+        "artifactCount": {
+          "funcs": 13,
+          "events": 5
+        }
+      }
+    },
+    {
+      "contract": "Arbitrator",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\Arbitrator.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\Arbitrator.sol\\Arbitrator.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 4,
+          "events": 1
+        },
+        "artifactCount": {
+          "funcs": 4,
+          "events": 1
+        }
+      }
+    },
+    {
+      "contract": "CCIPArbitrationReceiver",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\CCIPArbitrationReceiver.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ccip\\CCIPArbitrationReceiver.sol\\CCIPArbitrationReceiver.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 15,
+          "events": 6
+        },
+        "artifactCount": {
+          "funcs": 15,
+          "events": 6
+        }
+      }
+    },
+    {
+      "contract": "CCIPArbitrationSender",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\CCIPArbitrationSender.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ccip\\CCIPArbitrationSender.sol\\CCIPArbitrationSender.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 13,
+          "events": 4
+        },
+        "artifactCount": {
+          "funcs": 13,
+          "events": 4
+        }
+      }
+    },
+    {
+      "contract": "CCIPArbitrationTypes",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\CCIPArbitrationTypes.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ccip\\CCIPArbitrationTypes.sol\\CCIPArbitrationTypes.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 0,
+          "events": 3
+        },
+        "artifactCount": {
+          "funcs": 0,
+          "events": 3
+        }
+      }
+    },
+    {
+      "contract": "Client",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\Client.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ccip\\LocalClient.sol\\Client.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 0,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 0,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "ContractFactory",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\ContractFactory.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\ContractFactory.sol\\ContractFactory.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 14,
+          "events": 2
+        },
+        "artifactCount": {
+          "funcs": 14,
+          "events": 2
+        }
+      }
+    },
+    {
+      "contract": "EnhancedRentContract",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\EnhancedRentContract.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Rent\\EnhancedRentContract.sol\\EnhancedRentContract.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 73,
+          "events": 32
+        },
+        "artifactCount": {
+          "funcs": 73,
+          "events": 32
+        }
+      }
+    },
+    {
+      "contract": "FailingService",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\FailingService.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\mocks\\FailingService.sol\\FailingService.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 2,
+          "events": 1
+        },
+        "artifactCount": {
+          "funcs": 2,
+          "events": 1
+        }
+      }
+    },
+    {
+      "contract": "FailReceiver",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\FailReceiver.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\test\\FailReceiver.sol\\FailReceiver.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 0,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 0,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "IArbitrationService",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\IArbitrationService.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ArbitrationContractV2.sol\\IArbitrationService.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 1,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 1,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "ICCIPArbitrationSender",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\ICCIPArbitrationSender.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\NDA\\NDATemplate.sol\\ICCIPArbitrationSender.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 1,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 1,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "ICCIPRouter",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\ICCIPRouter.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ccip\\CCIPArbitrationReceiver.sol\\ICCIPRouter.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 2,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 2,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "IFactoryAuth",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\IFactoryAuth.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\IFactoryAuth.sol\\IFactoryAuth.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 1,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 1,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "IRouterClientLocal",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\IRouterClientLocal.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ccip\\IRouterClientLocal.sol\\IRouterClientLocal.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 2,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 2,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "LinkTokenInterface",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\LinkTokenInterface.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Arbitration\\ccip\\LinkTokenInterface.sol\\LinkTokenInterface.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 4,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 4,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "MerkleEvidenceManager",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\MerkleEvidenceManager.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\MerkleEvidenceManager.sol\\MerkleEvidenceManager.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 15,
+          "events": 4
+        },
+        "artifactCount": {
+          "funcs": 15,
+          "events": 4
+        }
+      }
+    },
+    {
+      "contract": "MockCCIPRouter",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\MockCCIPRouter.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\mocks\\MockCCIPRouter.sol\\MockCCIPRouter.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 5,
+          "events": 1
+        },
+        "artifactCount": {
+          "funcs": 5,
+          "events": 1
+        }
+      }
+    },
+    {
+      "contract": "MockLinkToken",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\MockLinkToken.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\mocks\\MockLinkToken.sol\\MockLinkToken.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 10,
+          "events": 2
+        },
+        "artifactCount": {
+          "funcs": 10,
+          "events": 2
+        }
+      }
+    },
+    {
+      "contract": "MockTarget",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\MockTarget.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\mocks\\MockTarget.sol\\MockTarget.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 4,
+          "events": 1
+        },
+        "artifactCount": {
+          "funcs": 4,
+          "events": 1
+        }
+      }
+    },
+    {
+      "contract": "MockV3Aggregator",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\MockV3Aggregator.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\mocks\\MockV3Aggregator.sol\\MockV3Aggregator.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 5,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 5,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "NDATemplate",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\NDATemplate.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\NDA\\NDATemplate.sol\\NDATemplate.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 54,
+          "events": 26
+        },
+        "artifactCount": {
+          "funcs": 54,
+          "events": 26
+        }
+      }
+    },
+    {
+      "contract": "RecipientKeyRegistry",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\RecipientKeyRegistry.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\RecipientKeyRegistry.sol\\RecipientKeyRegistry.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 18,
+          "events": 5
+        },
+        "artifactCount": {
+          "funcs": 18,
+          "events": 5
+        }
+      }
+    },
+    {
+      "contract": "ReentrantReceiver",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\ReentrantReceiver.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\test\\ReentrantReceiver.sol\\ReentrantReceiver.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 2,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 2,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "Reverter",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\Reverter.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Reverter.sol\\Reverter.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 1,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 1,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "TemplateRentContract",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\TemplateRentContract.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\Rent\\TemplateRentContract.sol\\TemplateRentContract.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 68,
+          "events": 30
+        },
+        "artifactCount": {
+          "funcs": 68,
+          "events": 30
+        }
+      }
+    },
+    {
+      "contract": "_EnhancedRentDeployer",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\_EnhancedRentDeployer.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\ContractFactory.sol\\_EnhancedRentDeployer.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 1,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 1,
+          "events": 0
+        }
+      }
+    },
+    {
+      "contract": "_NDADeployer",
+      "front": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\front\\src\\utils\\contracts\\_NDADeployer.json",
+      "artifact": "C:\\Users\\user\\vsc\\blockchain\\LegalContractsDemo\\artifacts\\contracts\\ContractFactory.sol\\_NDADeployer.json",
+      "result": {
+        "ok": true,
+        "diffs": {
+          "fnAdded": [],
+          "fnRemoved": [],
+          "evAdded": [],
+          "evRemoved": []
+        },
+        "frontCount": {
+          "funcs": 1,
+          "events": 0
+        },
+        "artifactCount": {
+          "funcs": 1,
+          "events": 0
+        }
+      }
+    }
+  ],
+  "errors": []
+}

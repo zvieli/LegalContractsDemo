@@ -68,11 +68,15 @@ describe('E2E Contracts Flow', function () {
     propertyId = 12345;
 
     const priceFeedAddr = mockPriceFeed.target ?? mockPriceFeed.address;
-    const tx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate = Math.floor(Date.now() / 1000);
+    const durationDays = 30;
+    const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       priceFeedAddr,
       dueDate,
+      startDate,
+      durationDays,
       propertyId
     );
     const receipt = await tx.wait();
@@ -612,11 +616,15 @@ describe('E2E Contracts Flow', function () {
 
     // Create a fresh contract for edge cases testing
     const priceFeedAddr = mockPriceFeed.target ?? mockPriceFeed.address;
-    const tx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate_edge = Math.floor(Date.now() / 1000);
+    const durationDays_edge = 30;
+    const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       priceFeedAddr, // price feed
       dueDate,
+      startDate_edge,
+      durationDays_edge,
       12345 // propertyId
     );
     const receipt = await tx.wait();
@@ -710,11 +718,15 @@ describe('E2E Contracts Flow', function () {
     
     // Test 7: Cannot report dispute on inactive contract
     // Create a new contract for this test
-    const cancelTx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate_cancel = Math.floor(Date.now() / 1000);
+    const durationDays_cancel = 30;
+    const cancelTx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       priceFeedAddr, // price feed
       dueDate,
+      startDate_cancel,
+      durationDays_cancel,
       12346 // propertyId
     );
     const cancelReceipt = await cancelTx.wait();

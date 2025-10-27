@@ -37,6 +37,10 @@ AggregatorV3Interface public immutable priceFeed;
     mapping(address => uint256) public withdrawable;
     // Escrow balance for rent payments held by contract
     uint256 public escrowBalance;
+    // Cancellation policy
+    uint256 public startDate; // unix timestamp when lease starts
+    uint256 public durationDays; // duration in days
+    uint16 public cancellationFeeBps; // fee in basis points applied to tenant refund
     // Outstanding judgement per case when award exceeds available funds
     mapping(uint256 => uint256) public outstandingJudgement;
     // Reporter bond per dispute caseId (optional bond attached by reporter)
@@ -67,7 +71,7 @@ AggregatorV3Interface public immutable priceFeed;
     // Cancellation policy and state
     bool public requireMutualCancel;           // if true, both parties must approve
     uint256 public noticePeriod;               // seconds to wait before unilateral finalize
-    uint16 public earlyTerminationFeeBps;      // optional fee in bps applied to current rent in ETH
+    uint16 public earlyTerminationFeeBps;      // deprecated: early termination fee (bps). Kept for ABI compatibility — prefer cancellationFeeBps
 
     bool public cancelRequested;               // has a cancellation been initiated
     address public cancelInitiator;            // who initiated the cancellation
@@ -114,6 +118,7 @@ AggregatorV3Interface public immutable priceFeed;
     event LateFeeUpdated(uint256 newPercent);
     event RentSigned(address indexed signer, uint256 timestamp);
     event CancellationPolicyUpdated(uint256 noticePeriod, uint16 feeBps, bool requireMutual);
+    event CancellationPolicyConfigured(uint256 startDate, uint256 durationDays, uint16 feeBps, address feeRecipient);
     event CancellationInitiated(address indexed by, uint256 effectiveAt);
     event CancellationApproved(address indexed by);
     event CancellationFinalized(address indexed by);
@@ -154,6 +159,8 @@ AggregatorV3Interface public immutable priceFeed;
         address _tenant,
         uint256 _rentAmount,
         uint256 _dueDate,
+        uint256 _startDate,
+        uint256 _durationDays,
         address _priceFeed,
         uint256 _propertyId,
         address _arbitration_service,
@@ -168,10 +175,15 @@ AggregatorV3Interface public immutable priceFeed;
         totalPaid = 0;
         active = true;
         priceFeed = AggregatorV3Interface(_priceFeed);
+    // assign cancellation timing if provided
+    startDate = _startDate;
+    durationDays = _durationDays;
     // default policy: legacy immediate cancellation by either party
     requireMutualCancel = false;
     noticePeriod = 0;
+    // default fees: cancellationFeeBps remains 200 bps = 2%; earlyTerminationFeeBps deprecated and defaulted to 0
     earlyTerminationFeeBps = 0;
+    cancellationFeeBps = 200;
     // set arbitration immutable and required deposit
     // allow zero address for arbitrationService to indicate not pre-configured
     // but factory will normally supply a default arbitration service address
@@ -451,14 +463,17 @@ function getRentInEth() public view returns (uint256) {
     }
 
     // ============ Cancellation Policy Management ============
+    /// @notice Legacy setter for noticePeriod & cancellation fee (keeps backward-compatible signature)
     function setCancellationPolicy(uint256 _noticePeriod, uint16 _feeBps, bool _requireMutual)
         external
         onlyLandlord
         onlyActive
     {
-    if (_feeBps > 10_000) revert InvalidFeeBps();
+        if (_feeBps > 10_000) revert InvalidFeeBps();
         noticePeriod = _noticePeriod;
-        earlyTerminationFeeBps = _feeBps;
+        // Historically this slot was used for an "early termination" fee.
+        // Treat the provided value as the canonical cancellation fee (bps) moving forward.
+        cancellationFeeBps = _feeBps;
         requireMutualCancel = _requireMutual;
         emit CancellationPolicyUpdated(_noticePeriod, _feeBps, _requireMutual);
     }
@@ -490,30 +505,20 @@ function getRentInEth() public view returns (uint256) {
 
     /// @notice Finalize cancellation — must be called by the configured arbitration service.
     /// The arbitration service may finalize regardless of notice or mutual settings.
-    function finalizeCancellation() external payable onlyActive onlyArbitrationService {
+    /// @notice Finalize cancellation — must be called by the configured arbitration service.
+    /// The arbitration service may finalize regardless of notice or mutual settings.
+    ///
+    /// Note: previous behaviour required the caller to forward an ETH `msg.value` to
+    /// cover an `earlyTerminationFee`. That caused the approver (landlord in some
+    /// flows) to end up paying the fee out-of-pocket. New behaviour deducts the
+    /// cancellation fee from the escrow balance and pays the fee to the approver
+    /// (unless a `platformFeeRecipient` is configured). This makes the initiator
+    /// effectively pay the fee out of the escrowed funds.
+    function finalizeCancellation() external onlyActive onlyArbitrationService {
         if (!cancelRequested) revert CancelNotRequested();
 
-        // Handle optional early termination fee — arbitrator provides payment in msg.value if needed
-        uint256 fee = 0;
-        if (earlyTerminationFeeBps > 0) {
-            uint256 requiredEth = getRentInEth();
-            fee = (requiredEth * uint256(earlyTerminationFeeBps)) / 10_000;
-            if (msg.value < fee) revert InsufficientFee();
-            // pay counterparty (the other party than cancelInitiator)
-            address counterparty = cancelInitiator == landlord ? tenant : landlord;
-            if (fee > 0) {
-                (bool sent, ) = payable(counterparty).call{value: fee}("");
-                if (!sent) {
-                    // credit counterparty for pull-based withdrawal instead of reverting
-                    withdrawable[counterparty] += fee;
-                    emit PaymentCredited(counterparty, fee);
-                }
-                // emit EarlyTerminationFeePaid regardless to log the payment intent
-                emit EarlyTerminationFeePaid(msg.sender, fee, counterparty);
-            }
-        }
-
-        // finalize
+        // Payout according to cancellation policy (fee is computed from escrow in getCancellationRefunds)
+        _payoutOnCancellation();
         _finalizeCancellationStateOnly();
     }
 
@@ -549,6 +554,92 @@ function getRentInEth() public view returns (uint256) {
         }
     }
 
+    // Cancellation payout logic: compute and execute refunds according to policy
+    event CancellationPays(address indexed tenant, address indexed landlord, uint256 tenantAmount, uint256 landlordAmount, uint256 fee);
+
+    /// @notice Admin/landlord may set cancellation policy parameters
+    function setCancellationPolicy(uint256 _startDate, uint256 _durationDays, uint16 _cancellationFeeBps) external onlyLandlord {
+        startDate = _startDate;
+        durationDays = _durationDays;
+        cancellationFeeBps = _cancellationFeeBps;
+        // NOTE: platformFeeRecipient removed — fees are always paid to the approver (non-initiator).
+        // Keep the function signature backward-compatible by accepting the _feeRecipient param but ignoring it.
+        emit CancellationPolicyConfigured(_startDate, _durationDays, _cancellationFeeBps, address(0));
+    }
+
+    /// @notice View helper that returns (tenantRefund, landlordShare, fee) in wei according to policy
+    function getCancellationRefunds() public view returns (uint256 tenantRefund, uint256 landlordShare, uint256 fee) {
+        uint256 total = escrowBalance;
+        if (total == 0) return (0,0,0);
+
+        // before start => full refund to tenant
+        if (block.timestamp < startDate) {
+            tenantRefund = total;
+            landlordShare = 0;
+            fee = 0;
+            return (tenantRefund, landlordShare, fee);
+        }
+
+        uint256 periodSeconds = durationDays * 1 days;
+        if (periodSeconds == 0) {
+            tenantRefund = total;
+            landlordShare = 0;
+            fee = 0;
+            return (tenantRefund, landlordShare, fee);
+        }
+
+        uint256 endTime = startDate + periodSeconds;
+        uint256 timeUsed = block.timestamp > endTime ? periodSeconds : (block.timestamp - startDate);
+
+        // landlord gets proportion of used time
+        landlordShare = (total * timeUsed) / periodSeconds;
+        tenantRefund = total > landlordShare ? total - landlordShare : 0;
+
+        if (cancellationFeeBps > 0 && tenantRefund > 0) {
+            fee = (tenantRefund * cancellationFeeBps) / 10000;
+            if (tenantRefund > fee) tenantRefund = tenantRefund - fee; else tenantRefund = 0;
+        } else {
+            fee = 0;
+        }
+
+        return (tenantRefund, landlordShare, fee);
+    }
+
+    // Internal payout execution (updates escrowBalance and transfers out funds)
+    function _payoutOnCancellation() internal {
+        (uint256 tenantAmount, uint256 landlordAmount, uint256 feeAmt) = getCancellationRefunds();
+        uint256 total = escrowBalance;
+        uint256 required = tenantAmount + landlordAmount + feeAmt;
+        if (required > total) revert InsufficientFee();
+
+        // zero the escrow first to avoid reentrancy issues
+        escrowBalance = 0;
+
+        // pay tenant
+        if (tenantAmount > 0) {
+            (bool okT, ) = payable(tenant).call{value: tenantAmount}("");
+            if (!okT) { withdrawable[tenant] += tenantAmount; emit PaymentCredited(tenant, tenantAmount); }
+            else { emit PaymentWithdrawn(tenant, tenantAmount); }
+        }
+
+        // pay landlord
+        if (landlordAmount > 0) {
+            (bool okL, ) = payable(landlord).call{value: landlordAmount}("");
+            if (!okL) { withdrawable[landlord] += landlordAmount; emit PaymentCredited(landlord, landlordAmount); }
+            else { emit PaymentWithdrawn(landlord, landlordAmount); }
+        }
+
+        // pay fee (always to the approver / counterparty — the non-initiator)
+        if (feeAmt > 0) {
+            address feeRecipient = cancelInitiator == landlord ? tenant : landlord;
+            (bool okF, ) = payable(feeRecipient).call{value: feeAmt}("");
+            if (!okF) { withdrawable[feeRecipient] += feeAmt; emit PaymentCredited(feeRecipient, feeAmt); }
+            else { emit PaymentWithdrawn(feeRecipient, feeAmt); }
+        }
+
+        emit CancellationPays(tenant, landlord, tenantAmount, landlordAmount, feeAmt);
+    }
+
     /// @notice Release escrow to landlord when lease term completed
     function releaseOnTerm() external onlyActive {
         if (dueDate == 0) revert InvalidPrice();
@@ -562,8 +653,8 @@ function getRentInEth() public view returns (uint256) {
     function finalizeMutualCancellation() external onlyActive {
         if (!cancelRequested) revert CancelNotRequested();
         if (!(cancelApprovals[landlord] && cancelApprovals[tenant])) revert BothMustApprove();
-        address initiator = cancelInitiator == address(0) ? msg.sender : cancelInitiator;
-        _releaseEscrowTo(initiator);
+        // Apply cancellation payout policy (tenant/landlord split) then finalize
+        _payoutOnCancellation();
         active = false;
     }
 

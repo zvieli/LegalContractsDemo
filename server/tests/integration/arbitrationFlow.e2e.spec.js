@@ -94,11 +94,15 @@ beforeAll(async () => {
     }
 
     if (testCase.type === 'Rent') {
-      tx = await factory.createEnhancedRentContract(
+      const startDate = Math.floor(Date.now() / 1000);
+      const durationDays = 30;
+      tx = await factory.createEnhancedRentContractWithPolicy(
         partyA,
         ethers.parseEther('1'),
         priceFeedAddress,
         Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+        startDate,
+        durationDays,
         1
       );
     } else {

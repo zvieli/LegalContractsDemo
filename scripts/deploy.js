@@ -425,12 +425,18 @@ async function main() {
   const priceFeedAddr = mockV3Address || ethers.ZeroAddress;
   if (!mockV3Address) console.log('ℹ️ No mock price feed deployed; using ZeroAddress for EnhancedRentContract price feed (replace with real feed if needed)');
 
+  // Deploy EnhancedRentContract - include startDate and durationDays to match constructor
+  const startDate = Math.floor(Date.now() / 1000); // lease starts now
+  const durationDays = 30; // default 30-day lease for demo deploy
+
   const enhancedRentContract = await EnhancedRentContract.deploy(
     deployer.address,
     tenant.address,
     rentAmount,
     priceFeedAddr,
     dueDate,
+    startDate,
+    durationDays,
     propertyId,
     arbitrationServiceAddress,
     merkleAddress

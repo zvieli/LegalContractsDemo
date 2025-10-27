@@ -14,6 +14,10 @@ export const useNotifications = () => {
 export const NotificationProvider = ({ children }) => {
   const [notifications, setNotifications] = useState([]);
 
+  const removeNotification = useCallback((id) => {
+    setNotifications(prev => prev.filter(notif => notif.id !== id));
+  }, []);
+
   const addNotification = useCallback((notification) => {
     const id = Date.now();
     const newNotification = {
@@ -36,10 +40,6 @@ export const NotificationProvider = ({ children }) => {
 
     return id;
   }, [removeNotification]);
-
-  const removeNotification = useCallback((id) => {
-    setNotifications(prev => prev.filter(notif => notif.id !== id));
-  }, []);
 
   const markAsRead = useCallback((id) => {
     setNotifications(prev => 

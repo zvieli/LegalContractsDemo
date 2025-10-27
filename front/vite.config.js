@@ -34,7 +34,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      buffer: 'buffer'
+      buffer: 'buffer',
+      // Polyfill Node builtins for browser bundles
+      crypto: 'crypto-browserify',
+      stream: 'stream-browserify',
+      assert: 'assert',
+      events: 'events'
     }
   },
   optimizeDeps: {

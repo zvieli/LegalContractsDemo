@@ -15,14 +15,18 @@ describe('EIP712 on-chain verification (TemplateRentContract)', function () {
     // Deploy minimal TemplateRentContract
     const Template = await ethers.getContractFactory('TemplateRentContract');
     const priceFeedMock = deployer.address; // use address placeholder (contract reads price only in some flows)
+    const startDate = Math.floor(Date.now() / 1000) + 60; // lease starts shortly
+    const durationDays = 30;
     const rent = await Template.deploy(
       landlord.address,
       tenant.address,
       100, // rentAmount
       Math.floor(Date.now() / 1000) + 3600, // dueDate
+      startDate,
+      durationDays,
       priceFeedMock,
       0, // propertyId
-  '0x0000000000000000000000000000000000000000', // arbitration_service
+      '0x0000000000000000000000000000000000000000', // arbitration_service
       0, // requiredDeposit
       '' // initialEvidenceUri
     );
@@ -80,7 +84,9 @@ describe('EIP712 on-chain verification (TemplateRentContract)', function () {
     const [deployer, landlord, tenant, uploader, attacker] = await ethers.getSigners();
     const Template = await ethers.getContractFactory('TemplateRentContract');
     const priceFeedMock = deployer.address;
-    const rent = await Template.deploy(landlord.address, tenant.address, 100, Math.floor(Date.now() / 1000) + 3600, priceFeedMock, 0, '0x0000000000000000000000000000000000000000', 0, '');
+  const startDate = Math.floor(Date.now() / 1000) + 60;
+  const durationDays = 30;
+  const rent = await Template.deploy(landlord.address, tenant.address, 100, Math.floor(Date.now() / 1000) + 3600, startDate, durationDays, priceFeedMock, 0, '0x0000000000000000000000000000000000000000', 0, '');
     await rent.waitForDeployment?.() || rent.deployed && (await rent.deployed());
 
     const chainId = (await uploader.provider.getNetwork()).chainId;
@@ -102,7 +108,9 @@ describe('EIP712 on-chain verification (TemplateRentContract)', function () {
     const [deployer, landlord, tenant, uploader] = await ethers.getSigners();
     const Template = await ethers.getContractFactory('TemplateRentContract');
     const priceFeedMock = deployer.address;
-    const rent = await Template.deploy(landlord.address, tenant.address, 100, Math.floor(Date.now() / 1000) + 3600, priceFeedMock, 0, '0x0000000000000000000000000000000000000000', 0, '');
+  const startDate = Math.floor(Date.now() / 1000) + 60;
+  const durationDays = 30;
+  const rent = await Template.deploy(landlord.address, tenant.address, 100, Math.floor(Date.now() / 1000) + 3600, startDate, durationDays, priceFeedMock, 0, '0x0000000000000000000000000000000000000000', 0, '');
     await rent.waitForDeployment?.() || rent.deployed && (await rent.deployed());
 
     const chainId = (await uploader.provider.getNetwork()).chainId;
@@ -124,7 +132,9 @@ describe('EIP712 on-chain verification (TemplateRentContract)', function () {
     const [deployer, landlord, tenant, someoneElse] = await ethers.getSigners();
     const Template = await ethers.getContractFactory('TemplateRentContract');
     const priceFeedMock = deployer.address;
-    const rent = await Template.deploy(landlord.address, tenant.address, 100, Math.floor(Date.now() / 1000) + 3600, priceFeedMock, 0, '0x0000000000000000000000000000000000000000', 0, '');
+  const startDate = Math.floor(Date.now() / 1000) + 60;
+  const durationDays = 30;
+  const rent = await Template.deploy(landlord.address, tenant.address, 100, Math.floor(Date.now() / 1000) + 3600, startDate, durationDays, priceFeedMock, 0, '0x0000000000000000000000000000000000000000', 0, '');
     await rent.waitForDeployment?.() || rent.deployed && (await rent.deployed());
 
     const chainId = (await landlord.provider.getNetwork()).chainId;

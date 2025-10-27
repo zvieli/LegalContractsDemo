@@ -35,11 +35,15 @@ describe('Arbitration CCIP: idempotency and raw decision path', function () {
     const dueDate = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
     const propertyId = 2222;
 
-    const tx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate = Math.floor(Date.now() / 1000);
+    const durationDays = 30;
+    const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       mockPriceFeed.target ?? mockPriceFeed.address,
       dueDate,
+      startDate,
+      durationDays,
       propertyId
     );
     const receipt = await tx.wait();
@@ -90,11 +94,15 @@ describe('Arbitration CCIP: idempotency and raw decision path', function () {
     const dueDate = Math.floor(Date.now() / 1000) + 60 * 60 * 24;
     const propertyId = 3333;
 
-    const tx = await factory.connect(landlord).createEnhancedRentContract(
+    const startDate2 = Math.floor(Date.now() / 1000);
+    const durationDays2 = 30;
+    const tx = await factory.connect(landlord).createEnhancedRentContractWithPolicy(
       tenant.address,
       rentAmount,
       mockPriceFeed.target ?? mockPriceFeed.address,
       dueDate,
+      startDate2,
+      durationDays2,
       propertyId
     );
     const receipt = await tx.wait();
