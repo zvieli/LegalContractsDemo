@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { processV7ArbitrationWithOllama, callOllama, validateResponse, nlpVerdictMapping } from '../modules/ollamaLLMArbitrator.js';
+import { processV7ArbitrationWithOllama, callOllama, validateResponse, nlpVerdictMapping } from '../../modules/ollamaLLMArbitrator.js';
 
 // Config: enable debug persistence via env var ARBITRATOR_DEBUG=1 or SAVE_DEBUG=1
 const SAVE_DEBUG = process.env.ARBITRATOR_DEBUG === '1' || process.env.SAVE_DEBUG === '1';

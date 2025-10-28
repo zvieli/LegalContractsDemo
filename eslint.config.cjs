@@ -1,9 +1,9 @@
-import { FlatCompat } from '@eslint/eslintrc';
+const { FlatCompat } = require('@eslint/eslintrc');
 
 // Minimal flat config compatible with ESLint v8+/v9+ flat config system
 const compat = new FlatCompat({ baseDirectory: __dirname });
 
-export default [
+module.exports = [
   ...compat.config({
     extends: ['plugin:react/recommended', 'plugin:react-hooks/recommended'],
   }),

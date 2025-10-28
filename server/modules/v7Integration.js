@@ -93,8 +93,8 @@ export class V7DisputeProcessor {
     }
     
     try {
-      const isValid = await validateIPFSEvidence(evidenceCID);
-      const digest = isValid ? generateEvidenceDigest(evidenceCID) : null;
+  const isValid = await validateIPFSEvidence(evidenceCID);
+  const digest = isValid ? await generateEvidenceDigest(evidenceCID) : null;
       
       return {
         isValid,

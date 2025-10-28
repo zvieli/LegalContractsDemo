@@ -1,7 +1,7 @@
 
 
 
-import { validateHeliaEvidence, getEvidenceMetadata, generateEvidenceDigest } from '../modules/evidenceValidator.js';
+import { validateHeliaEvidence, getEvidenceMetadata, generateEvidenceDigest } from '../../modules/evidenceValidator.js';
 
 async function testEvidenceValidation() {
   console.log('🧪 Testing Evidence Validation Module...\n');
@@ -43,7 +43,7 @@ async function testEvidenceValidation() {
   
   // Test digest generation
   console.log('\nTesting digest generation:');
-  const digest = generateEvidenceDigest(testCID);
+  const digest = await generateEvidenceDigest(testCID);
   console.log(`  Digest for ${testCID}: ${digest}`);
   
   console.log('\n✅ Evidence validation tests completed!');

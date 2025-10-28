@@ -5,6 +5,8 @@ import ContractModal from '../../components/ContractModal/ContractModal';
 import ArbitrationExplain from '../../components/Arbitration/ArbitrationExplain';
 import ArbitrationHealth from '../../components/Arbitration/ArbitrationHealth';
 import { ContractService } from '../../services/contractService';
+import CCIPPanel from '../../components/CCIPPanel';
+import ArbitrationPanel from '../../components/ArbitrationPanel';
 
 function ArbitrationV7() {
   const { account, chainId } = useEthers();
@@ -24,6 +26,10 @@ function ArbitrationV7() {
 
   return (
     <div className="arbitration-page" data-testid="arbitration-v7-page">
+      <div style={{display:'flex', gap:12, marginBottom:12}}>
+        <div style={{flex:1}}><CCIPPanel /></div>
+        <div style={{width:420}}><ArbitrationPanel /></div>
+      </div>
       <h2 data-testid="arbitration-v7-title">Arbitration Requests (V7 AI)</h2>
       {loading ? (
         <div data-testid="arbitration-v7-loading">Loading...</div>

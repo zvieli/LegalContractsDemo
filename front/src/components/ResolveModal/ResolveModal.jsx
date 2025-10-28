@@ -93,6 +93,7 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
 
   // Missing UI state used throughout the modal
   const [rationale, setRationale] = useState('');
+  const [includeHistory, setIncludeHistory] = useState(true);
   const [confirmPay, setConfirmPay] = useState(false);
   const [forwardEth, setForwardEth] = useState('');
   const [willBeDebitedEth, _setWillBeDebitedEth] = useState('0');
@@ -272,9 +273,19 @@ function ResolveModal({ isOpen, onClose, contractAddress, onResolved }) {
           if (rationale && String(rationale || '').trim().length > 0 && apiBase && adminPub) {
         try {
           setEvidenceProgress({ stage: 'preparing', status: 'pending' });
+          // Optionally collect compact tx history and attach it to the evidence payload
+          let txHistoryCompact = null;
+          if (includeHistory && resolvedAddress) {
+            try {
+              const svcHist = new ContractService(provider, signer, chainId);
+              const hist = await svcHist.collectTransactionHistory(resolvedAddress, { fromBlock: null, toBlock: 'latest', maxEntries: 500 }).catch(() => []);
+              txHistoryCompact = (hist || []).map(h => ({ eventName: h.eventName || null, blockNumber: h.blockNumber || null, date: h.date || null, txHash: h.hash || null, amount: h.amount || null }));
+            } catch (e) { void e; txHistoryCompact = null; }
+          }
+
           // Delegate preparation and encoding to the useEvidenceFlow hook. Pass plaintext rationale
-          // and let the hook handle encryption (if requested) and base64 encoding.
-          const result = await uploadAndSubmit(rationale, { reporterAddress: account || undefined, contractAddress: resolvedAddress, note: 'resolution rationale', encryptToAdminPubKey: adminPub, timestamp: Date.now(), onProgress: (s) => {
+          // and let the hook handle encryption (if requested) and base64 encoding. Include userEvidence when available.
+          const result = await uploadAndSubmit(rationale, { reporterAddress: account || undefined, contractAddress: resolvedAddress, note: 'resolution rationale', encryptToAdminPubKey: adminPub, timestamp: Date.now(), userEvidence: txHistoryCompact ? { type: 'rent_dispute', description: rationale, metadata: { contractAddress: resolvedAddress }, txHistory: txHistoryCompact } : undefined, inlineHistory: !!txHistoryCompact, onProgress: (s) => {
               try {
                 // Map hook stages to structured progress
                 switch (s.stage) {
@@ -578,6 +589,13 @@ void _svcInst;
             </div>
           )}
 
+      {/* Evidence options: include compact tx history by default (adds privacy-safe compact records) */}
+      <div style={{marginTop:12}}>
+        <label style={{fontSize:13}}>
+          <input type="checkbox" checked={includeHistory} onChange={e => setIncludeHistory(e.target.checked)} />
+          <span style={{marginLeft:8}}>צרף היסטוריית עסקאות קומפקטית (מומלץ) — יישלח מוצפן למנהל בלבד</span>
+        </label>
+      </div>
       {/* Evidence panel: fetch/decrypt/preview/download pinned evidence (arbitrator-only decrypt) */}
   <EvidencePanel initialEvidenceRef={disputeInfo?.evidenceRef || disputeInfo?.evidenceDigest || ''} />
 

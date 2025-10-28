@@ -1,4 +1,4 @@
-import { processV7ArbitrationWithOllama } from '../modules/ollamaLLMArbitrator.js';
+import { processV7ArbitrationWithOllama } from '../../modules/ollamaLLMArbitrator.js';
 import fs from 'fs';
 
 // Set environment variables for improved settings

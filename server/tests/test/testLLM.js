@@ -1,7 +1,7 @@
 
 
 
-import { triggerLLMArbitration, handleLLMResponse, getActiveRequests } from '../modules/llmArbitration.js';
+import { triggerLLMArbitration, handleLLMResponse, getActiveRequests } from '../../modules/llmArbitration.js';
 
 async function testLLMArbitration() {
   console.log('🤖 Testing LLM Arbitration Module...\n');

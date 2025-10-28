@@ -6,9 +6,24 @@ let heliaInstance = null;
 let fs = null;
 
 export async function getHelia() {
+  if (typeof global !== 'undefined' && global.__heliaInstance) {
+    heliaInstance = global.__heliaInstance;
+    fs = global.__unixfsModule;
+    return { helia: heliaInstance, fs };
+  }
+
   if (!heliaInstance) {
     heliaInstance = await createHelia();
-    fs = unixfs(heliaInstance);
+    // unixfs may be an async factory in some versions; await if it returns a Promise
+    fs = await unixfs(heliaInstance);
+    try {
+      if (typeof global !== 'undefined') {
+        global.__heliaInstance = heliaInstance;
+        global.__unixfsModule = fs;
+      }
+    } catch (e) {
+      // ignore
+    }
   }
   return { helia: heliaInstance, fs };
 }

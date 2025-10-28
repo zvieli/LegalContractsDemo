@@ -50,8 +50,20 @@ task("deploy-ccip-arbitration", "Deploy CCIP Arbitration contracts")
     if (!arbitrationServiceAddress) {
       try {
         // Try to get from deployments
-        const deployments = await import("../artifacts/deployments.json", { with: { type: "json" } });
-        arbitrationServiceAddress = deployments.default?.ArbitrationService?.address;
+        // Try reading the deployments JSON from artifacts using fs to avoid import-assert syntax
+        try {
+          const _fs = await import('fs');
+          const _path = await import('path');
+          const deploymentsPath = _path.join(process.cwd(), 'artifacts', 'deployments.json');
+          if (_fs.existsSync(deploymentsPath)) {
+            const raw = _fs.readFileSync(deploymentsPath, 'utf8');
+            const deployments = JSON.parse(raw);
+            arbitrationServiceAddress = deployments?.ArbitrationService?.address;
+          }
+        } catch (e) {
+          // fall through to generic error handler below
+          throw e;
+        }
       } catch (error) {
         console.log("⚠️ Could not find ArbitrationService deployment");
       }

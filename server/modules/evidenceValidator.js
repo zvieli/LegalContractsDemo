@@ -3,6 +3,7 @@
 
 import { ethers } from 'ethers';
 import heliaStore from './heliaStore.js';
+import { canonicalizeCid } from './cidNormalize.js';
 
 // No in-process Helia here; use the Helia HTTP API through heliaStore.
 
@@ -131,10 +132,26 @@ export async function validateEvidenceType(cid, allowedTypes = ['application/jso
 
 
 
-export function generateEvidenceDigest(cid) {
+export async function generateEvidenceDigest(cid) {
   try {
-    // Create a consistent hash of the CID for blockchain storage
-    return ethers.keccak256(ethers.toUtf8Bytes(cid));
+    // Try to canonicalize using multiformats (CIDv1/base32) for stable digest
+    let canonical = null;
+    try {
+      canonical = await canonicalizeCid(String(cid));
+    } catch (e) {
+      canonical = null;
+    }
+
+    // Fallback to best-effort synchronous normalization if canonicalization failed
+    let c = canonical || String(cid);
+    try { c = decodeURIComponent(c); } catch (e) { /* ignore */ }
+    c = c.replace(/^helia:\/\//i, '').replace(/^ipfs:\/\//i, '');
+    const ipfsMatch = c.match(/ipfs\/(.+)$/i);
+    if (ipfsMatch) c = ipfsMatch[1];
+    c = c.trim();
+
+    // Create a consistent hash of the normalized CID for blockchain storage
+    return ethers.keccak256(ethers.toUtf8Bytes(c));
   } catch (error) {
     console.error('Error generating evidence digest:', error);
     throw new Error('Failed to generate evidence digest');
@@ -142,3 +159,6 @@ export function generateEvidenceDigest(cid) {
 }
 
 // Module no longer performs in-process initialization; validation uses heliaStore on-demand.
+
+// Backwards-compatible alias: some tools expect `validateIPFSEvidence`.
+export { validateHeliaEvidence as validateIPFSEvidence };

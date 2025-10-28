@@ -71,6 +71,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false
       }
+      ,
+      // Proxy API calls (including /api/submit-appeal) to the backend server
+      '/api': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true,
+        secure: false
+      }
     },
     fs: {
       allow: [

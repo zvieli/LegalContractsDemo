@@ -1,5 +1,5 @@
 import fs from 'fs';
-import { processV7ArbitrationWithOllama, callOllama, validateResponse, nlpVerdictMapping } from '../modules/ollamaLLMArbitrator.js';
+import { processV7ArbitrationWithOllama, callOllama, validateResponse, nlpVerdictMapping } from '../../modules/ollamaLLMArbitrator.js';
 
 (async function(){
   try{

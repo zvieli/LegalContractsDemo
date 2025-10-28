@@ -10,6 +10,10 @@ import { MerkleEvidenceHelper } from '../../utils/merkleEvidenceHelper.js';
 // Helper: JSON-safe replacer to convert BigInt and other non-serializable values
 function jsonSafeReplacer(key, value) {
   if (typeof value === 'bigint') return value.toString();
+  // ethers BigNumber handling
+  if (value && typeof value === 'object' && value._isBigNumber) {
+    try { return value.toString(); } catch (e) { return String(value); }
+  }
   if (typeof value === 'object' && value !== null) {
     // convert Buffer/Uint8Array to hex
     if (typeof Buffer !== 'undefined' && Buffer.isBuffer(value)) return value.toString('hex');
@@ -26,7 +30,16 @@ const BATCHES_FILE = path.join(__dirname, '../data/evidence_batches.json');
 function loadBatches() {
   try {
     if (!fs.existsSync(BATCHES_FILE)) return {};
-    return JSON.parse(fs.readFileSync(BATCHES_FILE, 'utf8'));
+    const raw = fs.readFileSync(BATCHES_FILE, 'utf8');
+    try {
+      const parsed = JSON.parse(raw);
+      // If file contains an array (legacy) or non-object, coerce to empty object
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed;
+    } catch (e) {
+      console.warn('evidenceBatch.loadBatches JSON parse failed, returning empty:', e && e.message ? e.message : e);
+      return {};
+    }
   } catch (e) {
     console.warn('evidenceBatch.loadBatches failed, returning empty:', e && e.message ? e.message : e);
     return {};
@@ -44,6 +57,123 @@ function saveBatches(batches) {
     console.error('evidenceBatch.saveBatches failed:', e && e.stack ? e.stack : e);
     // don't throw - persist failure should not crash batch creation
   }
+}
+
+// Submit an existing batchData to the configured on-chain MerkleEvidenceManager
+async function submitBatch(batchData) {
+  // Fail-mode for smoke testing the retry worker: set BATCH_RETRY_FAILMODE=true
+  // to force submitBatch to throw and exercise the worker's backoff scheduling.
+  try {
+    if (process.env.BATCH_RETRY_FAILMODE === 'true') {
+      throw new Error('simulated submit failure (BATCH_RETRY_FAILMODE)');
+    }
+  } catch (e) {
+    // allow the normal error handling below to capture this
+    throw e;
+  }
+  const ethersModule = await import('ethers');
+  // Try multiple config locations for backward compatibility
+  const candidates = [
+    path.join(__dirname, '../config/merkleManager.json'),
+    path.join(__dirname, '../config/MerkleEvidenceManager.json'),
+    path.join(__dirname, '../config/contracts/MerkleEvidenceManager.json')
+  ];
+  let config = null;
+  for (const cand of candidates) {
+    if (fs.existsSync(cand)) {
+      try { config = JSON.parse(fs.readFileSync(cand, 'utf8')); break; } catch (e) { /* ignore parse errors */ }
+    }
+  }
+  const rpcFallback = process.env.RPC_URL || process.env.HARDHAT_RPC_URL || 'http://127.0.0.1:8545';
+  if (config) {
+    if (!config.rpcUrl && !config.rpc) config.rpcUrl = rpcFallback;
+    if (!config.abi && config.abiRaw) config.abi = config.abiRaw;
+  }
+  const submitOnChain = config && typeof config.submitOnChain !== 'undefined' ? !!config.submitOnChain : true;
+  if (!submitOnChain) {
+    console.log('evidenceBatch.submitBatch: submitOnChain=false in config, skipping on-chain submit');
+    return batchData;
+  }
+  if (!config || !config.address || !config.abi || !(config.rpcUrl || config.rpc)) {
+    batchData.status = batchData.status || 'pending';
+    batchData.txError = batchData.txError || 'no_valid_merkle_config';
+    return batchData;
+  }
+
+  const provider = new ethersModule.JsonRpcProvider(config.rpcUrl || config.rpc);
+  let signer = null;
+  try {
+    const cfgKey = config && config.privateKey;
+    const envKey = process.env.MERKLE_PRIVATE_KEY;
+    const pk = (cfgKey && cfgKey !== '0x...') ? cfgKey : (envKey && envKey !== '0x...' ? envKey : null);
+    if (pk && typeof pk === 'string' && pk !== '') {
+      try { signer = new ethersModule.Wallet(pk, provider); } catch (e) { signer = null; }
+    } else {
+      try { signer = provider.getSigner ? provider.getSigner(0) : null; } catch (e) { signer = null; }
+    }
+  } catch (e) { signer = null; }
+
+  // Ensure a rootSignature exists (sign if possible)
+  try {
+    if (!batchData.rootSignature && signer && typeof signer.signMessage === 'function') {
+      const arrayify = ethersModule.utils?.arrayify || ethersModule.arrayify;
+      try {
+        if (typeof arrayify === 'function') batchData.rootSignature = await signer.signMessage(arrayify(batchData.merkleRoot));
+        else batchData.rootSignature = await signer.signMessage(ethersModule.toUtf8Bytes(String(batchData.merkleRoot)));
+      } catch (e) {
+        try { batchData.rootSignature = await signer.signMessage(ethersModule.toUtf8Bytes(String(batchData.merkleRoot))); } catch (e2) { batchData.rootSignature = '0x' + '00'.repeat(65); }
+      }
+    }
+  } catch (e) { batchData.rootSignature = batchData.rootSignature || ('0x' + '00'.repeat(65)); }
+  if (!batchData.rootSignature) batchData.rootSignature = '0x' + '00'.repeat(65);
+
+  try {
+    const contract = new ethersModule.Contract(config.address, config.abi, provider);
+    const contractWithSigner = signer ? contract.connect(signer) : null;
+    if (contractWithSigner && typeof contractWithSigner.submitEvidenceBatch === 'function') {
+      let attempts = 0; let lastErr = null;
+      const maxAttempts = 4;
+      while (attempts < maxAttempts) {
+        attempts++;
+        try {
+          const tx = await contractWithSigner.submitEvidenceBatch(batchData.merkleRoot, batchData.evidenceCount);
+          const receipt = await tx.wait();
+          batchData.txHash = tx.hash;
+          batchData.status = 'onchain_submitted';
+          batchData.txReceipt = receipt;
+          lastErr = null;
+          break;
+        } catch (innerErr) {
+          lastErr = innerErr;
+          const msg = innerErr && (innerErr.message || innerErr.toString());
+          const isNonceError = (innerErr && innerErr.code === 'NONCE_EXPIRED') || (typeof msg === 'string' && /nonce/i.test(msg));
+          const isTempRpc = (innerErr && innerErr.code === 'SERVER_ERROR') || (typeof msg === 'string' && (/timeout|connection|503|429/i.test(msg)));
+          if (isNonceError || isTempRpc) {
+            const backoff = 200 * Math.pow(2, attempts - 1);
+            await new Promise(r => setTimeout(r, backoff));
+            continue;
+          }
+          break;
+        }
+      }
+      if (lastErr) { batchData.status = 'pending'; batchData.txError = lastErr.message || String(lastErr); }
+      if (batchData.txHash) {
+        try {
+          const maxPolls = 6; let polled = 0;
+          while (polled < maxPolls) {
+            try {
+              const batchIdOnChain = await contract.getBatchIdByRoot(batchData.merkleRoot);
+              if (batchIdOnChain && String(batchIdOnChain) !== '0' && Number(batchIdOnChain) !== 0) { batchData.batchIdOnChain = batchIdOnChain; break; }
+            } catch (e) {}
+            polled++;
+            await new Promise(r => setTimeout(r, 300));
+          }
+        } catch (e) {}
+      }
+    } else { batchData.status = 'pending'; batchData.txError = 'submitEvidenceBatch not available on contract ABI'; }
+  } catch (e) { batchData.status = 'pending'; batchData.txError = e && e.message ? e.message : String(e); }
+
+  return batchData;
 }
 
 // Create and persist a batch for a given caseId
@@ -73,186 +203,13 @@ async function createBatch(caseId, evidenceItems) {
   batchData.status = 'pending';
 
   // --- On-chain submission automation + cryptographic signature ---
-  let txHash = null;
-  let rootSignature = null;
+  // Attempt on-chain submission for the freshly created batch
   try {
-    // Load contract ABI/address (customize as needed)
-    const ethersModule = await import('ethers');
-    // Try multiple config locations for backward compatibility
-    const candidates = [
-      path.join(__dirname, '../config/merkleManager.json'),
-      path.join(__dirname, '../config/MerkleEvidenceManager.json'),
-      path.join(__dirname, '../config/contracts/MerkleEvidenceManager.json')
-    ];
-    let config = null;
-    let configPath = null;
-    for (const cand of candidates) {
-      if (fs.existsSync(cand)) {
-        try {
-          const raw = JSON.parse(fs.readFileSync(cand, 'utf8'));
-          config = raw;
-          configPath = cand;
-          break;
-        } catch (e) {
-          console.warn('evidenceBatch: failed to parse candidate', cand, e && e.message ? e.message : e);
-        }
-      }
-    }
-    console.log('evidenceBatch: loaded configPath=', configPath, 'present=', !!config);
-    if (config) {
-      console.log('evidenceBatch: config.address=', config.address || config.addr || null);
-      console.log('evidenceBatch: config.rpcUrl=', config.rpcUrl || config.rpc || null);
-      console.log('evidenceBatch: config.privateKey present=', !!config.privateKey);
-      console.log('evidenceBatch: abi length=', Array.isArray(config.abi) ? config.abi.length : 'no-abi');
-    }
-    // If ABI isn't at top-level, try `abi` inside raw artifact
-    if (config && !config.abi && config.abiRaw) config.abi = config.abiRaw;
-    if (config && !config.abi) {
-      // attempt to read artifact ABI shape
-      try {
-        if (config.abi) {
-          // ok
-        }
-      } catch (e) {}
-    }
-    if (config && config.address && config.abi && (config.rpcUrl || config.rpc)) {
-        console.log('createBatch: attempting on-chain submit to', config.address, 'via', config.rpcUrl);
-      const rpcUrl = config.rpcUrl || config.rpc;
-      const provider = new ethersModule.JsonRpcProvider(rpcUrl);
-      // Prefer explicit privateKey from config, otherwise try provider.getSigner(0) for local test nodes
-      let signer = null;
-      try {
-        if (config.privateKey) {
-          signer = new ethersModule.Wallet(config.privateKey, provider);
-        } else {
-          try {
-            // provider.getSigner may throw if not supported by the provider
-            signer = provider.getSigner ? provider.getSigner(0) : null;
-          } catch (e) {
-            console.warn('evidenceBatch: provider.getSigner failed:', e && e.message ? e.message : e);
-            signer = null;
-          }
-        }
-      } catch (e) {
-        console.warn('evidenceBatch: signer creation failed:', e && e.message ? e.message : e);
-        signer = null;
-      }
-      // Sign Merkle root (sign raw bytes of the bytes32 root) using available signer
-      try {
-        if (signer && typeof signer.signMessage === 'function') {
-          try {
-            rootSignature = await signer.signMessage(ethersModule.arrayify(batchData.merkleRoot));
-          } catch (signErr) {
-            console.warn('evidenceBatch: arrayify sign failed:', signErr && signErr.message ? signErr.message : signErr);
-            try {
-              rootSignature = await signer.signMessage(ethersModule.toUtf8Bytes(String(batchData.merkleRoot)));
-            } catch (e) {
-              console.warn('evidenceBatch: utf8 sign fallback failed:', e && e.message ? e.message : e);
-              rootSignature = null;
-            }
-          }
-        } else {
-          rootSignature = null;
-        }
-      } catch (e) {
-        console.warn('evidenceBatch: unexpected signing error:', e && e.message ? e.message : e);
-        rootSignature = null;
-      }
-      // ensure rootSignature is a defined string to avoid undefined in tests
-      if (!rootSignature) rootSignature = '0x' + '00'.repeat(65);
-      console.log('evidenceBatch: rootSignature=', rootSignature);
-      batchData.rootSignature = rootSignature;
-      // Submit to contract (if ABI/contract supports submitEvidenceBatch) using signer if available
-      try {
-        const contract = new ethersModule.Contract(config.address, config.abi, provider);
-        const contractWithSigner = signer ? contract.connect(signer) : null;
-        if (contractWithSigner && typeof contractWithSigner.submitEvidenceBatch === 'function') {
-          // Try sending and retry on transient errors (nonce/rpc flakiness)
-          let attempts = 0;
-          const maxAttempts = 4;
-          let lastErr = null;
-          while (attempts < maxAttempts) {
-            attempts++;
-            try {
-              console.log(`Submitting batch on-chain (attempt ${attempts})`);
-              console.log('Backend: merkleRoot to submit =', batchData.merkleRoot);
-              console.log('Contract address:', contract.address);
-              // Use the contract connected to the signer and let ethers manage the nonce
-              const connected = contractWithSigner;
-              const tx = await connected.submitEvidenceBatch(batchData.merkleRoot, batchData.evidenceCount);
-              console.log('Tx sent:', tx.hash);
-              const receipt = await tx.wait();
-              console.log('Tx confirmed in block:', receipt.blockNumber);
-              txHash = tx.hash;
-              batchData.status = 'onchain_submitted';
-              batchData.txHash = txHash;
-              lastErr = null;
-              break; // success
-            } catch (innerErr) {
-              lastErr = innerErr;
-              const msg = innerErr && (innerErr.message || innerErr.toString());
-              console.warn('submitEvidenceBatch attempt failed:', msg);
-              // If nonce-related error or temporary provider error, wait and retry
-              const isNonceError = (innerErr && innerErr.code === 'NONCE_EXPIRED') || (typeof msg === 'string' && /nonce/i.test(msg));
-              const isTempRpc = (innerErr && innerErr.code === 'SERVER_ERROR') || (typeof msg === 'string' && (/timeout|connection|503|429/i.test(msg)));
-              if (isNonceError || isTempRpc) {
-                // exponential backoff
-                const backoff = 200 * Math.pow(2, attempts - 1);
-                await new Promise(r => setTimeout(r, backoff));
-                continue;
-              }
-              // non-retryable error -> break
-              break;
-            }
-          }
-          if (lastErr) {
-            batchData.status = 'pending';
-            batchData.txError = lastErr.message || String(lastErr);
-            console.error('Error submitting batch on-chain after retries:', lastErr && lastErr.stack ? lastErr.stack : lastErr);
-          }
-          // If we have a txHash, attempt to read the on-chain mapping and persist the batchId
-          try {
-            if (txHash) {
-              // Poll for the root->batchId mapping for a short window
-              const maxPolls = 6;
-              let polled = 0;
-              let batchIdOnChain = null;
-              while (polled < maxPolls) {
-                try {
-                  batchIdOnChain = await contract.getBatchIdByRoot(batchData.merkleRoot);
-                  // Accept any non-zero mapping
-                  if (batchIdOnChain && String(batchIdOnChain) !== '0' && Number(batchIdOnChain) !== 0) {
-                    console.log('Backend: rootToBatchId[merkleRoot] after submit =', batchIdOnChain);
-                    batchData.batchIdOnChain = batchIdOnChain;
-                    break;
-                  }
-                } catch (mappingErr) {
-                  // ignore transient mapping errors and retry
-                }
-                polled++;
-                await new Promise(r => setTimeout(r, 300));
-              }
-              if (!batchData.batchIdOnChain) {
-                console.warn('Backend: rootToBatchId not set after polling; mapping may be delayed');
-              }
-            }
-          } catch (err) {
-            console.warn('Post-submit mapping query failed:', err && err.message ? err.message : err);
-          }
-        } else {
-          // ABI present but function missing
-          batchData.status = 'pending';
-          batchData.txError = 'submitEvidenceBatch not available on contract ABI';
-        }
-      } catch (txErr) {
-        batchData.status = 'pending';
-        batchData.txError = txErr.message || String(txErr);
-        console.error('Error submitting batch on-chain:', txErr && txErr.stack ? txErr.stack : txErr);
-      }
-    }
+    await submitBatch(batchData);
   } catch (err) {
-    batchData.status = 'pending';
-    batchData.txError = err.message;
+    // ensure pending status if submission failed internally
+    batchData.status = batchData.status || 'pending';
+    batchData.txError = err && err.message ? err.message : String(err);
   }
 
   // Persist (use JSON-safe copy)
@@ -287,5 +244,6 @@ function getBatches(caseId) {
 
 export default {
   createBatch,
-  getBatches
+  getBatches,
+  submitBatch
 };

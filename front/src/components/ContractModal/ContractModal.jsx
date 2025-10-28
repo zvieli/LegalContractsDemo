@@ -19,6 +19,7 @@ import NDATemplateJson from '../../utils/contracts/NDATemplate.json';
 import { canonicalize } from '../../utils/evidenceCanonical.js';
 import { computeContentDigest } from '../../utils/evidenceCanonical.js';
 import { signEvidenceEIP712, hashRecipients } from '../../utils/evidence.js';
+import { triggerArbitrateBatch } from '../../api/arbitration';
 function ContractModal({ contractAddress, isOpen, onClose, readOnly = false }) {
   const _contractInstanceRef = useRef(null);
 void _contractInstanceRef;
@@ -1134,7 +1135,8 @@ void _handleNdaResolveByArbitrator;
             contractType: contractTypeMap(effectiveDetails?.type),
             plaintiff: plaintiff,
             defendant: defendant,
-            txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
+            // Include full transaction history objects so the server stores logs together with the complaint
+            txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : t) : [],
             complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
             requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null
             ,contractBalance: contractBalanceWei ? String(ethers.formatEther(contractBalanceWei)) : '0'
@@ -1163,11 +1165,11 @@ void _handleNdaResolveByArbitrator;
           }
 
           if (sig191) {
-            try {
+              try {
               const resp = await fetch('/api/submit-appeal', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contractAddress: targetAddress, signedPayload: signedPayloadStr, signature: sig191, signerAddress: account, complaintCid: evidenceRef, metadata: {} })
+                body: JSON.stringify({ contractAddress: targetAddress, signedPayload: signedPayloadStr, signature: sig191, signerAddress: account, complaintCid: evidenceRef, metadata: {}, encryptToAdmin: false })
               });
               if (resp && resp.ok) {
                 const parsed = await resp.json();
@@ -1232,7 +1234,8 @@ void _handleNdaResolveByArbitrator;
               contractType: contractTypeMap(effectiveDetails?.type),
               plaintiff: plaintiffP,
               defendant: defendantP,
-              txHistory: transactionHistory ? transactionHistory.slice(0, 200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
+              // Keep full objects here as well for a complete archival payload
+              txHistory: transactionHistory ? transactionHistory.slice(0, 200).map(t => typeof t === 'string' ? t : t) : [],
               complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
               requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null
             };
@@ -2182,7 +2185,8 @@ void _handleCopyComplaint;
                       contractType: contractTypeMap(contractDetails?.type),
                       plaintiff: plaintiff,
                       defendant: defendant,
-                      txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : (t.hash || JSON.stringify(t))) : [],
+                      // When preparing the canonical payload for on-chain anchoring include the full history objects
+                      txHistory: (transactionHistory && Array.isArray(transactionHistory)) ? transactionHistory.slice(0,200).map(t => typeof t === 'string' ? t : t) : [],
                       complaint: (disputeForm.evidence && !/^0x[0-9a-fA-F]{64}$/.test(disputeForm.evidence)) ? disputeForm.evidence : null,
                       requestedAmount: disputeForm.amountEth ? String(disputeForm.amountEth) : null,
                       contractBalance: contractBalanceWei ? String(ethers.formatEther(contractBalanceWei)) : '0'
@@ -2271,11 +2275,11 @@ void _handleCopyComplaint;
 
                     // POST to server /api/submit-appeal
                     let evidenceRefFromServer = null;
-                    try {
+                      try {
                       const resp = await fetch('/api/submit-appeal', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ contractAddress, signedPayload: previewPayloadStr, signature: sig191, signerAddress: account, complaintCid: null, metadata: {} })
+                        body: JSON.stringify({ contractAddress, signedPayload: previewPayloadStr, signature: sig191, signerAddress: account, complaintCid: null, metadata: {}, encryptToAdmin: false })
                       });
                       if (!resp.ok) {
                         const txt = await resp.text().catch(() => '');
@@ -2314,6 +2318,19 @@ void _handleCopyComplaint;
                         console.error('On-chain anchoring failed', e);
                       }
                     }
+
+                    // Non-blocking: notify backend to attempt arbitration (batch/ollama) using the evidence ref and canonical payload
+                    try {
+                      if (evidenceRefFromServer) {
+                        const arbPayload = { caseId: previewPayloadObj?.caseId || null, evidenceRef: evidenceRefFromServer, contractAddress, payload: previewPayloadObj };
+                        // Best-effort; do not block user flow if this fails
+                        triggerArbitrateBatch(arbPayload).then((r) => {
+                          console.debug('[ContractModal] triggerArbitrateBatch response', r);
+                        }).catch((err) => {
+                          console.debug('[ContractModal] triggerArbitrateBatch failed (non-fatal)', err);
+                        });
+                      }
+                    } catch (e) { void e; }
 
                     setShowPreviewModal(false);
                     setShowDisputeForm(false);

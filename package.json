@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint .",
+    "lint": "eslint . --ignore-pattern 'front/dist/**' --ignore-pattern 'out.js'",
     "preview": "vite preview",
     "deploy:localhost": "npx hardhat run scripts/deploy.js --network localhost",
     "deploy:hardhat": "npx hardhat run scripts/deploy.js --network hardhat",
@@ -53,6 +53,7 @@
     "eslint-config-react-app": "^7.0.1",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^4.6.2",
+    "eslint-plugin-react-refresh": "^0.4.24",
     "ethers": "^6.15.0",
     "hardhat": "^2.26.3",
     "hardhat-deploy": "^1.0.4",

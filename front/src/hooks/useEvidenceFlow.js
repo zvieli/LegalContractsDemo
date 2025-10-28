@@ -134,6 +134,10 @@ export async function runEvidenceFlow(submitToContract, apiBaseUrl = '', opts = 
     timestamp,
     encryption: encryption || undefined
   };
+  // Include optional structured evidence fields if provided by caller
+  if (opts && opts.userEvidence) body.userEvidence = opts.userEvidence;
+  if (opts && typeof opts.inlineHistory !== 'undefined') body.inlineHistory = opts.inlineHistory;
+  if (opts && opts.historyRef) body.historyRef = opts.historyRef;
 
   const authHeaders = { 'Content-Type': 'application/json' };
   if (reporterAddress) authHeaders.Authorization = `Bearer ${reporterAddress}`;

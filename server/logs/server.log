@@ -2383,3 +2383,2388 @@ heliaLocal: getEvidence -> using unixfsModule.cat
     at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
     at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
     at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/evidence/upload content-type=application/json content-length=415
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiej4v3mdn4bnomvlwzsaz445doihj5oi4qc4jjn7ns3xweqredcpu","size":171}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiej4v3mdn4bnomvlwzsaz445doihj5oi4qc4jjn7ns3xweqredcpu
+helia: stored evidence, cid= bafkreiej4v3mdn4bnomvlwzsaz445doihj5oi4qc4jjn7ns3xweqredcpu size= 171
+[REQ] GET /api/evidence/retrieve/bafkreiej4v3mdn4bnomvlwzsaz445doihj5oi4qc4jjn7ns3xweqredcpu content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/v7/arbitration/health content-type= content-length=
+[REQ] POST /api/admin/forwarder/forward-evidence content-type=application/json content-length=217
+heliaLocal: getEvidence -> using unixfsModule.cat
+🟡 [callOllama] Sending prompt to Ollama: You are an impartial contract arbitrator.
+Below are the EVIDENCE and CONTRACT for a dispute.
+DISPUTE_ID: 44ae67c6-646d-4823-a019-009c3c9d4da0
+
+INSTRUCTIONS:
+- Read the EVIDENCE and CONTRACT carefully.
+- Return ONLY a single JSON object that exactly matches the schema below (no surrounding commentary).
+- Schema: {"type":"object","properties":{"verdict":"one of ['PARTY_A_WINS','PARTY_B_WINS','NO_PENALTY','DRAW']","confidence":"number between 0.0 and 1.0","rationale":"string explanation","reimbursement":"number (amount) or null"}}
+- Fields: verdict (one of the four canonical labels), confidence (0.0-1.0), rationale (brief), reimbursement (amount or null).
+
+EXAMPLES:
+INPUT_EVIDENCE: Party B delivered all work on time and client accepted final deliverables; invoices paid in full.
+INPUT_CONTRACT: Standard service contract, milestones completed.
+OUTPUT_JSON: {"verdict":"NO_PENALTY","confidence":0.9,"rationale":"Deliverables accepted and payments processed; no material loss.","reimbursement":null}
+---
+INPUT_EVIDENCE: Client reports missing modules, delayed delivery, and financial loss due to missed deadline.
+INPUT_CONTRACT: Schedule critical; delays incur liquidated damages.
+OUTPUT_JSON: {"verdict":"PARTY_A_WINS","confidence":0.85,"rationale":"Delays caused financial loss and breach of schedule clauses.","reimbursement":1500}
+---
+
+EVIDENCE:
+test-evidence://local/2025-10-27T12:58:20.8392775+02:00
+
+CONTRACT:
+0x0000000000000000000000000000000000000000
+
+Now produce the OUTPUT_JSON for the provided EVIDENCE and CONTRACT. ONLY return the JSON object.
+🟢 [callOllama] Ollama response: {"model":"llama3.2:latest","created_at":"2025-10-27T10:58:57.2115604Z","response":"{\"verdict\":\"NO_PENALTY\",\"confidence\":1.0,\"rationale\":\"Contract terms do not specify liquidated damages or missing modules.\",\"reimbursement\":null}","done":true,"done_reason":"stop","context":[128006,9125,128007,271,38766,1303,33025,2696,25,6790,220,2366,18,271,128009,128006,882,128007,271,2675,527,459,68824,5226,59057,859,627,39314,527,279,469,7635,10360,323,17564,369,264,26086,627,21894,93443,3533,25,220,2096,6043,3080,66,21,12,22642,67,12,21984,18,7561,18089,12,13858,66,18,66,24,67,19,3315,15,271,691,93631,512,12,4557,279,469,7635,10360,323,17564,15884,627,12,3494,27785,264,3254,4823,1665,430,7041,9248,279,11036,3770,320,2201,14932,31710,4390,12,12824,25,5324,1337,3332,1735,2247,13495,23118,424,8644,3332,606,315,2570,34590,56,1596,2832,9751,1882,34590,56,1702,2832,9751,1882,9173,1106,965,984,22875,1882,78135,663,2247,83029,3332,4174,1990,220,15,13,15,323,220,16,13,15,2247,2214,1604,3332,928,16540,2247,265,318,52173,3332,4174,320,6173,8,477,854,96742,12,25599,25,36543,320,606,315,279,3116,43553,9382,705,12410,320,15,13,15,12,16,13,15,705,57916,320,6796,705,71111,320,6173,477,854,3677,96975,50,512,30521,2135,7635,10360,25,8722,426,12886,682,990,389,892,323,3016,11928,1620,6493,4893,26,65152,7318,304,2539,627,30521,4405,42205,25,12028,2532,5226,11,69376,8308,627,31401,26426,25,5324,424,8644,3332,9173,1106,965,984,22875,2247,83029,794,15,13,24,1359,2214,1604,3332,16939,1553,4893,11928,323,14507,15590,26,912,3769,4814,48991,265,318,52173,794,2994,534,11192,30521,2135,7635,10360,25,8589,6821,7554,13761,11,23540,9889,11,323,6020,4814,4245,311,13942,22143,627,30521,4405,42205,25,24416,9200,26,32174,62622,14812,660,26186,627,31401,26426,25,5324,424,8644,3332,34590,56,1596,2832,9751,2247,83029,794,15,13,5313,1359,2214,1604,3332,16939,954,9057,6020,4814,323,31471,315,9899,50198,48991,265,318,52173,794,3965,15,534,45464,36,7635,10360,512,1985,5773,28580,1129,2497,14,2366,20,12,605,12,1544,51,717,25,2970,25,508,13,25465,16367,20,10,2437,25,410,271,5910,42205,512,15,87,931,931,931,931,931,931,931,931,931,931,931,931,931,15,271,7184,8356,279,32090,26426,369,279,3984,469,7635,10360,323,17564,13,27785,471,279,4823,1665,13,128009,128006,78191,128007,271,5018,424,8644,3332,9173,1106,965,984,22875,2247,83029,794,16,13,15,1359,2214,1604,3332,14396,3878,656,539,14158,14812,660,26186,477,7554,13761,48991,265,318,52173,794,2994,92],"total_duration":36322832900,"load_duration":5618610800,"prompt_eval_count":430,"prompt_eval_duration":26408721900,"eval_count":38,"eval_duration":4182628600}
+[REQ] GET /api/admin/forwarder/status content-type= content-length=
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[REQ] GET /api/v7/health content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=34
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreibvmmqqs4hxizmwggsqckxzafxefntsirbamznarpksqpmwl6cqb4","size":222}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreibvmmqqs4hxizmwggsqckxzafxefntsirbamznarpksqpmwl6cqb4
+helia: stored evidence, cid= bafkreibvmmqqs4hxizmwggsqckxzafxefntsirbamznarpksqpmwl6cqb4 size= 222
+[REQ] POST /api/evidence/upload content-type=application/json content-length=34
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreibvmmqqs4hxizmwggsqckxzafxefntsirbamznarpksqpmwl6cqb4","size":222}
+helia: normalized cid -> bafkreibvmmqqs4hxizmwggsqckxzafxefntsirbamznarpksqpmwl6cqb4
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: stored evidence, cid= bafkreibvmmqqs4hxizmwggsqckxzafxefntsirbamznarpksqpmwl6cqb4 size= 222
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/submit-appeal content-type=application/json content-length=2
+[REQ] GET /api/v7/health content-type= content-length=
+[REQ] GET /api/submit-appeal content-type= content-length=
+[REQ] POST /api/submit-appeal content-type=application/json content-length=1961
+[REQ] POST /api/submit-appeal content-type=application/json content-length=1984
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/validate/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/validate/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET / content-type= content-length=
+[REQ] GET /api/evidence/validate/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/validate/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] POST /api/preview-evidence content-type=application/json content-length=95
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] POST /api/submit-appeal content-type=application/json content-length=2330
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] POST /api/submit-appeal content-type=application/json content-length=4249
+[REQ] GET /api/evidence/retrieve/bafkreidpttukqaty4tvbnei3mdckjeb6gi4kswnc2vccpay3vgngzozehm content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] POST /api/submit-appeal content-type=application/json content-length=4249
+[REQ] GET /api/evidence/retrieve/bafkreiddgy7hdlsc4cvdjz57dn6su5xrx6ld2elwnao2ftiks2qdvcd7my content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[REQ] POST /api/submit-appeal content-type=application/json content-length=5467
+[REQ] GET /api/evidence/retrieve/bafkreiens62qkcffbk6omrxgl5doeeosmfdwc74oxdgivon6sdbdm44opq content-type= content-length=
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreiens62qkcffbk6omrxgl5doeeosmfdwc74oxdgivon6sdbdm44opq content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreiens62qkcffbk6omrxgl5doeeosmfdwc74oxdgivon6sdbdm44opq content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET / content-type= content-length=
+[REQ] GET /api/evidence/retrieve/bafkreiens62qkcffbk6omrxgl5doeeosmfdwc74oxdgivon6sdbdm44opq content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreiens62qkcffbk6omrxgl5doeeosmfdwc74oxdgivon6sdbdm44opq content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreibvmmqqs4hxizmwggsqckxzafxefntsirbamznarpksqpmwl6cqb4 content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/v7/arbitration/health content-type= content-length=
+[REQ] GET /api/evidence/retrieve/bafkreiddgy7hdlsc4cvdjz57dn6su5xrx6ld2elwnao2ftiks2qdvcd7my content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[REQ] POST /api/submit-appeal content-type=application/json content-length=5467
+[REQ] GET /api/evidence/retrieve/bafkreibnbhg5z4zmiaspfstglbvb2z3dpvuybobvsqvrkseheoppgucoym content-type= content-length=
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreibnbhg5z4zmiaspfstglbvb2z3dpvuybobvsqvrkseheoppgucoym content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET / content-type= content-length=
+[REQ] GET /api/evidence/retrieve/bafkreibnbhg5z4zmiaspfstglbvb2z3dpvuybobvsqvrkseheoppgucoym content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/evidence/retrieve/bafkreibnbhg5z4zmiaspfstglbvb2z3dpvuybobvsqvrkseheoppgucoym content-type= content-length=
+heliaLocal: getEvidence -> using unixfsModule.cat
+[REQ] GET /api/v7/debug/evidence/bafkreibnbhg5z4zmiaspfstglbvb2z3dpvuybobvsqvrkseheoppgucoym content-type= content-length=
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/submit-appeal content-type=application/json content-length=2210
+[REQ] GET /api/v7/debug/evidence/bafkreiako6yi3eh44qoiju5nywnyb233fxqju6jzoup2orpe5z3nkvz54u content-type= content-length=
+[REQ] GET /api/evidence/retrieve/bafkreiako6yi3eh44qoiju5nywnyb233fxqju6jzoup2orpe5z3nkvz54u content-type= content-length=
+heliaLocal: calling heliaInstance.start() to ensure repo readiness
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: getEvidence -> using unixfsModule.cat
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+🔗 CCIP Integration initialized successfully
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+[REQ] POST /api/submit-appeal content-type=application/json content-length=2210
+[REQ] GET /api/v7/debug/evidence/bafkreihhyvlfmqy76n6bk6dre3x7nogh4b263mvzs6dwueie25fl6ycj6e content-type= content-length=
+[REQ] GET /api/evidence/retrieve/bafkreihhyvlfmqy76n6bk6dre3x7nogh4b263mvzs6dwueie25fl6ycj6e content-type= content-length=
+heliaLocal: reused global heliaInstance
+heliaLocal: getEvidence -> using unixfsModule.cat
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: calling heliaInstance.start() to ensure repo readiness
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiaqpiucjqcnekn4q3i2nknwiy5n4piwyoqnzmtueyukv7yjagkevq","size":430}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiaqpiucjqcnekn4q3i2nknwiy5n4piwyoqnzmtueyukv7yjagkevq
+helia: stored evidence, cid= bafkreiaqpiucjqcnekn4q3i2nknwiy5n4piwyoqnzmtueyukv7yjagkevq size= 430
+heliaLocal: calling heliaInstance.start() to ensure repo readiness
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreigc6zw5gji25h5mmrozeenphqk2jodte6aknsf4qwz3rr5qgy33xu","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigc6zw5gji25h5mmrozeenphqk2jodte6aknsf4qwz3rr5qgy33xu
+helia: stored evidence, cid= bafkreigc6zw5gji25h5mmrozeenphqk2jodte6aknsf4qwz3rr5qgy33xu size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761642371569 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761642371569 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreig7oc7uso2wjdeho6ldpec3tfc6lrfvtyz72umzjsuv6bn4lvutaq","size":385}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreig7oc7uso2wjdeho6ldpec3tfc6lrfvtyz72umzjsuv6bn4lvutaq
+helia: stored evidence, cid= bafkreig7oc7uso2wjdeho6ldpec3tfc6lrfvtyz72umzjsuv6bn4lvutaq size= 385
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: calling heliaInstance.start() to ensure repo readiness
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiaunp5yw43kyqtbihivx4qjxca5az2tdxxnhcpslbwjwsfkjshj4q","size":430}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiaunp5yw43kyqtbihivx4qjxca5az2tdxxnhcpslbwjwsfkjshj4q
+helia: stored evidence, cid= bafkreiaunp5yw43kyqtbihivx4qjxca5az2tdxxnhcpslbwjwsfkjshj4q size= 430
+heliaLocal: calling heliaInstance.start() to ensure repo readiness
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiedsr2jdfqcpff463ejb5oue5yazoeyqaw2cj54juigyiwqzo6wfy","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiedsr2jdfqcpff463ejb5oue5yazoeyqaw2cj54juigyiwqzo6wfy
+helia: stored evidence, cid= bafkreiedsr2jdfqcpff463ejb5oue5yazoeyqaw2cj54juigyiwqzo6wfy size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761643064181 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761643064181 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreifx43tsfdpww54eucl3hrlghmx7jihlz255ui7s4ckl2q3pt35fuy","size":430}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreifx43tsfdpww54eucl3hrlghmx7jihlz255ui7s4ckl2q3pt35fuy
+helia: stored evidence, cid= bafkreifx43tsfdpww54eucl3hrlghmx7jihlz255ui7s4ckl2q3pt35fuy size= 430
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiekxcr7jmzqkpfg64xxj6v3csjlpsxan4cuwrvtu6gzggurcihuq4","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiekxcr7jmzqkpfg64xxj6v3csjlpsxan4cuwrvtu6gzggurcihuq4
+helia: stored evidence, cid= bafkreiekxcr7jmzqkpfg64xxj6v3csjlpsxan4cuwrvtu6gzggurcihuq4 size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761643423002 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761643423002 content-type= content-length=
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreigjq5ujkn2tnvhy5opxyina7nra3f7xy5usomybvduofnrbmjrkuu","size":385}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigjq5ujkn2tnvhy5opxyina7nra3f7xy5usomybvduofnrbmjrkuu
+helia: stored evidence, cid= bafkreigjq5ujkn2tnvhy5opxyina7nra3f7xy5usomybvduofnrbmjrkuu size= 385
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiamzrqjh2r2rl3tcfozbjh32udsr4kxwqaqhqwcco5zdcjupac2jq","size":430}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiamzrqjh2r2rl3tcfozbjh32udsr4kxwqaqhqwcco5zdcjupac2jq
+helia: stored evidence, cid= bafkreiamzrqjh2r2rl3tcfozbjh32udsr4kxwqaqhqwcco5zdcjupac2jq size= 430
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreihx6jbwhtw2eqguhw2towfmjk45i23nksovevcgxmqqvwxzlk4awu","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreihx6jbwhtw2eqguhw2towfmjk45i23nksovevcgxmqqvwxzlk4awu
+helia: stored evidence, cid= bafkreihx6jbwhtw2eqguhw2towfmjk45i23nksovevcgxmqqvwxzlk4awu size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761644219194 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761644219194 content-type= content-length=
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreifxl7ju2nfjljb5yy3rgtjzde3wyhhmhf52oxpdvnldwvj4273pse","size":385}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreifxl7ju2nfjljb5yy3rgtjzde3wyhhmhf52oxpdvnldwvj4273pse
+helia: stored evidence, cid= bafkreifxl7ju2nfjljb5yy3rgtjzde3wyhhmhf52oxpdvnldwvj4273pse size= 385
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreig352fonn7t2tzkhb6prkpd73pdsystpakmwubk54z63zwcxyt6se","size":430}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreig352fonn7t2tzkhb6prkpd73pdsystpakmwubk54z63zwcxyt6se
+helia: stored evidence, cid= bafkreig352fonn7t2tzkhb6prkpd73pdsystpakmwubk54z63zwcxyt6se size= 430
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreicxpg2tt3hiprj32fl6mmf5764am6c2hhatryrrsmn3w6earjipoa","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreicxpg2tt3hiprj32fl6mmf5764am6c2hhatryrrsmn3w6earjipoa
+helia: stored evidence, cid= bafkreicxpg2tt3hiprj32fl6mmf5764am6c2hhatryrrsmn3w6earjipoa size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761644766036 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761644766036 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreidh27gzimk5qgk57pqoou34aj2d2lqfhgmyvbwm5hnmgey3q5t5zy","size":385}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreidh27gzimk5qgk57pqoou34aj2d2lqfhgmyvbwm5hnmgey3q5t5zy
+helia: stored evidence, cid= bafkreidh27gzimk5qgk57pqoou34aj2d2lqfhgmyvbwm5hnmgey3q5t5zy size= 385
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiddlsnpd4ju7mvwcs6wj2qx3cgvv3bscxwry24l4cn3ac477urhty","size":430}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiddlsnpd4ju7mvwcs6wj2qx3cgvv3bscxwry24l4cn3ac477urhty
+helia: stored evidence, cid= bafkreiddlsnpd4ju7mvwcs6wj2qx3cgvv3bscxwry24l4cn3ac477urhty size= 430
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreigf6plsldtftyufnke5z2eqr6h3tnjrylgtxg25pkwal4nx6u32cu","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigf6plsldtftyufnke5z2eqr6h3tnjrylgtxg25pkwal4nx6u32cu
+helia: stored evidence, cid= bafkreigf6plsldtftyufnke5z2eqr6h3tnjrylgtxg25pkwal4nx6u32cu size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761645458921 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761645458921 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreieq4yc5qm7nm5p6o3k72yho6agal3kzgo4k7rlfitzi4xrhdl7uze","size":385}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreieq4yc5qm7nm5p6o3k72yho6agal3kzgo4k7rlfitzi4xrhdl7uze
+helia: stored evidence, cid= bafkreieq4yc5qm7nm5p6o3k72yho6agal3kzgo4k7rlfitzi4xrhdl7uze size= 385
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: development
+  isDevelopment: true
+  isProduction: false
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40364
+📡 Health check: http://localhost:40364/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40364/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:40364/api/v7/ccip/status
+   • Start Listener: POST http://localhost:40364/api/v7/ccip/start
+   • Test: POST http://localhost:40364/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/dev/cleanup-evidence content-type=application/json content-length=118
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/batch content-type=application/json content-length=50
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreidevumvhu55szwc32lvzamtilqrndgmdfd7lf3uibojpikwjf4pba","size":363}
+helia: normalized cid -> bafkreidevumvhu55szwc32lvzamtilqrndgmdfd7lf3uibojpikwjf4pba
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: stored evidence, cid= bafkreidevumvhu55szwc32lvzamtilqrndgmdfd7lf3uibojpikwjf4pba size= 363
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiaxajyuivcusf3tgqfyomuofiejnt7j5t3z5mbpu2b7zafkz6ckem","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiaxajyuivcusf3tgqfyomuofiejnt7j5t3z5mbpu2b7zafkz6ckem
+helia: stored evidence, cid= bafkreiaxajyuivcusf3tgqfyomuofiejnt7j5t3z5mbpu2b7zafkz6ckem size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761646534450 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761646534450 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiboqml7tzgovdg57z4wbj3dzoorglkhddsqv5zhztxiyrhutxl7e4","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiboqml7tzgovdg57z4wbj3dzoorglkhddsqv5zhztxiyrhutxl7e4
+helia: stored evidence, cid= bafkreiboqml7tzgovdg57z4wbj3dzoorglkhddsqv5zhztxiyrhutxl7e4 size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761646600928 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761646600928 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreigjo2tqwc6rnbd5p5muumvlxdwwickltvykqot6hp3fuydikpd7yq","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigjo2tqwc6rnbd5p5muumvlxdwwickltvykqot6hp3fuydikpd7yq
+helia: stored evidence, cid= bafkreigjo2tqwc6rnbd5p5muumvlxdwwickltvykqot6hp3fuydikpd7yq size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761646728657 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761646728657 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreiawgiyibghfrxdpfoi4hvl2v4yei2pzwu4ftofbl27dsiaca2e5eq","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiawgiyibghfrxdpfoi4hvl2v4yei2pzwu4ftofbl27dsiaca2e5eq
+helia: stored evidence, cid= bafkreiawgiyibghfrxdpfoi4hvl2v4yei2pzwu4ftofbl27dsiaca2e5eq size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch called for caseId= case-1761646803354 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761646803354 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreidxevtvh45yy4y3wvfjanljbtzkjr4dgcv4wdd3dsecomymjz7tlm","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreidxevtvh45yy4y3wvfjanljbtzkjr4dgcv4wdd3dsecomymjz7tlm
+helia: stored evidence, cid= bafkreidxevtvh45yy4y3wvfjanljbtzkjr4dgcv4wdd3dsecomymjz7tlm size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+createBatch called for caseId= case-1761646870754 evidenceItems.length= 1
+[REQ] GET /api/dispute-history/case-1761646870754 content-type= content-length=
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isProduction: true
+  isDevelopment: false
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+   • Status: http://localhost:3001/api/v7/ccip/status
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+📡 CCIP Endpoints:
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 CCIP Event Listener started automatically
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+heliaLocal: calling heliaInstance.start() to ensure repo readiness
+heliaLocal: heliaInstance.start race detected (non-fatal): Handler already registered for protocol /ipfs/bitswap/1.2.0
+heliaLocal: unixfsModule keys -> components
+heliaLocal: unixfsModule.add typeof -> undefined
+heliaLocal: unixfsModule.components typeof -> object
+heliaLocal: unixfsModule.components.addAll typeof -> undefined
+heliaLocal: unixfsModule.components.cat typeof -> undefined
+✅ In-process Helia started.
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreidnwyw7ucc3z6gzoh4dofmm54zeuirbes7xtrupnt7i6jgl324yxi","size":430}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreidnwyw7ucc3z6gzoh4dofmm54zeuirbes7xtrupnt7i6jgl324yxi
+helia: stored evidence, cid= bafkreidnwyw7ucc3z6gzoh4dofmm54zeuirbes7xtrupnt7i6jgl324yxi size= 430
+heliaLocal: reused global heliaInstance
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreigncprynnwst5waop55cuc3a35z53fetdxgflo4kvfnogfsspifgi","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigncprynnwst5waop55cuc3a35z53fetdxgflo4kvfnogfsspifgi
+helia: stored evidence, cid= bafkreigncprynnwst5waop55cuc3a35z53fetdxgflo4kvfnogfsspifgi size= 363
+[REQ] POST /api/batch content-type=application/json content-length=263
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761647817087',
+  contentDigest: null,
+  cidHash: '0x45a52c5f61c850b45424f526da118a6aad6726d36469746368bcabb799fed9bc',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761647817155
+}
+createBatch called for caseId= case-1761647817087 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'object',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761647817087 content-type= content-length=
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  isDevelopment: true
+  NODE_ENV: development
+  isProduction: false
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40280
+📡 Health check: http://localhost:40280/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40280/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 Addresses resolved:
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+📡 CCIP Endpoints:
+🔗 CCIP Integration initialized successfully
+   • Start Listener: POST http://localhost:40280/api/v7/ccip/start
+   • Status: http://localhost:40280/api/v7/ccip/status
+   • Test: POST http://localhost:40280/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/dev/cleanup-evidence content-type=application/json content-length=118
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+heliaLocal: addEvidence -> available heliaInstance keys -> libp2p, blockstore, datastore, pins
+heliaLocal: addEvidence -> available unixfsModule keys -> components
+heliaLocal: addEvidence -> used unixfsModule.addAll
+helia: addResult -> {"cid":"bafkreief6ckz4gnjjtivrcg4mc2wpxccavlerhynfkv5f3qjg2jfrqgb74","size":385}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreief6ckz4gnjjtivrcg4mc2wpxccavlerhynfkv5f3qjg2jfrqgb74
+helia: stored evidence, cid= bafkreief6ckz4gnjjtivrcg4mc2wpxccavlerhynfkv5f3qjg2jfrqgb74 size= 385
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+  isDevelopment: false
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=151
+helia: addResult -> {"cid":"bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i","size":151}
+helia: normalized cid -> bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: stored evidence, cid= bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i size= 151
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761647817087',
+  contentDigest: '0xca9377219f2e22e0c607c3d068760a192466e6f1175066bd92b4a3473982907f',
+  cidHash: '0xca9377219f2e22e0c607c3d068760a192466e6f1175066bd92b4a3473982907f',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761648501763
+}
+createBatch called for caseId= case-1761647817087 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+evidenceBatch: loaded configPath= C:\Users\user\vsc\blockchain\LegalContractsDemo\server\config\MerkleEvidenceManager.json present= true
+evidenceBatch: config.address= 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+evidenceBatch: config.rpcUrl= null
+evidenceBatch: config.privateKey present= false
+evidenceBatch: abi length= 22
+evidenceBatch: no rpc in config, falling back to http://127.0.0.1:8545
+createBatch: attempting on-chain submit to 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9 via http://127.0.0.1:8545
+evidenceBatch: rootSignature= 0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+Submitting batch on-chain (attempt 1)
+Backend: merkleRoot to submit = 0x94f0b816c9b5c2a58baf4a55ea0e7b25648069e5978b7bc30c6a7d94d29f0cbb
+Contract address: undefined
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+📋 CCIP Contracts loaded:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isProduction: true
+  isDevelopment: false
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=151
+helia: addResult -> {"cid":"bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i","size":151}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i
+helia: stored evidence, cid= bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i size= 151
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761647817087',
+  contentDigest: '0xca9377219f2e22e0c607c3d068760a192466e6f1175066bd92b4a3473982907f',
+  cidHash: '0xca9377219f2e22e0c607c3d068760a192466e6f1175066bd92b4a3473982907f',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761649276249
+}
+createBatch called for caseId= case-1761647817087 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+evidenceBatch: loaded configPath= C:\Users\user\vsc\blockchain\LegalContractsDemo\server\config\MerkleEvidenceManager.json present= true
+evidenceBatch: config.address= 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+evidenceBatch: config.rpcUrl= http://127.0.0.1:8545
+evidenceBatch: config.privateKey present= true
+evidenceBatch: abi length= 22
+createBatch: attempting on-chain submit to 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9 via http://127.0.0.1:8545
+evidenceBatch: using privateKey for signer (source=config)
+evidenceBatch: rootSignature= 0x07a8de1113f767ac3b3d9c79273028a48635029075453a742b9588016e9289df311b85e72891bf52d2a020709a60f959b3063968f37139267bae8664220d89d51c
+Submitting batch on-chain (attempt 1)
+Backend: merkleRoot to submit = 0x281ad3bf710f20090479acd9e878a4e3d2dc5a423ea7cfd851ce74aa032f1e73
+Contract address: undefined
+Tx sent: 0x1f6742f5e0b0a59ca516cb2450993894b56549ceeec45fc64d55d42a5c2c4d38
+Tx confirmed in block: 106
+Backend: rootToBatchId[merkleRoot] after submit = 2n
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started automatically
+👂 CCIP Event Listener started successfully
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+🏭 Production Mode: ENABLED - Using Helia local node
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Status: http://localhost:3001/api/v7/ccip/status
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=151
+helia: addResult -> {"cid":"bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i","size":151}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i
+helia: stored evidence, cid= bafkreigp36jcm75zz3472rus4eap7jbxnekry5yfviq3u637vrposbcx7i size= 151
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761647817087',
+  contentDigest: '0xca9377219f2e22e0c607c3d068760a192466e6f1175066bd92b4a3473982907f',
+  cidHash: '0xca9377219f2e22e0c607c3d068760a192466e6f1175066bd92b4a3473982907f',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761649935076
+}
+createBatch called for caseId= case-1761647817087 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+evidenceBatch: loaded configPath= C:\Users\user\vsc\blockchain\LegalContractsDemo\server\config\MerkleEvidenceManager.json present= true
+evidenceBatch: config.address= 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+evidenceBatch: config.rpcUrl= http://127.0.0.1:8545
+evidenceBatch: config.privateKey present= true
+evidenceBatch: abi length= 22
+createBatch: attempting on-chain submit to 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9 via http://127.0.0.1:8545
+evidenceBatch: using privateKey for signer (source=config)
+evidenceBatch: rootSignature= 0xada4f9b9cb7ff7601d42c7bbcd64ceb8890b056e368fe757560de7b5b8e20f18245e5af7fad1fbc057bdd80a9b561962b1891d21443d8e8ef70c300e6850d1031b
+Submitting batch on-chain (attempt 1)
+Backend: merkleRoot to submit = 0xc127bc8b03c32de202be552d1064d93992f7d9a5b18691f1ab837fb274293137
+Contract address: undefined
+Tx sent: 0x48152ec1560fd2339cf14a3d37df2680ef03dd535b470090273215dca187e8c6
+Tx confirmed in block: 107
+Backend: rootToBatchId[merkleRoot] after submit = 3n
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+   • Status: http://localhost:3001/api/v7/ccip/status
+📡 CCIP Endpoints:
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+batchRetryWorker: starting (intervalMs=15000, maxRetries=5)
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreicupvf7tkpcwcnnylc2o5fkq27ppiirill2zow7eip3crvgzil4ju","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreicupvf7tkpcwcnnylc2o5fkq27ppiirill2zow7eip3crvgzil4ju
+helia: stored evidence, cid= bafkreicupvf7tkpcwcnnylc2o5fkq27ppiirill2zow7eip3crvgzil4ju size= 383
+helia: addResult -> {"cid":"bafkreierj7tac7ogdthzc4bc3qit5a3cc5qzuq6qu757ritdd6mfo7ygjq","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreierj7tac7ogdthzc4bc3qit5a3cc5qzuq6qu757ritdd6mfo7ygjq
+helia: stored evidence, cid= bafkreierj7tac7ogdthzc4bc3qit5a3cc5qzuq6qu757ritdd6mfo7ygjq size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761650769737',
+  contentDigest: '0xa98f20cae38636d16907e81ef294322aca95ef97af0f8ff4752600a971f9ca7a',
+  cidHash: '0xa98f20cae38636d16907e81ef294322aca95ef97af0f8ff4752600a971f9ca7a',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761650769832
+}
+createBatch called for caseId= case-1761650769737 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761650769737 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult -> {"cid":"bafkreigoof4ncegbvbx34g6a3glocw2a6t2npwslwnbw6lgbmxmfbyq3wi","size":356}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigoof4ncegbvbx34g6a3glocw2a6t2npwslwnbw6lgbmxmfbyq3wi
+helia: stored evidence, cid= bafkreigoof4ncegbvbx34g6a3glocw2a6t2npwslwnbw6lgbmxmfbyq3wi size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+   • Status: http://localhost:3001/api/v7/ccip/status
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: starting (intervalMs=15000, maxRetries=5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+batchRetryWorker: starting (intervalMs=15000, maxRetries=5)
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreib2entaly37yl5sxwumchfo2w4v7mi3m4b3ojillbtpkebrdd4uem","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreib2entaly37yl5sxwumchfo2w4v7mi3m4b3ojillbtpkebrdd4uem
+helia: stored evidence, cid= bafkreib2entaly37yl5sxwumchfo2w4v7mi3m4b3ojillbtpkebrdd4uem size= 383
+helia: addResult -> {"cid":"bafkreietd7j5mvyovx77aazgla6xalhsvhxgq5m5ewqhz3wwq6lzn4updi","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreietd7j5mvyovx77aazgla6xalhsvhxgq5m5ewqhz3wwq6lzn4updi
+helia: stored evidence, cid= bafkreietd7j5mvyovx77aazgla6xalhsvhxgq5m5ewqhz3wwq6lzn4updi size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761650885736',
+  contentDigest: '0xfb0a7355b3342483a2fa3b033f9aa1b3a1e897b4ceabdc1fe8a5b76be2d5343d',
+  cidHash: '0xfb0a7355b3342483a2fa3b033f9aa1b3a1e897b4ceabdc1fe8a5b76be2d5343d',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761650885827
+}
+createBatch called for caseId= case-1761650885736 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761650885736 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult -> {"cid":"bafkreih3trxselpp3lyby2zdgjz5uclg4grzkwgsa5mdujwrulqbvvvvwq","size":356}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreih3trxselpp3lyby2zdgjz5uclg4grzkwgsa5mdujwrulqbvvvvwq
+helia: stored evidence, cid= bafkreih3trxselpp3lyby2zdgjz5uclg4grzkwgsa5mdujwrulqbvvvvwq size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+helia: addResult -> {"cid":"bafkreigr7s4ryoqjtfqn7ih77cn6d52uhuwo7jjz676tvhg3ssyh25wbx4","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigr7s4ryoqjtfqn7ih77cn6d52uhuwo7jjz676tvhg3ssyh25wbx4
+helia: stored evidence, cid= bafkreigr7s4ryoqjtfqn7ih77cn6d52uhuwo7jjz676tvhg3ssyh25wbx4 size= 383
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreihaf6dbs4pqspp6z5shbf4qp3xbqeydzmplvd5jxdmlgdw35xdp7a","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreihaf6dbs4pqspp6z5shbf4qp3xbqeydzmplvd5jxdmlgdw35xdp7a
+helia: stored evidence, cid= bafkreihaf6dbs4pqspp6z5shbf4qp3xbqeydzmplvd5jxdmlgdw35xdp7a size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761651458195',
+  contentDigest: '0x6bc4ed5ea4b59f9ce40da1b8b2c5d78ee6a21cf08985c2ea780ac221577b1432',
+  cidHash: '0x6bc4ed5ea4b59f9ce40da1b8b2c5d78ee6a21cf08985c2ea780ac221577b1432',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761651458294
+}
+createBatch called for caseId= case-1761651458195 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] GET /api/dispute-history/case-1761651458195 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult -> {"cid":"bafkreiehwrmjv4ezuhxwlaaoudo5jmn3zant6ayewn6ub2bh2gryal466u","size":356}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiehwrmjv4ezuhxwlaaoudo5jmn3zant6ayewn6ub2bh2gryal466u
+helia: stored evidence, cid= bafkreiehwrmjv4ezuhxwlaaoudo5jmn3zant6ayewn6ub2bh2gryal466u size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+helia: addResult -> {"cid":"bafkreig3pru2chmzcod4yvxszyvd5gubkirchaszypinfgmo4ecpz4qhuu","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreig3pru2chmzcod4yvxszyvd5gubkirchaszypinfgmo4ecpz4qhuu
+helia: stored evidence, cid= bafkreig3pru2chmzcod4yvxszyvd5gubkirchaszypinfgmo4ecpz4qhuu size= 383
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreihxayg6ygyfzzzxzhll4nbqkxamnenjtqikknifkdrcjculg6fcjy","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreihxayg6ygyfzzzxzhll4nbqkxamnenjtqikknifkdrcjculg6fcjy
+helia: stored evidence, cid= bafkreihxayg6ygyfzzzxzhll4nbqkxamnenjtqikknifkdrcjculg6fcjy size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch called for caseId= case-1761651682680 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761651682680',
+  contentDigest: '0x91349d54db283e57832eb23b6a70bb505649b48c7fdea9f16a8772056f9b4067',
+  cidHash: '0x91349d54db283e57832eb23b6a70bb505649b48c7fdea9f16a8772056f9b4067',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761651682769
+}
+[REQ] GET /api/dispute-history/case-1761651682680 content-type= content-length=
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: development
+  isDevelopment: true
+  isProduction: false
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40695
+📡 Health check: http://localhost:40695/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40695/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:40695/api/v7/ccip/status
+   • Start Listener: POST http://localhost:40695/api/v7/ccip/start
+   • Test: POST http://localhost:40695/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: starting (intervalMs=15000, maxRetries=5)
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult -> {"cid":"bafkreiewtmtujqui7myynibug3izuckhsnnpb4fbz4zxiteeolmayz36bm","size":356}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiewtmtujqui7myynibug3izuckhsnnpb4fbz4zxiteeolmayz36bm
+helia: stored evidence, cid= bafkreiewtmtujqui7myynibug3izuckhsnnpb4fbz4zxiteeolmayz36bm size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: development
+  isDevelopment: true
+  isProduction: false
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40271
+📡 Health check: http://localhost:40271/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40271/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:40271/api/v7/ccip/status
+   • Start Listener: POST http://localhost:40271/api/v7/ccip/start
+   • Test: POST http://localhost:40271/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+   • Status: http://localhost:3001/api/v7/ccip/status
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+[REQ] POST /api/dev/cleanup-evidence content-type=application/json content-length=118
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreif2nt3zwahvlmujpzip3wadwwmbwz5ho6rzl6ngg2ji2xuszd3xn4","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreif2nt3zwahvlmujpzip3wadwwmbwz5ho6rzl6ngg2ji2xuszd3xn4
+helia: stored evidence, cid= bafkreif2nt3zwahvlmujpzip3wadwwmbwz5ho6rzl6ngg2ji2xuszd3xn4 size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761652296380',
+  contentDigest: '0x0e16bc7b6fc0a9be371481fdbc8ea36b70ae90ed5dfaf96a0b13ef5674e40176',
+  cidHash: '0x0e16bc7b6fc0a9be371481fdbc8ea36b70ae90ed5dfaf96a0b13ef5674e40176',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761652296449
+}
+createBatch called for caseId= case-1761652296380 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] GET /api/dispute-history/case-1761652296380 content-type= content-length=
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreiamsn67whmxk4npobdwklfxe2may5ljwr74oanljc4wolsduzjasq","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiamsn67whmxk4npobdwklfxe2may5ljwr74oanljc4wolsduzjasq
+helia: stored evidence, cid= bafkreiamsn67whmxk4npobdwklfxe2may5ljwr74oanljc4wolsduzjasq size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761652445773',
+  contentDigest: '0x983592145e2097af49267bbf972196ffffafdb2be7df03dbf8c12419a2db9eb0',
+  cidHash: '0x983592145e2097af49267bbf972196ffffafdb2be7df03dbf8c12419a2db9eb0',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761652445828
+}
+createBatch called for caseId= case-1761652445773 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761652445773 content-type= content-length=
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isProduction: true
+  isDevelopment: false
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔗 CCIP Integration initialized successfully
+✅ CCIP Arbitration Integration initialized
+   • Status: http://localhost:3001/api/v7/ccip/status
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+👂 Listening for ArbitrationDecisionReceived events
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🏭 Production Mode: ENABLED - Using Helia local node
+🚀 ArbiTrust V7 Server running on port 3001
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+✅ CCIP Arbitration Integration initialized
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+👂 CCIP Event Listener started automatically
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreih25yqgssipvdootigu32tk52cstclrmr63hpdatiflazcpm4eyte","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreih25yqgssipvdootigu32tk52cstclrmr63hpdatiflazcpm4eyte
+helia: stored evidence, cid= bafkreih25yqgssipvdootigu32tk52cstclrmr63hpdatiflazcpm4eyte size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761652660830',
+  contentDigest: '0x6d96e822a982fba52892c69ce840f6d588d6ec1effbcec41cee397584fcbac1a',
+  cidHash: '0x6d96e822a982fba52892c69ce840f6d588d6ec1effbcec41cee397584fcbac1a',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761652660884
+}
+createBatch called for caseId= case-1761652660830 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761652660830 content-type= content-length=
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+helia: addResult -> {"cid":"bafkreigh4e46sahry4eoa5kgcneip67wi5hpivqh3oxrrulisaybu4mj2u","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigh4e46sahry4eoa5kgcneip67wi5hpivqh3oxrrulisaybu4mj2u
+helia: stored evidence, cid= bafkreigh4e46sahry4eoa5kgcneip67wi5hpivqh3oxrrulisaybu4mj2u size= 383
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult -> {"cid":"bafkreiashjbtxtx24dskxuclwpimsdwmx2au5nawzs4dx5y23cnqvggt5e","size":356}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiashjbtxtx24dskxuclwpimsdwmx2au5nawzs4dx5y23cnqvggt5e
+helia: stored evidence, cid= bafkreiashjbtxtx24dskxuclwpimsdwmx2au5nawzs4dx5y23cnqvggt5e size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+helia: addResult -> {"cid":"bafkreieoenknc4y4bfzkccz2fkeyzab7lxthqqvmwkrj2r7kzwkpaiyvu4","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreieoenknc4y4bfzkccz2fkeyzab7lxthqqvmwkrj2r7kzwkpaiyvu4
+helia: stored evidence, cid= bafkreieoenknc4y4bfzkccz2fkeyzab7lxthqqvmwkrj2r7kzwkpaiyvu4 size= 383
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreie32oa5ygp55dyzj42qjtz7ftsnmm2rbvkmpeyysboy2cnylsjh4m","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreie32oa5ygp55dyzj42qjtz7ftsnmm2rbvkmpeyysboy2cnylsjh4m
+helia: stored evidence, cid= bafkreie32oa5ygp55dyzj42qjtz7ftsnmm2rbvkmpeyysboy2cnylsjh4m size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761653321854',
+  contentDigest: '0x661b9325c1f85092be1c658e174bd6bfc1d023a13b35f4ce9918318b427360bc',
+  cidHash: '0x661b9325c1f85092be1c658e174bd6bfc1d023a13b35f4ce9918318b427360bc',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761653321939
+}
+createBatch called for caseId= case-1761653321854 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761653321854 content-type= content-length=
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: development
+  isDevelopment: true
+  isProduction: false
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40993
+📡 Health check: http://localhost:40993/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40993/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:40993/api/v7/ccip/status
+   • Start Listener: POST http://localhost:40993/api/v7/ccip/start
+   • Test: POST http://localhost:40993/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult -> {"cid":"bafkreicuidaakigae3et5czen4eyeqyziarpoxoage37lmnym2rkd2ao6m","size":356}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreicuidaakigae3et5czen4eyeqyziarpoxoage37lmnym2rkd2ao6m
+helia: stored evidence, cid= bafkreicuidaakigae3et5czen4eyeqyziarpoxoage37lmnym2rkd2ao6m size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: development
+  isProduction: false
+  isDevelopment: true
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40871
+📡 Health check: http://localhost:40871/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40871/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+   • Status: http://localhost:40871/api/v7/ccip/status
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:40871/api/v7/ccip/start
+   • Test: POST http://localhost:40871/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+[REQ] POST /api/dev/cleanup-evidence content-type=application/json content-length=118
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+helia: addResult -> {"cid":"bafkreie4q544tlx657mxsv3udupppbevrad5oyyyj6uy6chvp5sopdmllu","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreie4q544tlx657mxsv3udupppbevrad5oyyyj6uy6chvp5sopdmllu
+helia: stored evidence, cid= bafkreie4q544tlx657mxsv3udupppbevrad5oyyyj6uy6chvp5sopdmllu size= 383
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreigcptnzziewd646fc4cdd5j3idfl7u74l5u2ielfuc4wnzop5hiiu","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreigcptnzziewd646fc4cdd5j3idfl7u74l5u2ielfuc4wnzop5hiiu
+helia: stored evidence, cid= bafkreigcptnzziewd646fc4cdd5j3idfl7u74l5u2ielfuc4wnzop5hiiu size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761653604266',
+  contentDigest: '0x5926994ac54408eb3987d70fd4e2a37468f73390d930117f5d6d6efc14a0a4c0',
+  cidHash: '0x5926994ac54408eb3987d70fd4e2a37468f73390d930117f5d6d6efc14a0a4c0',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761653604337
+}
+createBatch called for caseId= case-1761653604266 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+[REQ] GET /api/dispute-history/case-1761653604266 content-type= content-length=
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: development
+  isDevelopment: true
+  isProduction: false
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40400
+📡 Health check: http://localhost:40400/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40400/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Start Listener: POST http://localhost:40400/api/v7/ccip/start
+   • Status: http://localhost:40400/api/v7/ccip/status
+   • Test: POST http://localhost:40400/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[REQ] POST /api/dev/cleanup-evidence content-type=application/json content-length=118
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult -> {"cid":"bafkreiaqj2zev56syp57wbnlap33gkgh5toiepssai454wsrnmt2b3mtum","size":356}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreiaqj2zev56syp57wbnlap33gkgh5toiepssai454wsrnmt2b3mtum
+helia: stored evidence, cid= bafkreiaqj2zev56syp57wbnlap33gkgh5toiepssai454wsrnmt2b3mtum size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+[REQ] POST /api/evidence/upload content-type=application/json content-length=254
+helia: addResult -> {"cid":"bafkreieuyrs4l34lge2eegqeue2y4mlnjgj76wdthzuvmgaxftmiovc4rm","size":383}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreieuyrs4l34lge2eegqeue2y4mlnjgj76wdthzuvmgaxftmiovc4rm
+helia: stored evidence, cid= bafkreieuyrs4l34lge2eegqeue2y4mlnjgj76wdthzuvmgaxftmiovc4rm size= 383
+[REQ] POST /api/evidence/upload content-type=application/json content-length=165
+helia: addResult -> {"cid":"bafkreierectpy5p4fr2g56y6tohyeh2c6ecalfu4luxcj2zbiahu2suuim","size":363}
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: normalized cid -> bafkreierectpy5p4fr2g56y6tohyeh2c6ecalfu4luxcj2zbiahu2suuim
+helia: stored evidence, cid= bafkreierectpy5p4fr2g56y6tohyeh2c6ecalfu4luxcj2zbiahu2suuim size= 363
+[REQ] POST /api/batch content-type=application/json content-length=327
+createBatch: first evidence item preview -> {
+  caseId: 'case-1761655864040',
+  contentDigest: '0x9486a43f74e36fd894290c10d7efcfc85d3ec888fec6b8361ab05ad8fb408fa0',
+  cidHash: '0x9486a43f74e36fd894290c10d7efcfc85d3ec888fec6b8361ab05ad8fb408fa0',
+  uploader: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+  timestamp: 1761655864126
+}
+createBatch called for caseId= case-1761655864040 evidenceItems.length= 1
+createBatch: first evidence item types: {
+  caseId: 'string',
+  contentDigest: 'string',
+  cidHash: 'string',
+  uploader: 'string',
+  timestamp: 'number'
+}
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: development
+  isDevelopment: true
+  isProduction: false
+🔧 Development Mode: ENABLED - Limited functionality
+🚀 ArbiTrust V7 Server running on port 40773
+📡 Health check: http://localhost:40773/api/v7/arbitration/health
+📝 Development info available at: http://localhost:40773/api/v7/debug/development-info
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+📋 CCIP Contracts loaded:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔐 CCIP sender: signer 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 already authorized
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:40773/api/v7/ccip/status
+   • Start Listener: POST http://localhost:40773/api/v7/ccip/start
+   • Test: POST http://localhost:40773/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+👂 CCIP Event Listener started automatically
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+[REQ] GET /api/dispute-history/case-1761655864040 content-type= content-length=
+[REQ] POST /api/dev/cleanup-evidence content-type=application/json content-length=118
+[REQ] POST /api/evidence/upload content-type=application/json content-length=150
+[REQ] POST /api/evidence/upload content-type=application/json content-length=209
+helia: addResult typeof -> object keys -> [ 'cid', 'size' ]
+helia: addResult -> {"cid":"bafkreih3si5ttkmmzxytawlj2sdvqnbmkyd7kqsg5cyrgdjkkt2s2vlvs4","size":356}
+helia: normalized cid -> bafkreih3si5ttkmmzxytawlj2sdvqnbmkyd7kqsg5cyrgdjkkt2s2vlvs4
+helia: stored evidence, cid= bafkreih3si5ttkmmzxytawlj2sdvqnbmkyd7kqsg5cyrgdjkkt2s2vlvs4 size= 356
+[REQ] POST /api/evidence/upload content-type=application/json content-length=130
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[rotating-logger] Initialized rotator in C:\Users\user\vsc\blockchain\LegalContractsDemo\server\logs
+🔧 Environment Check:
+  NODE_ENV: production
+  isDevelopment: false
+  isProduction: true
+🏭 Production Mode: ENABLED - Using Helia local node
+🔗 Helia Endpoint: http://127.0.0.1:5001
+🚀 ArbiTrust V7 Server running on port 3001
+🏭 Production Mode: Helia local node (127.0.0.1:5001)
+📡 Health check: http://localhost:3001/api/v7/arbitration/health
+✅ Ollama module loaded successfully
+📋 Addresses resolved:
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+📋 CCIP Contracts loaded:
+  • Sender: 0x8A791620dd6260079BF849Dc5567aDC3F2FdC318
+  • Receiver: 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+  • ArbitrationService: 0x5FC8d32690cc91D4c39d9d3abcBD16989F875707
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+🔧 CCIP sender: signer is owner, authorizing signer on-chain
+✅ CCIP Arbitration Integration initialized
+🔗 CCIP Integration initialized successfully
+📡 CCIP Endpoints:
+   • Status: http://localhost:3001/api/v7/ccip/status
+   • Start Listener: POST http://localhost:3001/api/v7/ccip/start
+   • Test: POST http://localhost:3001/api/v7/ccip/test
+📋 Available events: [
+  'ArbitrationDecisionReceived',
+  'ArbitrationExecuted',
+  'ArbitrationForwardFailed',
+  'ArbitrationRequestSent',
+  'SenderAuthorized',
+  'SourceChainAuthorized'
+]
+👂 Listening for ArbitrationRequestSent events
+👂 Listening for ArbitrationDecisionReceived events
+👂 CCIP Event Listener started successfully
+batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)
+👂 CCIP Event Listener started automatically
+✅ CCIP sender: signer authorized (owner flow)
+✅ CCIP Arbitration Integration initialized
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+@TODO TypeError: results is not iterable
+    at FilterIdEventSubscriber._emitResults (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:154:30)
+    at #poll (file:///C:/Users/user/vsc/blockchain/LegalContractsDemo/server/node_modules/ethers/lib.esm/providers/subscriber-filterid.js:88:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)

@@ -13,7 +13,14 @@ const HISTORY_FILE = path.join(__dirname, '../data/dispute_history.json');
 function loadHistory() {
   if (!fs.existsSync(HISTORY_FILE)) return {};
   try {
-    return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+    const raw = fs.readFileSync(HISTORY_FILE, 'utf8');
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+      return parsed;
+    } catch (e) {
+      return {};
+    }
   } catch (e) {
     return {};
   }

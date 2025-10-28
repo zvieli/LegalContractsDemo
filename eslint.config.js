@@ -52,6 +52,10 @@ export default [
       'react-hooks/exhaustive-deps': 'warn',
       // Disable rules that create large numbers of false positives in this codebase
       'no-useless-catch': 'off',
+      // Disable a couple of rules that aren't available in this environment/plugins
+      // (these were causing "Definition for rule ... was not found" errors)
+      'react-refresh/only-export-components': 'off',
+      'react-internal/safe-string-coercion': 'off',
       'no-prototype-builtins': 'warn'
     },
   },
@@ -61,8 +65,9 @@ export default [
       'front/tests/**', 'front/src/**/*.test.{js,jsx,ts,tsx}', 'front/src/**/__tests__/**',
       'server/**', 'scripts/**', 'tools/**', 'front/vite.config.js', 'front/**/global-setup.js'
     ],
+    // Flat config does not support `env`; explicitly provide parserOptions and globals for node/test files
     languageOptions: {
-      env: { node: true, jest: true },
+      parserOptions: { ecmaVersion: 2022, sourceType: 'module' },
       globals: { process: 'readonly', Buffer: 'readonly', global: 'readonly', IN_E2E: 'readonly', ENABLE_ADMIN_DECRYPT: 'readonly', e2eFlag: 'readonly' }
     },
     rules: {

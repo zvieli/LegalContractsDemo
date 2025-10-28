@@ -8,7 +8,7 @@ import {
   generatePaymentSchedule,
   formatCountdown,
   isInGracePeriod 
-} from '../modules/timeManagement.js';
+} from '../../modules/timeManagement.js';
 
 function testTimeManagement() {
   console.log('⏰ Testing Time Management Module...\n');

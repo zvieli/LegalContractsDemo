@@ -6,7 +6,7 @@ async function main(){
   console.log('Creating helia...');
   const helia = await createHelia();
   console.log('Helia created');
-  const u = unixfs(helia);
+  const u = await unixfs(helia);
   console.log('unixfs factory called. Type of u:', typeof u);
   console.log('unixfs keys:', Object.keys(u).join(', '));
   console.log('types: add', typeof u.add, 'addAll', typeof u.addAll, 'write', typeof u.write, 'cat', typeof u.cat);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import * as heliaStore from '../modules/heliaStore.js';
+import * as heliaStore from '../../modules/heliaStore.js';
 
 describe('heliaStore.removeEvidenceFromHelia (unit)', () => {
   it('should return removed false when API unreachable', async () => {

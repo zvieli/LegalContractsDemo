@@ -704,7 +704,6 @@
                     escapedPrefix + // $FlowFixMe Flow incorrectly thinks React.Portal doesn't have a key
                     (mappedChild.key && (!_child || _child.key !== mappedChild.key) ? (
                       // $FlowFixMe Flow incorrectly thinks existing element's key can be a number
-                      // eslint-disable-next-line react-internal/safe-string-coercion
                       escapeUserProvidedKey("" + mappedChild.key) + "/"
                     ) : "") + childKey
                   );

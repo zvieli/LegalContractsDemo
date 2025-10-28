@@ -2,15 +2,94 @@
 let heliaInstance = null;
 let unixfsModule = null;
 let initialized = false;
+let starting = false;
 
 async function ensureHelia() {
   if (initialized) return { heliaInstance, unixfsModule };
+  // If another concurrent caller is starting Helia, wait for it to finish
+  const waitForStart = async () => {
+    const deadline = Date.now() + 5000;
+    while (starting && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+  if (starting) await waitForStart();
+  // Reuse a global singleton if another module already created Helia in this process.
   try {
-    const { createHelia } = await import('helia');
+    // eslint-disable-next-line no-undef
+    if (typeof global !== 'undefined' && global.__heliaInstance) {
+      heliaInstance = global.__heliaInstance;
+      unixfsModule = global.__unixfsModule;
+      initialized = true;
+      console.log('heliaLocal: reused global heliaInstance');
+      return { heliaInstance, unixfsModule };
+    }
+  } catch (e) {
+    // ignore
+  }
+  try {
+  starting = true;
+  const { createHelia } = await import('helia');
     const { unixfs } = await import('@helia/unixfs');
     heliaInstance = await createHelia();
     // unixfs is a factory that needs the helia instance to create helpers
-    unixfsModule = unixfs(heliaInstance);
+    // Create unixfs helper and attempt to await readiness if provided by implementation
+    unixfsModule = await unixfs(heliaInstance);
+    // If another module may create Helia, publish into global so duplicates don't try to register
+    try {
+      // eslint-disable-next-line no-undef
+      if (typeof global !== 'undefined') {
+        global.__heliaInstance = heliaInstance;
+        global.__unixfsModule = unixfsModule;
+      }
+    } catch (e) {
+      // ignore
+    }
+    // Some Helia/unixfs variants expose start/ready helpers - await them if available
+    try {
+      if (heliaInstance && typeof heliaInstance.start === 'function') {
+        console.log('heliaLocal: calling heliaInstance.start() to ensure repo readiness');
+        try {
+          // Avoid calling start multiple times across modules if already started in this process
+          // eslint-disable-next-line no-undef
+          if (typeof global !== 'undefined' && global.__heliaStarted) {
+            console.log('heliaLocal: heliaInstance.start() skipped - already started in process');
+          } else {
+            await heliaInstance.start();
+            try { if (typeof global !== 'undefined') global.__heliaStarted = true; } catch (e) {}
+          }
+        } catch (e) {
+          // Common non-fatal race may produce handler registration errors; log at debug level
+          const msg = e && e.message ? e.message : String(e);
+          if (msg && msg.includes('Handler already registered')) {
+            console.debug('heliaLocal: heliaInstance.start race detected (non-fatal):', msg);
+          } else {
+            console.warn('heliaLocal: heliaInstance.start() failed (non-fatal):', msg);
+          }
+        }
+      }
+    } catch (e) {
+      /* already warned above */
+    }
+    try {
+      if (unixfsModule && typeof unixfsModule.ready === 'function') {
+        console.log('heliaLocal: awaiting unixfsModule.ready()');
+        await unixfsModule.ready();
+      }
+    } catch (e) {
+      console.warn('heliaLocal: unixfsModule.ready() failed (non-fatal):', e && e.message ? e.message : e);
+    }
+    // Wait briefly for unixfs/helia components to expose the expected methods on some implementations.
+    const waitMs = (ms) => new Promise((r) => setTimeout(r, ms));
+    const deadline = Date.now() + 5000; // 5s max
+    while (Date.now() < deadline) {
+      const hasComponentsCat = unixfsModule && unixfsModule.components && typeof unixfsModule.components.cat === 'function';
+      const hasUnixfsCat = unixfsModule && typeof unixfsModule.cat === 'function';
+      const hasHeliaCat = heliaInstance && typeof heliaInstance.cat === 'function';
+      if (hasComponentsCat || hasUnixfsCat || hasHeliaCat) break;
+      // small backoff to let async initializers complete
+      await waitMs(200);
+    }
     try {
       const keys = Object.keys(unixfsModule || {});
       console.log('heliaLocal: unixfsModule keys ->', keys.join(', '));
@@ -24,12 +103,86 @@ async function ensureHelia() {
       // ignore
     }
     initialized = true;
+    starting = false;
     console.log('✅ In-process Helia started.');
     return { heliaInstance, unixfsModule };
   } catch (err) {
+    starting = false;
     console.error('heliaLocal: failed to start in-process Helia:', err && err.message ? err.message : err);
     throw err;
   }
+}
+
+/**
+ * Public start helper (idempotent)
+ */
+export async function startHelia() {
+  if (initialized && heliaInstance) return { heliaInstance, unixfsModule };
+  return ensureHelia();
+}
+
+/**
+ * Attempt to stop Helia and related resources. Be defensive across Helia versions.
+ */
+export async function stopHelia() {
+  // If not initialized, nothing to do
+  if (!initialized && !heliaInstance) return true;
+  try {
+    // Try heliaInstance.stop(), heliaInstance.libp2p.stop/close(), heliaInstance.close()
+    try {
+      if (heliaInstance && typeof heliaInstance.stop === 'function') {
+        await heliaInstance.stop();
+      }
+    } catch (e) {
+      console.warn('heliaLocal.stopHelia: heliaInstance.stop failed (non-fatal):', e && e.message ? e.message : e);
+    }
+    try {
+      if (heliaInstance && heliaInstance.libp2p) {
+        if (typeof heliaInstance.libp2p.stop === 'function') await heliaInstance.libp2p.stop();
+        if (typeof heliaInstance.libp2p.close === 'function') await heliaInstance.libp2p.close();
+      }
+    } catch (e) {
+      console.warn('heliaLocal.stopHelia: libp2p stop/close failed (non-fatal):', e && e.message ? e.message : e);
+    }
+    try {
+      if (heliaInstance && typeof heliaInstance.close === 'function') await heliaInstance.close();
+    } catch (e) {
+      // Some Helia builds may not expose close
+    }
+
+    // Clear global singletons if present
+    try {
+      if (typeof global !== 'undefined' && global.__heliaInstance) {
+        try { delete global.__heliaInstance; } catch (e) { global.__heliaInstance = undefined; }
+      }
+      if (typeof global !== 'undefined' && global.__unixfsModule) {
+        try { delete global.__unixfsModule; } catch (e) { global.__unixfsModule = undefined; }
+      }
+      if (typeof global !== 'undefined' && global.__heliaStarted) {
+        try { delete global.__heliaStarted; } catch (e) { global.__heliaStarted = undefined; }
+      }
+    } catch (e) { /* ignore */ }
+
+    // Reset state
+    heliaInstance = null;
+    unixfsModule = null;
+    initialized = false;
+    starting = false;
+    console.log('heliaLocal: stopped Helia and cleared singleton state');
+    return true;
+  } catch (err) {
+    console.warn('heliaLocal.stopHelia: unexpected error while stopping Helia:', err && err.message ? err.message : err);
+    // Ensure state cleared regardless
+    heliaInstance = null; unixfsModule = null; initialized = false; starting = false;
+    return false;
+  }
+}
+
+export async function resetHelia() {
+  await stopHelia();
+  // Allow next start to recreate fully
+  heliaInstance = null; unixfsModule = null; initialized = false; starting = false;
+  return true;
 }
 
 function toBuffer(data) {
@@ -229,27 +382,49 @@ export async function getEvidenceFromLocalHelia(cid) {
       }
     }
 
-    // If it's a raw Buffer / Uint8Array, return directly
-    if (typeof catSrc === 'string') {
-      return catSrc;
-    }
+    // If it's a raw string
+    if (typeof catSrc === 'string') return catSrc;
+    // If it's a Buffer or Uint8Array
     if (catSrc instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(catSrc))) {
       return Buffer.from(catSrc).toString('utf8');
     }
 
-    // If it's a synchronous iterable (Array or other), iterate
-    if (Array.isArray(catSrc) || typeof catSrc[Symbol.iterator] === 'function') {
-      for (const chunk of catSrc) {
-        chunks.push(Buffer.from(chunk));
+    // If it's a Node readable stream (stream.Readable)
+    if (catSrc && typeof catSrc.on === 'function' && typeof catSrc.read === 'function') {
+      try {
+        const bufs = [];
+        for await (const chunk of catSrc) bufs.push(Buffer.from(chunk));
+        return Buffer.concat(bufs).toString('utf8');
+      } catch (e) {
+        throw new Error('heliaLocal: error consuming Node Readable stream: ' + (e && e.message ? e.message : e));
       }
+    }
+
+    // If it's a Web ReadableStream (browser-style)
+    if (catSrc && typeof catSrc.getReader === 'function') {
+      try {
+        const reader = catSrc.getReader();
+        const bufs = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          bufs.push(Buffer.from(value));
+        }
+        return Buffer.concat(bufs).toString('utf8');
+      } catch (e) {
+        throw new Error('heliaLocal: error consuming Web ReadableStream: ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    // If it's a synchronous iterable (Array or other), iterate
+    if (Array.isArray(catSrc) || (catSrc && typeof catSrc[Symbol.iterator] === 'function')) {
+      for (const chunk of catSrc) chunks.push(Buffer.from(chunk));
       return Buffer.concat(chunks).toString('utf8');
     }
 
     // If it's an async iterable
-    if (typeof catSrc[Symbol.asyncIterator] === 'function') {
-      for await (const chunk of catSrc) {
-        chunks.push(Buffer.from(chunk));
-      }
+    if (catSrc && typeof catSrc[Symbol.asyncIterator] === 'function') {
+      for await (const chunk of catSrc) chunks.push(Buffer.from(chunk));
       return Buffer.concat(chunks).toString('utf8');
     }
 
@@ -283,5 +458,8 @@ export async function removeEvidenceFromLocalHelia(cid) {
 export default {
   addEvidenceToLocalHelia,
   getEvidenceFromLocalHelia,
-  removeEvidenceFromLocalHelia
+  removeEvidenceFromLocalHelia,
+  startHelia,
+  stopHelia,
+  resetHelia
 };

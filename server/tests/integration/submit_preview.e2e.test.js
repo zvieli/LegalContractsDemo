@@ -1,13 +1,12 @@
-import { describe, it } from 'mocha';
+import { describe, it } from 'vitest';
 import assert from 'assert';
 import fetch from 'node-fetch';
 import fs from 'fs';
-
+// NOTE: avoid using vi.setTimeout at top-level to remain compatible with different Vitest setups
 const backend = process.env.BACKEND_URL || 'http://localhost:3002';
 const deployPath = 'server/config/deployment-summary.json';
 
 describe('submit-appeal -> preview-evidence integration', function () {
-  this.timeout(20000);
 
   it('submits appeal and previews decrypted content', async function () {
     // quick health checks
@@ -15,7 +14,7 @@ describe('submit-appeal -> preview-evidence integration', function () {
     try {
       ds = JSON.parse(fs.readFileSync(deployPath, 'utf8'));
     } catch (e) {
-      this.skip();
+      // skip by returning early if deployment summary not present
       return;
     }
 

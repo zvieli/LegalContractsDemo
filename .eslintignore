@@ -1,0 +1,9 @@
+# Ignore built frontend bundles and other generated files
+front/dist/**
+front/.vite/**
+out.js
+
+# Node modules and other standard ignores
+node_modules/
+coverage/
+dist/

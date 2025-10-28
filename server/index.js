@@ -17,7 +17,7 @@ import disputeHistory from './modules/disputeHistory.js';
 import v7TestingRoutes from './routes/v7Testing.js';
 import RotatingLogger from './lib/rotatingLogger.js';
 import dotenv from 'dotenv';
-import { validateHeliaEvidence } from './modules/evidenceValidator.js';
+import { validateHeliaEvidence, generateEvidenceDigest } from './modules/evidenceValidator.js';
 import { triggerLLMArbitration, handleLLMResponse } from './modules/llmArbitration.js';
 import { calculateLateFee, getTimeBasedData } from './modules/timeManagement.js';
 import { llmArbitrationSimulator, processV7Arbitration } from './modules/llmArbitrationSimulator.js';
@@ -29,6 +29,9 @@ import createAdminForwarderRouter from './routes/adminForwarder.js';
 dotenv.config();
 // Evidence storage - prefer Helia local node (production) but keep in-memory fallback
 import heliaStore from './modules/heliaStore.js';
+import { stopHelia } from './modules/heliaLocal.js';
+import { canonicalizeCid } from './modules/cidNormalize.js';
+import { startRetryWorker, stopRetryWorker } from './modules/batchRetryWorker.js';
 const evidenceStore = {}; // fallback when Helia not available
 
 const __filename = fileURLToPath(import.meta.url);
@@ -237,7 +240,22 @@ app.post('/api/evidence/upload', async (req, res) => {
         // compute cidHash (keccak of CID string) - useful if you want a compact on‑chain reference
         const { keccak256, toUtf8Bytes } = await import('ethers').then(m => ({ keccak256: m.keccak256 || m.utils?.keccak256 || m.hashing?.keccak256, toUtf8Bytes: m.toUtf8Bytes || m.utils?.toUtf8Bytes }));
         let cidHash = null;
-        try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e) { cidHash = null; }
+        try {
+          const canonical = await canonicalizeCid(String(cid));
+          cidHash = keccak256(toUtf8Bytes(String(canonical)));
+        } catch (e) {
+          try { cidHash = keccak256(toUtf8Bytes(String(cid))); } catch (e2) { cidHash = null; }
+        }
+        // If contentDigest was not computed earlier (only customClause computed), derive it from the stored CID
+        // so downstream batch creation (which requires contentDigest and cidHash) has both fields populated.
+        if (!contentDigest) {
+          try {
+            contentDigest = await generateEvidenceDigest(cid);
+          } catch (e) {
+            console.warn('Failed to generate contentDigest from CID (non-fatal):', e && e.message ? e.message : e);
+            contentDigest = null;
+          }
+        }
         console.log('helia: stored evidence, cid=', cid, 'size=', size);
         return res.json({ cid, cidHash, contentDigest: contentDigest || null, evidence: { type: evidenceOut.type, description: evidenceOut.description, metadata: evidenceOut.metadata }, stored: true, size, heliaConfirmed: true });
       }
@@ -275,7 +293,21 @@ app.get('/api/evidence/validate/:cid', async (req, res) => {
 
 // Evidence retrieval endpoint for tests
 app.get('/api/evidence/retrieve/:cid', async (req, res) => {
-  const { cid } = req.params;
+  let { cid } = req.params;
+  try {
+    // Normalize common URI prefixes and URL-encoded inputs that clients may pass
+    if (typeof cid === 'string') {
+      cid = decodeURIComponent(cid || '');
+      if (cid.startsWith('helia://')) cid = cid.replace(/^helia:\/\//, '');
+      if (cid.startsWith('ipfs://')) cid = cid.replace(/^ipfs:\/\//, '');
+      // strip possible /ipfs/<cid> path
+      const ipfsMatch = cid.match(/ipfs\/(.+)$/);
+      if (ipfsMatch) cid = ipfsMatch[1];
+      cid = cid.trim();
+    }
+  } catch (e) {
+    // if decode fails, fall back to raw param
+  }
   try {
     // Try to fetch from Helia
     try {
@@ -1184,7 +1216,32 @@ app.post('/api/batch', async (req, res) => {
     if (!caseId || !Array.isArray(evidenceItems) || evidenceItems.length === 0) {
       return res.status(400).json({ error: 'Missing caseId or evidenceItems' });
     }
-    const batch = await evidenceBatch.createBatch(caseId, evidenceItems);
+    let batch;
+    try {
+      // Log a safe preview of the first evidence item to help debug non-serializable fields
+      try {
+        const util = await import('util');
+        const safe = (obj) => {
+          return JSON.parse(JSON.stringify(obj, (k, v) => {
+            if (typeof v === 'bigint') return v.toString();
+            if (typeof Buffer !== 'undefined' && Buffer.isBuffer(v)) return '0x' + v.toString('hex');
+            if (v instanceof Uint8Array) return '0x' + Buffer.from(v).toString('hex');
+            return v;
+          }));
+        };
+        if (Array.isArray(evidenceItems) && evidenceItems.length > 0) {
+          console.log('createBatch: first evidence item preview ->', util.inspect(safe(evidenceItems[0]), { depth: 2 }));
+        }
+      } catch (e) {
+        console.warn('Failed to log evidenceItems preview:', e && e.message ? e.message : e);
+      }
+      batch = await evidenceBatch.createBatch(caseId, evidenceItems);
+    } catch (createErr) {
+      console.error('Error in evidenceBatch.createBatch:', createErr && createErr.stack ? createErr.stack : createErr);
+      console.error('Request rawBody:', req.rawBody ? req.rawBody : '<no rawBody>');
+      console.error('Parsed body preview:', { caseId, evidenceItemsPreview: Array.isArray(evidenceItems) ? evidenceItems.map((it, i) => ({ idx: i, keys: Object.keys(it) })) : typeof evidenceItems });
+      throw createErr; // let outer handler return 500
+    }
     // Attempt to safely stringify to catch leftover BigInt issues
     try {
       jsonSafeStringify(batch);
@@ -1264,6 +1321,14 @@ async function startServer(port = PORT) {
             // Initialize CCIP integration now that forwarder is available
             try { await initializeCCIPIntegration(); } catch (e) { console.warn('initializeCCIPIntegration failed:', e); }
             // admin forwarder router is already mounted early in dynamic mode; no-op here
+            // Start background retry worker for pending batches only when explicitly enabled
+            try {
+              if (process.env.ENABLE_BATCH_RETRY === 'true') {
+                startRetryWorker({ intervalMs: Number(process.env.BATCH_RETRY_INTERVAL_MS) || 15000, maxRetries: Number(process.env.BATCH_MAX_RETRIES) || 5 });
+              } else {
+                console.log('batchRetryWorker: disabled (ENABLE_BATCH_RETRY != true)');
+              }
+            } catch (e) { console.warn('Failed to start batchRetryWorker:', e && e.message ? e.message : e); }
           } catch (e) {
             console.warn('⚠️ Failed to initialize forwarder or LLM client:', e && e.message ? e.message : e);
           }
@@ -1284,10 +1349,17 @@ async function stopServer() {
   return new Promise((resolve) => {
     try {
       serverInstance.close(() => {
-        serverInstance = null;
-        global.__ARBI_SERVER_STARTED = false;
-        console.log('Server stopped');
-        resolve();
+        (async () => {
+          try {
+            // attempt to stop helia to ensure clean state for tests
+            try { await stopHelia(); } catch (e) { /* non-fatal */ }
+            try { stopRetryWorker(); } catch (e) { /* non-fatal */ }
+          } catch (e) { /* ignore */ }
+          serverInstance = null;
+          global.__ARBI_SERVER_STARTED = false;
+          console.log('Server stopped');
+          resolve();
+        })();
       });
     } catch (e) {
       console.warn('Error stopping server:', e && e.message ? e.message : e);
@@ -1542,6 +1614,16 @@ app.post('/api/v7/llm/callback', async (req, res) => {
 
 export { startServer, stopServer };
 export default app;
+
+// Attach lifecycle helpers to default export for tests that import default module
+try {
+  if (app && typeof app === 'function') {
+    app.startServer = startServer;
+    app.stopServer = stopServer;
+  }
+} catch (e) {
+  // non-fatal
+}
 
 // 404 handler (registered last)
 app.use((req, res) => {
