@@ -366,6 +366,56 @@ npm run health:check
 npm audit fix
 ```
 
+## LLM prepared payload & on-chain resolve flow
+
+When the LLM arbitration flow produces a decision, the server constructs a standardized "prepared" payload that consumers (tests, deployment scripts or the ArbitrationService) can use to apply the resolution on-chain.
+
+- Key fields produced by `handleLLMResponse` / arbitration pipeline:
+  - `arbitrationService` - address of the ArbitrationService used for CCIP/receive flow
+  - `targetContract` - address of the target template (e.g. `EnhancedRentContract`)
+  - `caseId` - numeric case identifier (on-target identifier used by the template)
+  - `approve` - boolean: whether the LLM approves the claimant
+  - `amountWei` - string (decimal / hex) amount to transfer or reimburse
+  - `beneficiary` - address to receive funds if applicable
+  - `preferredExecute` - string hint for the preferred on-chain execution method (examples: `resolveDisputeFinal`, `serviceResolve`)
+  - `resolveCalldata` - 0x prefixed calldata ready to send to the target contract when performing the on-target call directly
+  - `rationale` - short rationale string normalized for ABI encoding (trimmed, sanitized)
+  - `rationaleDetail` - optional longer rationale / justification used by some templates
+
+Important notes:
+- The `resolveCalldata` field is encoded by the server when the target ABI supports the richer `resolveDisputeFinal(...)` (EnhancedRent-style) entrypoint. This avoids the selector-mismatch issues observed when the ArbitrationService attempted a different selector (for example, the NDA-specific `serviceResolve`) against an EnhancedRent target.
+- `rationale` and `rationaleDetail` are normalized/sanitized before ABI encoding (newline normalization, trimming and safe length) to ensure the calldata is valid on-chain.
+- Prefer using the server-provided `resolveCalldata` when running local tests or when you control the caller: send the calldata directly to the target (see example below) or use the ArbitrationService/CCIP path which will apply the prepared resolution.
+
+Developer / test usage patterns
+- Normal (production) flow: The frontend or relayer submits the LLM decision to `ArbitrationService.receiveCCIPDecision(...)` and the ArbitrationService applies the resolution to the target via its internal logic and emits `ResolutionApplied` events.
+- Local test flow (impersonation): For integration tests running against a local Hardhat node we provide a short-cut: the test runner may impersonate the ArbitrationService and call the target contract directly with `resolveCalldata` (this is intended for deterministic integration tests).
+
+Impersonation safety gate
+- All test-only RPC calls that impersonate accounts (for example `hardhat_impersonateAccount` and `hardhat_setBalance`) are gated by the environment variable `ALLOW_IMPERSONATION`. This prevents accidental use of impersonation in non-local environments.
+
+Example (PowerShell) - run the focused integration test with impersonation enabled:
+
+```powershell
+$env:ALLOW_IMPERSONATION = 'true';
+npx hardhat run --network localhost server/tests/integration/llm_resolveDisputeFinal.integration.js
+```
+
+Example: apply `resolveCalldata` directly from a test script (ethers v6-like pseudocode):
+
+```javascript
+// where prepared is the object returned by the LLM pipeline
+await ethers.provider.send('hardhat_impersonateAccount', [arbitrationService]);
+const signer = await ethers.getSigner(arbitrationService);
+await signer.sendTransaction({ to: prepared.targetContract, data: prepared.resolveCalldata, gasLimit: 500_000 });
+await ethers.provider.send('hardhat_stopImpersonatingAccount', [arbitrationService]);
+// then assert the on-target getDispute(caseId) shows the expected resolved state
+```
+
+When to prefer `resolveCalldata` vs `receiveCCIPDecision`:
+- Use `receiveCCIPDecision` when operating through the ArbitrationService/CCIP path (this is the standard path for production deployments).
+- Use `resolveCalldata` for deterministic local tests where direct invocation is simpler and faster; always ensure `ALLOW_IMPERSONATION` is set for the test environment.
+
 ---
 
 ## תמיכה

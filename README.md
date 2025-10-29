@@ -200,6 +200,22 @@ Run tests:
 npm test
 ```
 
+## Notes: LLM prepared payload & impersonation (quick)
+
+A recent V7 change: the backend's LLM arbitration pipeline returns a standardized `prepared` payload when producing decisions. The payload includes `resolveCalldata` (0x calldata ready to send to the target contract) and `preferredExecute` (a hint such as `resolveDisputeFinal`). This allows deterministic integration tests to apply the LLM decision directly to the target contract when desired.
+
+Safety / test guidance:
+- For local integration tests the test runner may impersonate the `ArbitrationService` and call the target contract directly using `resolveCalldata`. This behavior is gated by the environment variable `ALLOW_IMPERSONATION=true` to prevent accidental impersonation in non-local environments.
+
+PowerShell example (run focused integration test with impersonation):
+
+```powershell
+$env:ALLOW_IMPERSONATION = 'true';
+npx hardhat run --network localhost server/tests/integration/llm_resolveDisputeFinal.integration.js
+```
+
+Prefer the standard `ArbitrationService`/CCIP path for production workflows. Use the direct `resolveCalldata` path only for deterministic local tests or debugging.
+
 Start a local node (optional):
 ```
 npm run node
